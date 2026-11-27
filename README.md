@@ -1,10 +1,10 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-reduced-motion: reduce) and (prefers-color-scheme: dark)" srcset="assets/logo/baud-lockup-dark-tight.svg">
-  <source media="(prefers-reduced-motion: reduce)" srcset="assets/logo/baud-lockup-light-tight.svg">
-  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/logo-dark.gif">
-  <img alt="baud: the word baud, an amber prompt and block cursor; unless reduced motion is asked for, a strand of plasma weaves through the letters, repeating with no rest" src="assets/readme/logo-light.gif" width="420">
+  <source media="(prefers-reduced-motion: reduce) and (prefers-color-scheme: dark)" srcset="docs/assets/logo/baud-lockup-dark-tight.svg">
+  <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/logo/baud-lockup-light-tight.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/logo-dark.gif">
+  <img alt="baud: the word baud, an amber prompt and block cursor; unless reduced motion is asked for, a strand of plasma weaves through the letters, repeating with no rest" src="docs/assets/readme/logo-light.gif" width="420">
 </picture>
 
 **The terminal with character.**
@@ -17,7 +17,7 @@
 [![macOS](https://img.shields.io/badge/macOS-2b2b2b?logo=apple&logoColor=white)](#install)
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/CC%20BY--NC--SA%204.0-2b2b2b?logo=creativecommons&logoColor=white)](LICENSE)
 
-<img src="assets/readme/session.gif" width="776" alt="A baud session: baud's config edited in helix, its cursor trail changing from plasma to liquid on save; this README read in helix; text in many languages, right to left too; a word copied and pasted; a link hovered; a photo and the UFO logo drawn in the terminal; the plasma logo played as video; ssh to a test machine lighting the title bar's activity lights, fastfetch, btop and fireworks; then the trail changed to a flying saucer">
+<img src="docs/assets/readme/session.gif" width="776" alt="A baud session: baud's config edited in helix, its cursor trail changing from plasma to liquid on save; this README read in helix; text in many languages, right to left too; a word copied and pasted; a link hovered; a photo and the UFO logo drawn in the terminal; the plasma logo played as video; ssh to a test machine lighting the title bar's activity lights, fastfetch, btop and fireworks; then the trail changed to a flying saucer">
 
 </div>
 
@@ -77,11 +77,11 @@ Its terminal core is a separate library any program can embed:
 [docs/README.md](docs/README.md) is the index of every document, and the
 [code of conduct](CODE_OF_CONDUCT.md) says how contributors treat each
 other. `cargo test`, `cargo nextest run`, `cargo bench` and `cargo run` start
-their binary under a memory bound, [`scripts/bounded`](scripts/bounded), which
+their binary under a memory bound, [`tools/scripts/bounded`](tools/scripts/bounded), which
 kills a runaway before the machine has to choose what else to kill, at the size
-[`budgets.toml`](budgets.toml) holds; a harness
+[`tools/budgets.toml`](tools/budgets.toml) holds; a harness
 that starts cargo or a test binary itself, such as a mutation run in a copied
-tree the runner cannot reach, calls `scripts/bounded --timeout SECS -- COMMAND...`,
+tree the runner cannot reach, calls `tools/scripts/bounded --timeout SECS -- COMMAND...`,
 because a timeout on cargo alone leaves the test binary under it running.
 
 ## Acknowledgements

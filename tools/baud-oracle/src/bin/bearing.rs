@@ -1,4 +1,4 @@
-//! Writes `baud-font/tests/var/bearings.txt`; see the crate's docs and
+//! Writes `crates/baud-font/tests/var/bearings.txt`; see the crate's docs and
 //! `baud_oracle::oracle::bearing`.
 
 fn main() -> std::process::ExitCode {

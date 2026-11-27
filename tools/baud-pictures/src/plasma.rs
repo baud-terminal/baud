@@ -45,7 +45,7 @@
 //! age and its detail clock (`effect::Live`), its filaments' fine wiggle
 //! (amplitude, cycles a cell and a second), its ions a cell, and its seed.
 //! A last line `E <cs>` gives the time the film wraps at. The film
-//! (`baud-app/src/logo_film.rs`) draws each through the renderer's splash
+//! (`crates/baud-app/src/logo_film.rs`) draws each through the renderer's splash
 //! layers. On stdout, one JSON line: the seed, the loop's length, its events
 //! and frames, and the chain's stats.
 //!

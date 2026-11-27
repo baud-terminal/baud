@@ -1,7 +1,7 @@
 # A starship prompt for baud
 
 baud ships a prompt for [starship](https://starship.rs):
-[assets/starship/baud.toml](../../assets/starship/baud.toml). It shows the
+[docs/assets/starship/baud.toml](../assets/starship/baud.toml). It shows the
 folder you are in and baud's amber ❯, on one line:
 
 ```
@@ -44,7 +44,7 @@ sixteen colours, which baud already sets for each theme.
 Copy the file to where starship looks for its config:
 
 ```sh
-cp assets/starship/baud.toml ~/.config/starship.toml
+cp docs/assets/starship/baud.toml ~/.config/starship.toml
 ```
 
 Or leave it where it is and point starship at it:
@@ -80,9 +80,9 @@ palette line changed:
 
 ```sh
 mkdir -p ~/.config/starship
-cp assets/starship/baud.toml ~/.config/starship/baud.toml
+cp docs/assets/starship/baud.toml ~/.config/starship/baud.toml
 sed 's/^palette = "baud-dark"$/palette = "baud-light"/' \
-  assets/starship/baud.toml > ~/.config/starship/baud-light.toml
+  docs/assets/starship/baud.toml > ~/.config/starship/baud-light.toml
 ```
 
 and choose one in your startup file before `starship init`. baud follows

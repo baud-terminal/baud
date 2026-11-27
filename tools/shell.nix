@@ -1,5 +1,5 @@
 # The engines tools/baud-oracle links: HarfBuzz 12.3.0 and FreeType
-# 2.14.3, the versions every committed oracle file in baud-font/tests/var/
+# 2.14.3, the versions every committed oracle file in crates/baud-font/tests/var/
 # names, from one nixpkgs revision, and libxkbcommon 1.13.2, the version
 # baud-xkb's fixtures were made with, from a second. The first is the
 # commit that took FreeType to 2.14.3 while HarfBuzz was still 12.3.0;

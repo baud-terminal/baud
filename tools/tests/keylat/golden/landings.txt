@@ -1,0 +1,78 @@
+== keystroke-to-pixel sweep ==
+power: Now drawing from 'AC Power'
+power: -InternalBattery-0 (id=1)	100%; charged; 0:00 remaining present: true
+display: refresh 120
+swift: bash tools/tests/keylat/stub/helper tools/scripts/key-post.swift
+child: mute (printf '\033]133;A\007\033]133;B\007'; stty -echo; sleep 60)
+gap: 150 ms MEAN; each inter-key gap is uniform in [112.5-187.5] ms, seeded from baud's pid (printed per round) -- a fixed gap phase-locks to the refresh and narrows vsync/total falsely
+pairing window: 100 ms (minimum jittered gap 112.5 ms)
+A/B number: to_shown (post -> the surface on the layer; no display-period quantisation). vsync/total are a bracket, not a measurement -- see the doc.
+arm base: tools/tests/keylat/stub/app sha256=55429b552627270f765f67750fe02bdfbba79fc71dfb5c83797fbb8260bcc562
+arm order rotates every round so no arm is always last
+
+round 1: order ['base']
+  round 1 arm base: instrument refused: zone=1
+  round 1 arm base: NOT QUOTABLE -- 1 landing(s) refused; 2 GPU-path row(s) with landed=- excluded as refused-landing
+  round 1 arm base: excluded seq=2 (app seq=2): negative build
+  round 1 arm base: excluded seq=4 (app seq=4): negative child
+  round 1 arm base: excluded seq=5 (app seq=500): seq-mismatch
+  round 1 arm base: excluded seq=6 (app seq=6): refused-landing
+  round 1 arm base: excluded seq=8 (app seq=8): refused-landing
+  round 1 arm base: pid=PID posted=8 keylats=8 paired=8 unpaired posts=0 unpaired keylats=0 seq mismatches=1 negative=2 parse failures=0 landings refused=1 -> <dir>/scratch/keylat-base-1.tsv
+
+round 2: order ['base']
+  round 2 arm base: instrument refused: zone=1
+  round 2 arm base: NOT QUOTABLE -- 1 landing(s) refused; 2 GPU-path row(s) with landed=- excluded as refused-landing
+  round 2 arm base: excluded seq=2 (app seq=2): negative build
+  round 2 arm base: excluded seq=4 (app seq=4): negative child
+  round 2 arm base: excluded seq=5 (app seq=500): seq-mismatch
+  round 2 arm base: excluded seq=6 (app seq=6): refused-landing
+  round 2 arm base: excluded seq=8 (app seq=8): refused-landing
+  round 2 arm base: pid=PID posted=8 keylats=8 paired=8 unpaired posts=0 unpaired keylats=0 seq mismatches=1 negative=2 parse failures=0 landings refused=1 -> <dir>/scratch/keylat-base-2.tsv
+
+== arm base ==
+posted=8 paired=8 completed=2 excluded=5 shared_a_frame=0
+instrument refused: zone=1
+excluded by reason: negative=2, refused-landing=2, seq-mismatch=1
+unpaired posts=0 unpaired keylats=0 parse failures=0 landings refused=1
+NOT QUOTABLE -- 1 landing(s) refused in the runs pooled here: a GPU end stamp off the clock; 2 row(s) on the GPU path with landed=- excluded as refused-landing
+      leg  median us   (n)  IQR [q1-q3]              range [min-max]
+    stamp        0.3 (  3)  [0.2-0.5]                [0.1-0.7]
+  deliver      333.0 (  3)  [321.4-333.6]            [309.8-334.2]
+    write       52.1 (  3)  [51.4-53.5]              [50.7-54.9]
+    child       11.3 (  3)  [10.7-11.4]              [10.1-11.5]
+     wake        5.3 (  3)  [5.2-5.5]                [5.1-5.7]
+    build        5.9 (  3)  [5.6-6.0]                [5.3-6.0]
+      gpu       10.2 (  3)  [10.2-10.2]              [10.2-10.2]
+     show        5.0 (  3)  [5.0-5.0]                [5.0-5.0]
+      app       88.6 (  3)  [88.2-90.8]              [87.8-93.1]
+    vsync       16.8 (  2)  [16.2-17.3]              [15.7-17.9]
+ vsync_hi     8349.8 (  2)  [8349.2-8350.3]          [8348.7-8350.9]
+ to_shown      422.8 (  3)  [410.2-424.5]            [397.6-426.1]
+    total      427.0 (  2)  [421.2-432.8]            [415.5-438.5]
+ total_hi     8760.0 (  2)  [8754.2-8765.8]          [8748.5-8771.5]
+
+arm base: round 1 had 1 landing(s) refused (warm-up, discarded)
+
+NOT QUOTABLE -- landings refused: arm base round 2 (1); its GPU-path rows with landed=- were excluded as refused-landing
+--- keylat-base-1.tsv
+seq	app_seq	char	post	event	excluded	exclude_reason	handled	written	echo	fed	commit	landed	shown	vsync	vsync_hi
+1	1	a	1010149999900	1010150000000	False	None	1010150348400	1010150399100	1010150410500	1010150415600	1010150420900	1010150431000	1010150436000	1010150453900	1010158786900
+2	2	a	1010150099800	1010150100000	True	negative build	1010150200000	1010150300000	1010150400000	1010150500000	1010150420900	None	1010150436000	1010150456800	1010158789800
+3	3	a	1010449999700	1010450000000	False	None	1010450322600	1010450374700	1010450384700	1010450390000	1010450395900	1010450406000	1010450411000	1010450426700	1010458759700
+4	4	a	1010599999600	1010600000000	True	negative child	1010600309700	1010600362500	1010600358900	1010600379200	1010600384300	None	1010600399400	1010600418000	1010608751000
+5	500	a	1010749999500	1010750000000	True	seq-mismatch	1010750346800	1010750400300	1010750412900	1010750418400	1010750423800	1010750433900	1010750438900	1010750460400	1010758793400
+6	6	a	1010899999400	1010900000000	True	refused-landing	1010900333900	1010900388100	1010900402000	1010900407600	1010900413300	None	1010900428400	1010900444800	1010908777800
+7	7	a	1011049999300	1011050000000	False	None	1011050321000	1011050375900	1011050387100	1011050392800	1011050398800	1011050408900	1011050413900	None	None
+8	8	a	1011199999200	1011200000000	True	refused-landing	1011200308100	1011200358700	1011200371200	1011200377000	1011200382200	None	1011200397300	1011200419500	1011208752500
+--- keylat-base-2.tsv
+seq	app_seq	char	post	event	excluded	exclude_reason	handled	written	echo	fed	commit	landed	shown	vsync	vsync_hi
+1	1	a	1020149999900	1020150000000	False	None	1020150309700	1020150360400	1020150371900	1020150377000	1020150382300	1020150392500	1020150397500	1020150415400	1020158748400
+2	2	a	1020150099800	1020150100000	True	negative build	1020150200000	1020150300000	1020150400000	1020150500000	1020150382300	None	1020150397500	1020150418300	1020158751300
+3	3	a	1020449999700	1020450000000	False	None	1020450333900	1020450386000	1020450396100	1020450401400	1020450407300	1020450417500	1020450422500	1020450438200	1020458771200
+4	4	a	1020599999600	1020600000000	True	negative child	1020600321000	1020600373800	1020600370200	1020600390600	1020600395700	None	1020600410900	1020600429500	1020608762500
+5	500	a	1020749999500	1020750000000	True	seq-mismatch	1020750308100	1020750361600	1020750374300	1020750379800	1020750385200	1020750395400	1020750400400	1020750421900	1020758754900
+6	6	a	1020899999400	1020900000000	True	refused-landing	1020900345200	1020900399400	1020900409400	1020900415000	1020900420700	None	1020900435900	1020900452300	1020908785300
+7	7	a	1021049999300	1021050000000	False	None	1021050332300	1021050387200	1021050398500	1021050404200	1021050410200	1021050420400	1021050425400	None	None
+8	8	a	1021199999200	1021200000000	True	refused-landing	1021200319400	1021200370000	1021200382600	1021200388400	1021200393600	None	1021200408800	1021200431000	1021208764000
+--- exit 0

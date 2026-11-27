@@ -2430,13 +2430,13 @@ mod tests {
     /// The Regular stage, and the committed Regular, which the merge wrote
     /// from it (`tests/merge.rs` holds them so).
     fn inputs() -> (Vec<u8>, Vec<u8>) {
-        let base = read("baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf");
+        let base = read("crates/baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf");
         let src = String::from_utf8(read(
-            "baud-app/fonts/glyphs/languages/hebrew/stage/Regular.txt",
+            "crates/baud-app/fonts/glyphs/languages/hebrew/stage/Regular.txt",
         ))
         .unwrap();
         let stage = crate::stage::build(&base, &src).unwrap();
-        (stage, read("baud-app/fonts/built/Regular.ttf"))
+        (stage, read("crates/baud-app/fonts/built/Regular.ttf"))
     }
 
     /// Where table `tag` lies in `font`.

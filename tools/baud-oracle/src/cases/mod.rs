@@ -1,6 +1,6 @@
 //! **The cases fonts**: the small fonts baud wrote from nothing to reach
 //! what no shipping face does, each built here from its recipe on
-//! write-fonts 0.55.0 and written under `baud-font/tests/var/`.
+//! write-fonts 0.55.0 and written under `crates/baud-font/tests/var/`.
 //!
 //! | case | writes | reaches |
 //! |---|---|---|

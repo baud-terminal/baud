@@ -2,7 +2,7 @@
 //! stock JetBrains Mono with Hebrew drawn from Cascadia Mono appended, and
 //! then Noto Sans Devanagari merged in. This module builds the first part:
 //! one style's stock face and its stage source
-//! (`baud-app/fonts/glyphs/languages/hebrew/stage/<Style>.txt`, the
+//! (`crates/baud-app/fonts/glyphs/languages/hebrew/stage/<Style>.txt`, the
 //! format [`text`] describes) merged into one font.
 //!
 //! The source holds what the stage adds to the stock face and nothing

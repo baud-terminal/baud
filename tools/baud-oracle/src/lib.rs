@@ -1,8 +1,8 @@
 //! **The reference-engine oracles**: HarfBuzz 12.3.0 and FreeType 2.14.3
 //! run on the committed test fonts, their answers written to
-//! `baud-font/tests/var/*.txt`, and libxkbcommon 1.13.2 on baud-xkb's
+//! `crates/baud-font/tests/var/*.txt`, and libxkbcommon 1.13.2 on baud-xkb's
 //! keymaps and Compose tables, its answers written to
-//! `baud-xkb/tests/fixtures/`; the tests read both with no tool on their
+//! `crates/baud-xkb/tests/fixtures/`; the tests read both with no tool on their
 //! path.
 //!
 //! One bin per oracle, each the port of the Python script that wrote its
@@ -24,10 +24,10 @@
 //!
 //! | subcommand | writes | asks |
 //! |---|---|---|
-//! | `xkb` | `baud-xkb/tests/fixtures/oracle-*.txt` and `compose/oracle-*.txt` | libxkbcommon's keymap state and Compose tables ([`xkb`]) |
-//! | `raster` | stdout, for `baud-font/tests/raster.rs` | FreeType's unhinted smooth bitmaps ([`raster`]) |
-//! | `shape-helpers` | stdout, for `scripts/gen-shape-fixtures.sh` | nothing: digests, code points and `morx` defaults beside hb-shape ([`shape`]) |
-//! | `cases` | the cases fonts under `baud-font/tests/var/` | nothing: each font built from its recipe on write-fonts ([`cases`]) |
+//! | `xkb` | `crates/baud-xkb/tests/fixtures/oracle-*.txt` and `compose/oracle-*.txt` | libxkbcommon's keymap state and Compose tables ([`xkb`]) |
+//! | `raster` | stdout, for `crates/baud-font/tests/raster.rs` | FreeType's unhinted smooth bitmaps ([`raster`]) |
+//! | `shape-helpers` | stdout, for `tools/scripts/gen-shape-fixtures.sh` | nothing: digests, code points and `morx` defaults beside hb-shape ([`shape`]) |
+//! | `cases` | the cases fonts under `crates/baud-font/tests/var/` | nothing: each font built from its recipe on write-fonts ([`cases`]) |
 //!
 //! Run from the repository's root, in the shell that pins the engines:
 //!

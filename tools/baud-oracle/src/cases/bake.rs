@@ -1,7 +1,7 @@
 //! A variable font built to reach what JetBrains Mono never makes the bake
 //! do.
 //!
-//! Writes `baud-font/tests/var/bake/cases.ttf`. Its instances beside it,
+//! Writes `crates/baud-font/tests/var/bake/cases.ttf`. Its instances beside it,
 //! `cases-<wght>.ttf` at 250, 550, 700 and 875, are fontTools 4.63.0's
 //! (`instantiateVariableFont` with its defaults, recalcTimestamp off,
 //! `[[source: fonttools-4-63-0-instancer]]`), kept
@@ -408,5 +408,5 @@ pub fn fonts() -> Vec<(&'static str, Vec<u8>)> {
         (b"GDEF", bytes(&gdef(&ORDER))),
         (b"GPOS", bytes(&gpos(&ORDER))),
     ]);
-    vec![("baud-font/tests/var/bake/cases.ttf", font)]
+    vec![("crates/baud-font/tests/var/bake/cases.ttf", font)]
 }

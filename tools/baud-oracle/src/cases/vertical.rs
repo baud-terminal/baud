@@ -2,7 +2,7 @@
 //! on the vertical phantom points, and one that places a nested composite's
 //! first component by points.
 //!
-//! Writes `baud-font/tests/var/vertical-cases.ttf`. A component placed by
+//! Writes `crates/baud-font/tests/var/vertical-cases.ttf`. A component placed by
 //! matched points may name any phantom of the parent or the child
 //! (`[[source: ms-opentype-glyf]]`: "Phantom points from the parent or the
 //! child may be referenced"), and the vertical two are the "top origin"
@@ -64,7 +64,7 @@
 //! and maxp's totals left at zero. Axis: wght 100-400-900, no avar; only
 //! the 900 side carries deltas, so 650 is half of each. Deterministic: the
 //! head timestamps are fixed. baud's own font, under the repository's
-//! licence (`baud-font/tests/licences.rs` lists it).
+//! licence (`crates/baud-font/tests/licences.rs` lists it).
 
 use write_fonts::tables::glyf::{
     Anchor, Component, ComponentFlags, CompositeGlyph, Glyph, Transform,
@@ -290,5 +290,5 @@ pub fn fonts() -> Vec<(&'static str, Vec<u8>)> {
         (b"vhea", bytes(&vhea)),
         (b"vmtx", bytes(&vmtx)),
     ]);
-    vec![("baud-font/tests/var/vertical-cases.ttf", font)]
+    vec![("crates/baud-font/tests/var/vertical-cases.ttf", font)]
 }

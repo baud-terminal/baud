@@ -1,6 +1,6 @@
 //! A face whose Arabic letters are wider than a terminal cell.
 //!
-//! Writes `baud-font/tests/var/joining-cases.ttf`. A proportional Arabic
+//! Writes `crates/baud-font/tests/var/joining-cases.ttf`. A proportional Arabic
 //! face draws a letter at its own advance, and the grid gives every letter
 //! one cell: Noto Sans Arabic's isolated sad is 1306 units at an em of 1000
 //! and its medial sad 949, against JetBrains Mono's cell of 600. This face
@@ -38,7 +38,7 @@
 //! calling a single substitution of sad by itself, and `mark` one
 //! mark-to-base subtable. Deterministic: the head timestamps are fixed,
 //! at 3,600,000,000 seconds after 1904. baud's own font, under the
-//! repository's licence (`baud-font/tests/licences.rs` lists it).
+//! repository's licence (`crates/baud-font/tests/licences.rs` lists it).
 
 use write_fonts::tables::gdef::Gdef;
 use write_fonts::tables::glyf::Glyph;
@@ -286,5 +286,5 @@ pub fn fonts() -> Vec<(&'static str, Vec<u8>)> {
         (b"GPOS", bytes(&gpos(&o))),
         (b"GSUB", bytes(&gsub(&o))),
     ]);
-    vec![("baud-font/tests/var/joining-cases.ttf", font)]
+    vec![("crates/baud-font/tests/var/joining-cases.ttf", font)]
 }

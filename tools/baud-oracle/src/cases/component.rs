@@ -1,7 +1,7 @@
 //! A variable font whose composites place components by matched points and
 //! by scaled offsets.
 //!
-//! Writes `baud-font/tests/var/component-cases.ttf`. None of the 2.1
+//! Writes `crates/baud-font/tests/var/component-cases.ttf`. None of the 2.1
 //! million components of the fonts on the development Mac or in the tree is
 //! anchored by point numbers (ARGS_ARE_XY_VALUES clear) or carries
 //! SCALED_COMPONENT_OFFSET, so this font is the only thing that reaches
@@ -74,7 +74,7 @@
 //! and the oracle samples sit at scalars of -1, 0.5 and 1, so the varied
 //! coordinates are whole or half units. Deterministic: the head timestamps
 //! are fixed. baud's own font, under the repository's licence
-//! (`baud-font/tests/licences.rs` lists it).
+//! (`crates/baud-font/tests/licences.rs` lists it).
 
 use write_fonts::tables::glyf::{
     Anchor, Component, ComponentFlags, CompositeGlyph, Glyph, Transform,
@@ -320,5 +320,5 @@ pub fn fonts() -> Vec<(&'static str, Vec<u8>)> {
         (b"fvar", bytes(&fvar(&[(b"wght", 100.0, 400.0, 900.0)]))),
         (b"gvar", gvar),
     ]);
-    vec![("baud-font/tests/var/component-cases.ttf", font)]
+    vec![("crates/baud-font/tests/var/component-cases.ttf", font)]
 }

@@ -103,15 +103,19 @@ fn perturbed(oracle: &str, font: &str, change: &Change) -> PathBuf {
         std::process::id()
     ));
     let _ = std::fs::remove_dir_all(&root);
-    let tests = root.join("baud-font/tests");
+    let tests = root.join("crates/baud-font/tests");
     for d in ["fonts", "var"] {
-        copy_dir(&repo().join("baud-font/tests").join(d), &tests.join(d));
+        copy_dir(
+            &repo().join("crates/baud-font/tests").join(d),
+            &tests.join(d),
+        );
     }
     let path = tests.join(font);
     let mut data = std::fs::read(&path).expect("the font");
     match change {
         Change::Swap(other) => {
-            data = std::fs::read(repo().join("baud-font/tests").join(other)).expect("a font");
+            data =
+                std::fs::read(repo().join("crates/baud-font/tests").join(other)).expect("a font");
         }
         Change::Advance => {
             let o = table(&data, b"hmtx");

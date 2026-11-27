@@ -1,0 +1,53 @@
+# crates/baud-app/fonts/built/MANIFEST: what tools/scripts/build-fonts.sh built, from what, and how.
+# Written by tools/scripts/build-fonts.sh. 'tools/scripts/build-fonts.sh --check' rebuilds and compares
+# every line that does not start with '#'; '#' lines are the building machine's facts.
+# system Darwin arm64
+# rustc rustc 1.101.0-nightly (249c1e4e3 2026-11-05)
+epoch 315532800, stamped into head.modified as SOURCE_DATE_EPOCH was
+step stage baud-fontbuild stage JetBrainsMono-<style>.ttf hebrew/stage/<style>.txt <style>-hebrew.ttf, once per style
+step instance-noto baud-fontbuild instance NotoSansDevanagari[wdth,wght].ttf 400 315532800 noto400.ttf; baud-fontbuild instance NotoSansDevanagari[wdth,wght].ttf 700 315532800 noto700.ttf
+step merge baud-fontbuild merge <style>-hebrew.ttf noto<weight>.ttf <style> 315532800 <style>.ttf, once per style (Regular, Italic: noto400; Bold, Bold Italic: noto700)
+step cmp built/<style>.ttf <style>.ttf, once per style (each must be the same bytes)
+input 3d03a69c83677b3fd1c31325aa3cc93548dd755935a1c53b162349fcd31d6e0b crates/baud-app/fonts/glyphs/languages/devanagari/SOURCE
+input bd2ca72b202a167369f1d7dc0f36e469057d3e680cd9e91e8695b7e4d95b4b15 crates/baud-app/fonts/glyphs/languages/hebrew/stage/Bold.txt
+input 3874231eb8df54fc7a17e5fbc4b1298589b6a212596e6abd05710bb887abae30 crates/baud-app/fonts/glyphs/languages/hebrew/stage/BoldItalic.txt
+input 51882cd3cdba4e16f220f44ddb08a635c38c44ea6e0975db2574f4be6f958238 crates/baud-app/fonts/glyphs/languages/hebrew/stage/CascadiaMono-OFL.txt
+input 73595b20db6b7d0c4c72edc4a17e602a79b026e07be892841d5540d910762deb crates/baud-app/fonts/glyphs/languages/hebrew/stage/Italic.txt
+input 30f0c136e3c88e422d0791acd97238870f9054a9729bc34cf2ff0d4ed8cac4ad crates/baud-app/fonts/glyphs/languages/hebrew/stage/JetBrainsMono-OFL.txt
+input c056f587d792c7bfdf8cd7bc72b7298a21b7500b52f9c6c1c5c58f561ff50225 crates/baud-app/fonts/glyphs/languages/hebrew/stage/Regular.txt
+input ddb482614a77e94ab4f495173211ce84a76ee8647d928341f18250a594afe5f7 crates/baud-font/src/bake.rs
+input c35618b464c535a3db2140b2591933b47fa6ffa97558e654d93c01cf4006acd6 crates/baud-font/src/bake/partial.rs
+input f79e0a1a9fa063d4b8e2575a9032d42b6daa8af860e0d4f69c3c5b12f481a320 tools/Cargo.lock
+input a916542be74fb8e6321498ad78e2d412d8e964becb0a7e08da7c276046d552d2 tools/Cargo.toml
+input aa85f431bd7e83424bc553f31de5d9bbd2ea5b944750bb73090a4471b3a1d4c8 tools/baud-fontbuild/Cargo.toml
+input 21acf8d7c33c5d425b18fc673953c8c489b95d0ae9a0369e6c4623726a15f705 tools/baud-fontbuild/src/cmap.rs
+input 4f724a42a9d708009dc1403ac1ca33e5e982a0c7b3df9f3b2438c18ad7baf045 tools/baud-fontbuild/src/dump.rs
+input 5c14b50bbfe89d8e8db6bb532438e843f2f0f6999b347fa7b008d70eba5c009d tools/baud-fontbuild/src/fixed.rs
+input eddf594f5e997f2b8cd94aed40d5a1f380f82e2d97b31486eea75f78928d7ab9 tools/baud-fontbuild/src/glyphs.rs
+input 060fdd223213e672db1e09e51bf2d43aae3c57469b02d6af8a21192269b729d4 tools/baud-fontbuild/src/instance.rs
+input 394d470458c821a69cc23a2c88ec705784c59dbe4d79c59054d8b1d96bb37e23 tools/baud-fontbuild/src/layout.rs
+input 6996ab5d165e61335150f1b969f925119760dc1ddab3c789efbf67beb82c84d7 tools/baud-fontbuild/src/lib.rs
+input 08cefa8ae0c419977c884bc63c947ecffc5046a6a4c4c0916261c9e5c57df2d5 tools/baud-fontbuild/src/main.rs
+input 123ff50245cd24d10f288b6c17a25f7868dbfbbcbc1a457cd67218119e77013b tools/baud-fontbuild/src/merge.rs
+input fdb6e35ddf9e2daecd26814cf9eedc13e10eca6cf5775e0070bc86e614aee781 tools/baud-fontbuild/src/stage/build.rs
+input ec699af8923e5554f6dfa75ad41bd6e4d8813c07bf31f6f13ce072db3e578324 tools/baud-fontbuild/src/stage/extract.rs
+input 8b85faf7ce2243c0762d90db8568f9f9de7b176f63efa926f7cfbf760c5196fd tools/baud-fontbuild/src/stage/mod.rs
+input adc2e7bbfb294f466697d44864f24a3d23b86bab5e0b919173c198a49313b15e tools/baud-fontbuild/src/stage/text.rs
+input 2a54fa30ef207cf3583a9012470ac00589f790d70dbfaa027c35e42e90861caf tools/baud-fontbuild/src/var.rs
+fetched 9f82923465ef82fb86c6b99cbdd4947ba832fe3335948de815b18adfd75947c7 https://raw.githubusercontent.com/notofonts/notofonts.github.io/noto-monthly-release-2026.10.01/fonts/NotoSansDevanagari/unhinted/variable-ttf/NotoSansDevanagari%5Bwdth%2Cwght%5D.ttf (cached outside the repository; not committed)
+input a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f crates/baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf
+input 5590990c82e097397517f275f430af4546e1c45cff408bde4255dad142479dcb crates/baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf
+input 9d0a1f7a708e6af183f1193b7e81d40da294f5c67682c085d8401c60aac8ded4 crates/baud-app/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf
+input 4039d5ce0ed225bf9c8b2c8c6436290ae2f356b7e90d70fa666227238324aa3b crates/baud-app/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf
+intermediate e2569116e656d46710fe1133548fcbcda9decdc94ec5d3c3219213a046d13da7 noto400.ttf (Noto Sans Devanagari at wght 400, its width axis kept; not committed)
+oracle 92cde87d462bf2a8a9e4cccb51c02c9aeaf6ef4e99db06af0ebc0e7c5e82f64b fontTools 4.63.0's noto400.ttf, which noto400.ttf compared equal to when it was pinned (not committed)
+intermediate 7eea4776889a270ad2cdf4afa89b169ab3b513990abb838fc702cb03aa6052bb noto700.ttf (Noto Sans Devanagari at wght 700, its width axis kept; not committed)
+oracle f3e9be2b943be49cc1683f30456b9dba068422a917a4918677e8cb0dc652cdc4 fontTools 4.63.0's noto700.ttf, which noto700.ttf compared equal to when it was pinned (not committed)
+intermediate 4e20771f181228ace3307ee498eb28c1121edf7abe9355f7184645850e43ad12 Regular-hebrew.ttf (the Hebrew stage; not committed)
+intermediate a0a00b9d8d19356e17fb67835aba2cb0d3e8ced58e3b3f27e30a8a8d57c7b401 Bold-hebrew.ttf (the Hebrew stage; not committed)
+intermediate 04036e73353a00c454c63e639388764bad2d2c5adac71edc5eef23b7e7da8df3 Italic-hebrew.ttf (the Hebrew stage; not committed)
+intermediate 9118985147af8bccc6e015712dc7bde6d2517e9feef76886b3048bf18edb17a4 BoldItalic-hebrew.ttf (the Hebrew stage; not committed)
+output 383fc97ad960872f5508711f567134947f191bbe38346926671823b7c0f988fd crates/baud-app/fonts/built/Regular.ttf
+output 62444395c771c788d8ddc3cb60d25263f2c9df4b54c5d06c15e21fdc51bd039a crates/baud-app/fonts/built/Bold.ttf
+output 8ca4f8875d9356d9dfcbb5720c868503d09c6a63e0da70ffd06b6b2851d59f27 crates/baud-app/fonts/built/Italic.ttf
+output 7f597c501d5c288b27610c3683ca7c760768bbd0aee39422a87c67a278630ad9 crates/baud-app/fonts/built/BoldItalic.ttf

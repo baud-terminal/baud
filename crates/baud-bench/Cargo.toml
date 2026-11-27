@@ -1,0 +1,322 @@
+[package]
+name = "baud-bench"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "PTY benchmark harness for baud-core. Linux-only."
+# Not published: `publish = false`, so `cargo publish` refuses it and
+# release-plz leaves it out (`cargo xtask publish`).
+publish = false
+
+[dependencies]
+# **`default-features = false` so the scan arm is this crate's to pick.**
+# `cargo build -p baud-bench --no-default-features` disables this crate's
+# defaults, not a dependency's, and cargo builds a dependency once, with
+# every feature any crate in the build enables on it. So this line alone
+# was not enough: while `baud-render` and `baud-present-macos` took
+# `baud-core` with its defaults the portable arm ran NEON, and
+# `cargo tree -e features -i baud-core` named them. Both are taken here
+# without their own defaults, which turn the scan on, and `ingest2` does
+# not compile when the scan this crate's features name (`SCAN_ARM`, in
+# `src/lib.rs`) is not the one `baud-core` runs (`RUN_SCAN`).
+#
+# **`read-record` is named here, so only the scan toggles.** It is a
+# default of the core's, so the portable arm (`--no-default-features`)
+# dropped it with the scan, and a NEON A/B compared the scan and the record
+# against the portable scan and no record. An arm with the record off
+# would be a feature of its own.
+baud-core = { path = "../baud-core", default-features = false, features = [
+  "alloc",
+  "read-record",
+] }
+baud-domain = { path = "../baud-domain" }
+baud-font = { path = "../baud-font" }
+baud-render = { path = "../baud-render", default-features = false, features = ["exceptions"] }
+libc = "0.2"
+# `linux-pixels window-rect` reads sway's tree.
+serde_json = "1.0.154"
+baud-wayland = { path = "../baud-wayland" }
+
+# `present` shows frames on a Wayland compositor through the Linux
+# driver's window.
+[dev-dependencies]
+baud-present-wayland = { path = "../baud-present-wayland" }
+baud-xkb = { path = "../baud-xkb" }
+
+# `frame_gpu` draws the same frames through Metal; the crate compiles to
+# nothing elsewhere and the bin says so. Its pipelines come from the
+# suite's binary archive (`suite-archive`), as every test's do.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+baud-present-macos = { path = "../baud-present-macos", default-features = false, features = ["suite-archive"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# `drag` implements the presenter's `Wake`, whose surface type is the
+# window crate's.
+macos-liquid-glass = { version = "1.0.0-beta.9", features = ["drawable"] }
+
+# The cache probe, for `host_geometry`: the per-arch crate with `std` on, so
+# it may ask the kernel. Target-gated the way `baud-core` gates its scans.
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+baud-isa = { path = "../baud-isa" }
+baud-isa-aarch64 = { path = "../baud-isa-aarch64", features = ["std"] }
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+baud-isa = { path = "../baud-isa" }
+baud-isa-x86-64 = { path = "../baud-isa-x86-64", features = ["std"] }
+
+
+[features]
+# `baud-core/default` beside `neon-scan`, so a default build takes the
+# core's default build, with the features cargo resolved for it before the
+# workspace dependency stopped turning them on.
+default = ["neon-scan", "baud-core/default"]
+# Forwarded so `cargo bench -p baud-bench --features diag --bench ingest2` prints
+# the cost map. Never on for a throughput figure -- see crates/baud-core/Cargo.toml.
+diag = ["baud-core/diag"]
+# Every allocation counted in the `frame` bench, for a build taken for those
+# counts and never timed.
+count-allocs = []
+# The grid's row pitch, for `ingest2`'s stride arms. Off, the pitch is what
+# ships: `grid_stride`, from the cache geometry. `stride-live` lays
+# the grid out at the live column count, the layout this core had before and
+# the one the fixed pitch must match; `stride-pad0` at `MAX_COLS`, exactly one
+# L1 way a row on this class of machine, the aliasing layout the +14% was
+# measured against -- the positive control. Mutually exclusive by
+# construction: both at once does not compile.
+stride-live = []
+stride-pad0 = []
+# The exploration arm: the pitch from `BAUD_STRIDE`, in cells, read once at
+# start. Not a runtime switch in the loop -- the pitch is a field whichever
+# arm sets it -- so one binary sweeps candidate pitches; what ships is still
+# decided by `grid_stride` and measured with the arms above.
+stride-env = []
+# The `new-` arms are the core's, named apart from core2's while both crates
+# were benched so one `--features` could not silently arm the wrong crate; the
+# names outlived core2.
+new-no-write = ["baud-core/ceiling-no-write"]
+render-no-window-cache = ["baud-render/ceiling-no-window-cache"]
+render-no-windows = ["baud-render/ceiling-no-windows"]
+new-no-classify = ["baud-core/ceiling-no-classify"]
+new-no-decode = ["baud-core/ceiling-no-decode"]
+new-no-scroll = ["baud-core/ceiling-no-scroll"]
+new-no-blank = ["baud-core/ceiling-no-blank"]
+new-no-text = ["baud-core/ceiling-no-text"]
+probe-double-extent = ["baud-core/probe-double-extent"]
+new-no-store = ["baud-core/ceiling-no-store"]
+new-double-classify = ["baud-core/probe-double-classify"]
+new-double-break = ["baud-core/probe-double-break"]
+new-double-attach = ["baud-core/probe-double-attach"]
+new-no-run-gate = ["baud-core/ceiling-no-run-gate"]
+new-no-act = ["baud-core/ceiling-no-act"]
+new-double-decode = ["baud-core/probe-double-decode"]
+new-free-width = ["baud-core/probe-free-width"]
+new-pinned-node = ["baud-core/probe-pinned-node"]
+new-double-scan = ["baud-core/probe-double-scan"]
+probe-warm-scroll = ["baud-core/probe-warm-scroll"]
+ascii-only = ["baud-core/ascii-only"]
+cell-table = ["baud-core/cell-table"]
+# The aarch64 run scan through `baud-isa-aarch64::Neon`; see baud-core. It is in
+# `default` here so `ingest2` measures what a default `baud-core` does, and
+# `--no-default-features` is the arm that turns it off: no crate this one
+# depends on turns it back on.
+neon-scan = ["baud-core/neon-scan"]
+# **The x86-64 twin, and its absence is why the AVX2 path had never been
+# timed.** Every other `baud-core` arm in this list is forwarded; this one was
+# not, so `--features avx2-scan` named nothing here and the only harness that
+# measures throughput could not reach the code. CI proved the path *correct* on
+# x86-64 the whole time, which is the shape that makes an absence comfortable:
+# one gate was green and the other did not exist.
+#
+# Deliberately **not** in `default`, unlike `neon-scan`. NEON is baseline on
+# aarch64, so a default build there runs it; AVX2 is not baseline on x86-64, so
+# enabling it by default would build a binary that faults on a host without it.
+# It needs `-C target-feature=+avx2` alongside, which is the caller's to set.
+avx2-scan = ["baud-core/avx2-scan"]
+param3 = ["baud-core/param3"]
+probe-no-fast-csi = ["baud-core/probe-no-fast-csi"]
+probe-no-csi-op = ["baud-core/probe-no-csi-op"]
+probe-no-csi-params = ["baud-core/probe-no-csi-params"]
+probe-double-params = ["baud-core/probe-double-params"]
+probe-csi-scratch = ["baud-core/probe-csi-scratch"]
+two-pass-csi = ["baud-core/two-pass-csi"]
+route-stride = ["baud-core/route-stride"]
+probe-double-final-scan = ["baud-core/probe-double-final-scan"]
+ceiling-free-sgr = ["baud-core/ceiling-free-sgr"]
+ceiling-no-region-copy = ["baud-core/ceiling-no-region-copy"]
+ceiling-no-region-repair = ["baud-core/ceiling-no-region-repair"]
+ceiling-segment-cache = ["baud-core/ceiling-segment-cache"]
+sgr-table = ["baud-core/sgr-table"]
+probe-double-text-scan = ["baud-core/probe-double-text-scan"]
+probe-double-sgr = ["baud-core/probe-double-sgr"]
+probe-sgr-copy = ["baud-core/probe-sgr-copy"]
+probe-double-fold = ["baud-core/probe-double-fold"]
+probe-double-sgr-color = ["baud-core/probe-double-sgr-color"]
+probe-sgr-color-reborrow = ["baud-core/probe-sgr-color-reborrow"]
+colour-in-match = ["baud-core/colour-in-match"]
+probe-double-intern = ["baud-core/probe-double-intern"]
+probe-double-intern-full = ["baud-core/probe-double-intern-full"]
+probe-double-parse = ["baud-core/probe-double-parse"]
+# The harness alone: the chunk is copied into the arena and never parsed, so
+# the reported rate is what `write_at` costs. Every arm pays it, and a ceiling
+# arm that runs at thousands of MB/s is measuring it as much as the loop.
+harness-only = []
+new-double-put = ["baud-core/probe-double-put"]
+
+# The benches are `[[bench]]` targets with `harness = false`, so `cargo bench`
+# runs each one's own `main` and `baud` stays the only `[[bin]]` in the
+# workspace.
+#
+# **Not criterion, deliberately.** This repo's protocol is interleaved arms,
+# the first round discarded, an A/A control *in the same sweep*, and ranges
+# quoted with "if ranges overlap there is no result". Criterion's model does
+# not express an interleaved A/A arm, so adopting it would replace a
+# discipline that has caught real phantoms here with one that has not -- and
+# it would add a dependency to a workspace that has none at runtime.
+#
+# `harness = false` also means cargo appends `--bench` to argv; every bench
+# reads its positionals through `baud_bench::args`, which drops it.
+
+[[bench]]
+name = "ceiling"
+harness = false
+
+[[bench]]
+name = "banded"
+harness = false
+
+[[bench]]
+name = "memory"
+harness = false
+
+[[bench]]
+name = "frame"
+harness = false
+
+[[bench]]
+name = "frame_gpu"
+harness = false
+
+# The launch logo's frames on the CPU path, timed one by one, with a hash
+# over their pixels (note AJ section 14); prints and asserts nothing.
+[[bench]]
+name = "splash"
+harness = false
+
+# A cursor trail's frames on the CPU path, every trail at three sizes,
+# timed one by one, with a hash over their pixels (note AJ section 23);
+# prints and asserts nothing.
+[[bench]]
+name = "trail"
+harness = false
+
+# A shell's recorded start under the launch logo, frame by frame (note AJ,
+# section 18).
+[[bench]]
+name = "splash_shell"
+harness = false
+
+# One frame of a stream as the Linux app draws it, written to a PAM, for
+# tools/scripts/linux-pixels.sh to compare across systems. Times nothing.
+[[bench]]
+name = "pixels"
+harness = false
+
+# Frames shown on a real Wayland compositor through the Linux driver's
+# window, told the rows they changed or that all of them did: the time
+# `present` takes, the rows it copies and damages, and what the
+# compositor then shows (tools/scripts/linux-damage.sh).
+[[bench]]
+name = "present"
+harness = false
+
+# WCAG 2.3.1's flashes, counted on the frames the cursor-trail effects draw
+# through Metal (note AJ). macOS only; it prints on every other target. A
+# bench rather than a test because it draws tens of thousands of frames; the
+# counter it feeds is `baud_bench::flash`, whose tests run with the suite.
+[[bench]]
+name = "flash"
+harness = false
+
+# How often a trail's repeat pass draws nothing for want of a ground's
+# cap, over the recordings' last screens on the default glass (note AL).
+# No GPU: the cells decide it, through the shipped renderer and driver.
+[[bench]]
+name = "flash_screens"
+harness = false
+
+[[bench]]
+name = "glyphs"
+harness = false
+
+[[bench]]
+name = "ingest2"
+harness = false
+
+[[bench]]
+name = "opcost"
+harness = false
+
+[[bench]]
+name = "winch"
+harness = false
+
+[[bench]]
+name = "transport"
+harness = false
+
+# Where `[glass] pictures`'s sixteen-colour threshold comes from, kept so it
+# can be re-derived rather than remembered: prints and asserts nothing.
+[[bench]]
+name = "pictures"
+harness = false
+
+# png.rs's decode time on a full-window picture, note V's V19 step 0;
+# prints and asserts nothing.
+[[bench]]
+name = "png_decode"
+harness = false
+
+# A kitty graphics transmission end to end, `f=100` and `f=32` of one PNG
+# fed as kitten sends it and stepped to completion, note V's V19 steps 5-6;
+# prints and asserts nothing but that the picture was placed.
+[[bench]]
+name = "kitty_image"
+harness = false
+
+# A read of Sixel palettes over two 3840x2160 shared pictures, one body
+# and a hundred in one read or a read each: what recolouring the stored
+# pictures costs; prints the timings and asserts only that both pictures
+# were stored and that the hundred bodies fit one read.
+[[bench]]
+name = "sixel_recolour"
+harness = false
+
+# UAX #9 on crafted worst-case rows against recorded text, nanoseconds a
+# character at four lengths: whether N0 and X5c grow linearly; asserts N0
+# reached the bracket shapes.
+[[bench]]
+name = "bidi_rows"
+harness = false
+
+# macOS only; it prints on every other target. It was a test with a wall-clock
+# bound, which measured the machine's load under the parallel suite -- see the
+# bench's own header.
+[[bench]]
+name = "reshape"
+harness = false
+
+# A recorded drag through the cell path on Metal: the frames each step
+# builds, the ones drawn and the GPU time. macOS only; it prints on every
+# other target.
+[[bench]]
+name = "drag"
+harness = false
+
+# What every frame costs a window that gave the GPU up: the whole frame
+# copied into a surface on the CPU, premultiplied, at the default window and
+# a whole screen. macOS only; it prints on every other target.
+[[bench]]
+name = "surface_copy"
+harness = false

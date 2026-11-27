@@ -4,7 +4,7 @@
 # AppKit lays a window out by the SDK a binary was linked against: against
 # nixpkgs' default, 14.4, the title bar is the one from before macOS 26.
 # The newest the nixpkgs has, 27 then 26; one with neither is refused
-# rather than built against an older SDK. `baud-app/tests/macos_floor.rs`
+# rather than built against an older SDK. `crates/baud-app/tests/macos_floor.rs`
 # holds the names to 26 or later and reads the linked SDK back.
 pkgs:
 pkgs.apple-sdk_27 or pkgs.apple-sdk_26

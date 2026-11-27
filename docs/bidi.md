@@ -847,7 +847,7 @@ eight rounds with the first dropped, on mains:
   opener when they nest). X5c scans from each FSI to its matching PDI,
   stepping over each nested isolate by its match, so a character is read
   by its innermost isolate alone. At 256, 512, 1024 and 2048 characters,
-  `baud-bench/benches/bidi_rows.rs` reads 7.8-8.5 ns a character on rows
+  `crates/baud-bench/benches/bidi_rows.rs` reads 7.8-8.5 ns a character on rows
   of recorded text (the medians of four rounds), and no crafted row's
   doubles with the row: from the shortest to the longest, bracket pairs
   side by side read 9.4 and 9.1, neutral pairs before one that reads

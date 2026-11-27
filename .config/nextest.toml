@@ -1,6 +1,6 @@
 # **Every test ends at a time bound, for a hang:** nextest terminates the
 # test's process group after 20 periods of 60 s, 20 minutes. It is not a memory
-# bound: at 0.8 GiB/s, 20 minutes is 960 GiB, and `scripts/bounded` is the
+# bound: at 0.8 GiB/s, 20 minutes is 960 GiB, and `tools/scripts/bounded` is the
 # memory bound. The slowest real test read 363 s, in a suite at load average
 # 30-50 (`graph::classes::the_alphabet_reduces_as_the_stride_doubles`), then
 # 341 s and 234 s, so the bound is three times that: a loaded machine must not
@@ -14,7 +14,7 @@ slow-timeout = { period = "60s", terminate-after = 20 }
 # `cargo test -p baud --test titlebar_mark`, runs one.
 default-filter = "not (package(baud) & (binary(titlebar_mark) | binary(about_window)))"
 
-# `xtask/tests/bounded.rs`'s hogs touch more than 1 GiB each: one at a time,
+# `crates/xtask/tests/bounded.rs`'s hogs touch more than 1 GiB each: one at a time,
 # and each is capped at 3 GiB.
 [test-groups]
 bounded-hogs = { max-threads = 1 }
@@ -26,14 +26,14 @@ bounded-hogs = { max-threads = 1 }
 # every open as the managers this process holds: 64 and 48 for the two
 # below, 3 or fewer for every other test in the group, which takes one
 # slot. A test that opens a pty outside the group fails
-# (`baud-app/src/pty/budget.rs`).
+# (`crates/baud-app/src/pty/budget.rs`).
 pty = { max-threads = 32 }
 # **The tests that make a Metal device run two at a time.** Under nextest
 # each test is a process of its own, and each of these makes its own
 # device and command queue, so unbounded a suite starts as many GPU clients
 # at once as it has test threads. The GPU firmware has taken a kernel panic
 # with ten of these processes starting at once, beside other suites and
-# the event rig. `xtask/tests/metal_group.rs` finds every test binary
+# the event rig. `crates/xtask/tests/metal_group.rs` finds every test binary
 # that makes a device, or starts the app, which makes one, and holds it to
 # this group.
 metal = { max-threads = 2 }
@@ -92,7 +92,7 @@ threads-required = 12
 filter = '(package(baud) & (test(/^pty::/) | test(/^programs::/) | test(/^app::launch_tests::/) | test(/^film::/))) | (package(baud-bench) & (binary(host) | binary(capture)))'
 test-group = 'pty'
 
-# The tests that run real programs in a pty (baud-app/src/programs.rs)
+# The tests that run real programs in a pty (crates/baud-app/src/programs.rs)
 # were marked leaky, passing, at nextest's default leak timeout of 100 ms
 # in 3 of 45 runs, and in none of 30 at two seconds. Each waits for the
 # child it forked before it ends, and the child holds only its pty; what

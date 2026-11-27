@@ -1,6 +1,6 @@
 //! A colour font whose colour glyph has a refused glyf outline.
 //!
-//! Writes `baud-font/tests/var/colour-refused-cases.ttf`. `play`, mapped
+//! Writes `crates/baud-font/tests/var/colour-refused-cases.ttf`. `play`, mapped
 //! from U+25B6 BLACK RIGHT-POINTING TRIANGLE, is a `COLR` v0 glyph of two
 //! layers, and its own `glyf` entry is a composite whose first component is
 //! placed by matched points, which "cannot be used for the first component
@@ -26,7 +26,7 @@
 //! `play`'s header box is tri's, written as a value: a first component
 //! placed by points has no position to bound it from. Deterministic: the
 //! head timestamps are fixed. baud's own font, under the repository's
-//! licence (`baud-font/tests/licences.rs` lists it).
+//! licence (`crates/baud-font/tests/licences.rs` lists it).
 
 use write_fonts::tables::glyf::{
     Anchor, Component, ComponentFlags, CompositeGlyph, Glyph, Transform,
@@ -101,5 +101,5 @@ pub fn fonts() -> Vec<(&'static str, Vec<u8>)> {
         ),
         (b"CPAL", cpal_v0(&[(0xFF, 0, 0, 0xFF), (0, 0, 0xFF, 0xFF)])),
     ]);
-    vec![("baud-font/tests/var/colour-refused-cases.ttf", font)]
+    vec![("crates/baud-font/tests/var/colour-refused-cases.ttf", font)]
 }

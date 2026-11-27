@@ -24,10 +24,10 @@ pub fn weights(w: &[i32]) -> Vec<Setting> {
 }
 
 /// One font the `gvar` and `cff2` oracles sample: its path under
-/// `baud-font/tests`, the settings it is drawn at after the default, and
+/// `crates/baud-font/tests`, the settings it is drawn at after the default, and
 /// the glyph step, every glyph whose id is a multiple of it.
 pub struct Sample {
-    /// The font, relative to `baud-font/tests`.
+    /// The font, relative to `crates/baud-font/tests`.
     pub font: &'static str,
     /// The settings after the default instance, in row order.
     pub settings: Vec<Setting>,
@@ -46,7 +46,7 @@ pub fn outline_rows(
 ) -> Vec<String> {
     let mut out = Vec::new();
     for s in samples {
-        let blob = hb::Blob::from_file(&root.join("baud-font/tests").join(s.font));
+        let blob = hb::Blob::from_file(&root.join("crates/baud-font/tests").join(s.font));
         let face = hb::Face::new(&blob);
         for setting in std::iter::once(None).chain(s.settings.iter().map(Some)) {
             let mut font = hb::Font::new(&face);

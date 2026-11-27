@@ -1,4 +1,4 @@
-# **The demo's mpv** (`baud-app/examples/demo/run.rs`): nixpkgs' own mpv,
+# **The demo's mpv** (`crates/baud-app/examples/demo/run.rs`): nixpkgs' own mpv,
 # wrapped as nixpkgs wraps it, built from mpv's master at a commit that
 # holds two fixes to its terminal video:
 #

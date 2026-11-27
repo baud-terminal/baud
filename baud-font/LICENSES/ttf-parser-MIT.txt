@@ -1,1 +1,0 @@
-../../LICENSES/ttf-parser-MIT.txt

@@ -32,7 +32,7 @@ you build against.
 
 ## A first program
 
-This block is `baud-core/examples/quickstart.rs`, which the build compiles,
+This block is `crates/baud-core/examples/quickstart.rs`, which the build compiles,
 and a test fails if the two drift apart:
 
 ```rust

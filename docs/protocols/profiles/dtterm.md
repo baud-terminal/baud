@@ -11,7 +11,7 @@ VT100 plus a subset of xterm. Notable for `?45` reverse wraparound and `ESC SP F
 | output capabilities | **58** — all handled |
 | input capabilities | 32 — **26 sent**, measured against the pinned terminfo by `the_profiles_input_counts_are_what_baud_can_send` |
 | shared with `vt100` | 38 |
-| conformance test | `baud-core/tests/conformance/` → `dtterm` |
+| conformance test | `crates/baud-core/tests/conformance/` → `dtterm` |
 | source | `../../research/sources/terminfo/dtterm.ti`, `infocmp -x -1`, hash-pinned |
 
 Conformance replays every output capability and requires that none is

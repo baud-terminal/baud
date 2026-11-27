@@ -75,7 +75,7 @@ fn the_font_pins_fire() {
     std::fs::write(copy.join("JetBrainsMono-Bold.ttf"), bold).expect("perturb");
     must_fail(
         brand::fonts(&tree, &a),
-        "baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf is not the file SOURCE pins",
+        "crates/baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf is not the file SOURCE pins",
     );
     let _ = std::fs::remove_dir_all(tree);
     must_fail(
@@ -108,7 +108,7 @@ fn the_marks_are_the_committed_files() {
         ("amber", brand::AMBER),
     ] {
         let m = brand::centred(&t, 256.0, 172.0, 168.0, fill).expect("drawn");
-        let want = text(&format!("assets/logo/baud-mark-{name}.svg"));
+        let want = text(&format!("docs/assets/logo/baud-mark-{name}.svg"));
         assert_eq!(
             brand::svg("512", "512", &m.body, "baud", None),
             want,
@@ -116,7 +116,7 @@ fn the_marks_are_the_committed_files() {
         );
     }
     let small = brand::centred(&t, 16.0, 10.75, 10.5, brand::AMBER).expect("drawn");
-    let want = text("assets/logo/baud-icon-32-dark.svg");
+    let want = text("docs/assets/logo/baud-icon-32-dark.svg");
     let body = brand::square(32, 7, brand::GROUND) + &small.body;
     assert_eq!(brand::svg("32", "32", &body, "baud", None), want);
 }
@@ -144,7 +144,7 @@ fn the_lined_up_check_fires() {
 fn the_tagline_is_the_cards_composite_glyphs_and_all() {
     let f = committed_fonts();
     let t = Type::new(&f).expect("the faces read");
-    let card = text("assets/readme/social.svg");
+    let card = text("docs/assets/readme/social.svg");
     let mid = (616.0 - (5.0 * 21.0 + 40.0)) / 2.0;
     for (i, line) in brand::LINES.iter().enumerate() {
         let y = mid + (i as f64 - 1.5) * 56.0 + 0.73 * 38.0 / 2.0;
@@ -180,7 +180,7 @@ fn the_card_space_checks_fire() {
 /// column; a code hole taped over does not.
 #[test]
 fn the_tape_check_reads_the_png() {
-    let card = png::decode(&read("assets/readme/social.png")).expect("it reads");
+    let card = png::decode(&read("docs/assets/readme/social.png")).expect("it reads");
     brand::tape_reads(&card).expect("the committed tape");
     let (spelled, feed) = brand::read_tape(&card);
     assert_eq!((spelled.len(), feed), (44, 44));
@@ -197,7 +197,7 @@ fn the_tape_check_reads_the_png() {
 
 #[test]
 fn a_pixel_short_of_opaque_is_refused() {
-    let mut im = raster::draw(&text("assets/logo/baud-github-org.svg"), None).expect("drawn");
+    let mut im = raster::draw(&text("docs/assets/logo/baud-github-org.svg"), None).expect("drawn");
     brand::opaque(&im, "org").expect("the committed picture is opaque");
     im.px[4 * 1000 + 3] = 254;
     must_fail(
@@ -208,19 +208,19 @@ fn a_pixel_short_of_opaque_is_refused() {
 
 #[test]
 fn the_dock_icon_draws_at_each_iconset_size() {
-    let dock = text("assets/logo/baud-icon-dock.svg");
+    let dock = text("docs/assets/logo/baud-icon-dock.svg");
     for n in brand::DOCK_SIZES {
         let im = raster::draw(&dock, Some(n)).expect("drawn");
         assert_eq!((im.w, im.h, im.mode), (n as usize, n as usize, Mode::Rgba));
-        let committed = read(&format!("assets/logo/baud-icon-dock-{n}.png"));
+        let committed = read(&format!("docs/assets/logo/baud-icon-dock-{n}.png"));
         assert_eq!(png::encode(&im), committed, "{n}");
     }
 }
 
 #[test]
 fn the_github_limits_fire() {
-    let org = read("assets/logo/baud-github-org.png");
-    let card = read("assets/readme/social.png");
+    let org = read("docs/assets/logo/baud-github-org.png");
+    let card = read("docs/assets/readme/social.png");
     assert!(brand::github_limits("org.png", &org, true).is_empty());
     assert!(brand::github_limits("social.png", &card, false).is_empty());
     assert_eq!(
@@ -247,7 +247,7 @@ fn the_github_limits_fire() {
         ["social.png: 500x500, not the 1280 by 640 GitHub recommends"]
     );
     // An RGBA picture: the Dock's at 512, as the organisation picture.
-    let dock = read("assets/logo/baud-icon-dock-512.png");
+    let dock = read("docs/assets/logo/baud-icon-dock-512.png");
     assert_eq!(
         brand::github_limits("org.png", &dock, true),
         [
@@ -290,24 +290,25 @@ fn the_github_limits_fire() {
 #[test]
 fn every_committed_svg_is_outlines_and_names_no_font() {
     let mut n = 0;
-    for e in std::fs::read_dir(root().join("assets/logo")).expect("the logo folder") {
+    for e in std::fs::read_dir(root().join("docs/assets/logo")).expect("the logo folder") {
         let name = e
             .expect("an entry")
             .file_name()
             .to_string_lossy()
             .into_owned();
         if name.ends_with(".svg") {
-            brand::outlines_only(&name, &text(&format!("assets/logo/{name}"))).expect("outlines");
+            brand::outlines_only(&name, &text(&format!("docs/assets/logo/{name}")))
+                .expect("outlines");
             n += 1;
         }
     }
     assert_eq!(n, 23, "every SVG the run draws but the card");
-    brand::outlines_only("social.svg", &text("assets/readme/social.svg")).expect("outlines");
+    brand::outlines_only("social.svg", &text("docs/assets/readme/social.svg")).expect("outlines");
 }
 
 #[test]
 fn the_outline_checks_fire() {
-    let good = text("assets/logo/baud-mark-dark.svg");
+    let good = text("docs/assets/logo/baud-mark-dark.svg");
     let text_el = good.replace("</svg>", "  <text>baud</text>\n</svg>");
     must_fail(
         brand::outlines_only("m.svg", &text_el),
@@ -412,7 +413,7 @@ fn the_light_control_checks_fire() {
 /// committed picture's SVG.
 #[test]
 fn no_light_is_the_svgs_drawing() {
-    let svg = text("assets/logo/baud-github-org.svg");
+    let svg = text("docs/assets/logo/baud-github-org.svg");
     let base = brand::opaque(&raster::draw(&svg, None).expect("drawn"), "org").expect("opaque");
     let f = brand::Frames {
         mark: (600, 792),
@@ -431,19 +432,21 @@ fn no_light_is_the_svgs_drawing() {
 
 #[test]
 fn a_logo_file_the_run_does_not_draw_is_named() {
-    let out: brand::Files = vec![("assets/logo/a.svg".into(), Vec::new())];
+    let out: brand::Files = vec![("docs/assets/logo/a.svg".into(), Vec::new())];
     let there = vec![
-        "assets/logo/a.svg".to_string(),
-        "assets/logo/b.png".to_string(),
+        "docs/assets/logo/a.svg".to_string(),
+        "docs/assets/logo/b.png".to_string(),
     ];
     assert_eq!(
         brand::undrawn(&there, &out),
-        ["assets/logo/b.png is a logo file the generator does not draw"]
+        ["docs/assets/logo/b.png is a logo file the generator does not draw"]
     );
     let all = brand::there(&root());
-    assert!(all.contains(&"assets/readme/social.png".to_string()));
+    assert!(all.contains(&"docs/assets/readme/social.png".to_string()));
     assert_eq!(
-        all.iter().filter(|n| n.starts_with("assets/logo/")).count(),
+        all.iter()
+            .filter(|n| n.starts_with("docs/assets/logo/"))
+            .count(),
         31
     );
 }

@@ -39,10 +39,10 @@ fn idats(b: &[u8]) -> Vec<usize> {
 fn every_committed_brand_png_is_what_the_writer_writes() {
     let mut names: Vec<String> = [16, 32, 64, 128, 256, 512, 1024]
         .iter()
-        .map(|n| format!("assets/logo/baud-icon-dock-{n}.png"))
+        .map(|n| format!("docs/assets/logo/baud-icon-dock-{n}.png"))
         .collect();
-    names.push("assets/logo/baud-github-org.png".into());
-    names.push("assets/readme/social.png".into());
+    names.push("docs/assets/logo/baud-github-org.png".into());
+    names.push("docs/assets/readme/social.png".into());
     for name in &names {
         let b = std::fs::read(root().join(name)).expect("a committed PNG");
         let im = png::decode(&b).expect("it reads");

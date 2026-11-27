@@ -1,5 +1,5 @@
-# hb-shape, the oracle scripts/gen-shape-fixtures.sh asks, at the version
-# each baud-font/tests/shape/*.txt header names. Two pins, because the
+# hb-shape, the oracle tools/scripts/gen-shape-fixtures.sh asks, at the version
+# each crates/baud-font/tests/shape/*.txt header names. Two pins, because the
 # fixtures were made under two: 14.5.1 (the Devanagari, Hebrew, Arabic,
 # script and order files) and 13.2.1 (gsub, gpos, fallback, morx and
 # brackets). Each fixture is kept only from the run under the version its
@@ -13,7 +13,7 @@
 #           flags as the build that made the 13.2.1 files.
 #
 #   nix-shell tools/hb-shape.nix --argstr harfbuzz 14.5.1 --run \
-#     'BAUD_ORACLE=<bin> scripts/gen-shape-fixtures.sh devanagari'
+#     'BAUD_ORACLE=<bin> tools/scripts/gen-shape-fixtures.sh devanagari'
 #
 # Run it under a UTF-8 locale (LANG=en_US.UTF-8): under the C locale
 # hb-shape refuses every non-ASCII --text with "Invalid byte sequence in

@@ -17,7 +17,7 @@ use crate::{BINDING, HARFBUZZ, Oracle, hb, label};
 /// `marks.txt`.
 pub const ORACLE: Oracle = Oracle {
     name: "marks",
-    file: "baud-font/tests/var/marks.txt",
+    file: "crates/baud-font/tests/var/marks.txt",
     lines,
 };
 
@@ -92,7 +92,7 @@ fn weights(w: &[i32]) -> Vec<Setting> {
 
 fn lines(root: &Path) -> Vec<String> {
     crate::pinned(None);
-    let tests = root.join("baud-font/tests");
+    let tests = root.join("crates/baud-font/tests");
     let fonts: [Run; 4] = [
         (
             "fonts/JetBrainsMono-Variable.ttf",

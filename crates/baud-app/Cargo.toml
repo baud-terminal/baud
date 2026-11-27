@@ -1,0 +1,181 @@
+# For the `rustflags` of the `[profile.release]` at the end, as the
+# workspace's. It also makes a stable cargo stop at this manifest, before
+# it builds anything, with an error that says nightly is needed.
+cargo-features = ["profile-rustflags"]
+
+# **The package is `baud`, so `cargo install baud` installs the `baud`
+# binary.** The directory keeps its name, `crates/baud-app/`.
+[package]
+name = "baud"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license = "CC-BY-NC-SA-4.0 AND Apache-2.0 AND CC-BY-4.0 AND MIT AND OFL-1.1 AND Unlicense AND X11"
+repository.workspace = true
+description.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["terminal", "terminal-emulator", "vt100", "xterm", "macos"]
+categories = ["command-line-utilities"]
+# What crates.io gets: the source, what the build reads, the licence and
+# the notices its third-party files need (`cargo xtask publish`).
+# The tests and their fixtures stay in the repository.
+include = ["/src/", "/build.rs", "/config.toml.example", "/README.md", "/LICENSE", "/NOTICE", "/LICENSES/", "/terminfo/", "/assets/", "/fonts/built/", "/fonts/stix-two-math/", "/fonts/symbols-nerd-font/"]
+# `cargo run` at the workspace root runs `baud`, the one binary; the rest is
+# part of the tests. The root manifest's `default-members` makes it build
+# what the bundle ships; this names the binary should the package grow a
+# second. `baud_is_the_only_binary_and_the_default`
+# (`crates/baud-core/tests/docs.rs`) holds both.
+default-run = "baud"
+
+[dependencies]
+# **`default` by name, which is `neon-scan`: the scan aarch64 runs.** The
+# workspace takes `baud-core`, `baud-render` and `baud-present-macos`
+# without their defaults, so the binary is the crate that says which scan
+# runs. It names the core's `default` rather than `neon-scan`, and turns on
+# none of the libraries' own, so cargo resolves the features the app had: a
+# different set is a different `-C metadata`, and the machine code moves
+# with it.
+baud-core = { workspace = true, features = ["alloc", "default"] }
+baud-domain = { workspace = true, features = ["alloc"] }
+baud-font = { workspace = true }
+baud-render = { workspace = true }
+
+# The cache probe, for `host_geometry`: the per-arch crate with `std` on, so
+# it may ask the kernel. Target-gated the way `baud-core` gates its scans.
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+baud-isa = { workspace = true }
+baud-isa-aarch64 = { workspace = true, features = ["std"] }
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+baud-isa = { workspace = true }
+baud-isa-x86-64 = { workspace = true, features = ["std"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+baud-present-wayland = { workspace = true }
+baud-present-vulkan = { workspace = true }
+baud-wayland = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+baud-present-macos = { workspace = true }
+# The main queue, for the one AppKit call a responder callback cannot make in
+# place: a program's page width resizes the window after the callback that
+# asked returns (`widen_later`). The version `baud-present-macos` takes, with
+# only what `MainThreadBound` needs.
+dispatch2 = { version = "0.3", default-features = false, features = ["std", "objc2"] }
+macos-liquid-glass = { version = "1.0.0-beta.9", features = ["drawable"] }
+
+# The `demo` example's search of its session's bytes (`xtask::forbidden`).
+# By path alone, so cargo leaves it out of what it publishes: `include`
+# leaves `examples/` out and a published crate's verify builds no example.
+[dev-dependencies]
+xtask = { path = "../xtask" }
+# The ufo trail's saucer posed directly, for the UFO logo film, a test
+# (`src/ufo_film.rs`): a dev-dependency's feature, so the app as built and
+# published leaves it out.
+baud-render = { workspace = true, features = ["posed-saucer"] }
+
+# The `demo` example's desktop calls: the window list, the frontmost
+# application, the key and wheel events, the Screen Recording check
+# (CGPreflightScreenCaptureAccess, in CGWindow), the session and the main
+# display it refuses on and the Spaces preference it reads. Each is already in the
+# lock at this version, built with its default features for
+# `macos-liquid-glass`, so these lists add nothing to what is compiled.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+# The app's tests, and the app as a test runs it, build their pipelines
+# from the suite's binary archive (`suite-archive`), and the event rig's
+# rows fail or hold its frames through the fault seam (`gpu-fault`):
+# dev-dependencies' features, so the app as built and published leaves
+# both out.
+baud-present-macos = { workspace = true, features = ["suite-archive", "gpu-fault"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSRunningApplication", "NSWorkspace"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFArray", "CFCGTypes", "CFData", "CFDate", "CFDictionary", "CFError", "CFNumber", "CFPropertyList", "CFRunLoop", "CFString"] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGDirectDisplay", "CGDisplayConfiguration", "CGEvent", "CGEventSource", "CGEventTypes", "CGRemoteOperation", "CGSession", "CGWindow"] }
+
+[features]
+# **A ceiling arm for row 11, off.** `present` returns early when nothing
+# is pending, but only after resolving the renderer to the terminal, the
+# selection's share of the view, the scrollbar's thumb and the surface's
+# size -- and that preamble is what an idle tick pays. This arm returns
+# at the top instead. Incorrect by construction: the preamble is also
+# where a geometry change is noticed and the presenter rebuilt, so an
+# arm that skips it cannot resize. Exact on an idle screen, which is the
+# only thing it is for.
+ceiling-idle-skip = []
+
+# **The take's journal, off** (`src/take.rs`): what a filmed take of the
+# window showed and when, for the demo's `--record NAME.mp4` and its
+# sound. Off, `BAUD_TAKE` is never read, so a shipped baud cannot be made
+# to journal; on, it changes nothing drawn -- the journal only reads.
+take = []
+
+# **The effect probe, test-only** (`crates/baud-present-macos/src/probe.rs`):
+# every effect is recorded where it runs instead of made, and the binary
+# takes `--event-rig`, the child `tests/event_rig.rs` runs. Never in a
+# build that ships.
+effect-probe = ["baud-present-macos/effect-probe"]
+
+# **The held slide, test-only** (`src/timed.rs`, `SlideClock`): with
+# `BAUD_SLIDE_HOLD=1` a screen switch's slide stays at its start, where
+# the frame shown is the one kept at the switch, so a capture can read
+# that frame (`tools/scripts/linux-kept-frame.sh`). Off, the variable is never
+# read. Never in a build that ships.
+slide-hold = []
+
+# The binary is `baud`, as the package is.
+[[bin]]
+name = "baud"
+path = "src/main.rs"
+
+# **The README's session, played in baud's window** (`crates/baud-app/examples/demo.rs`):
+# `cargo run --release --example demo`. Its tests run with the package's,
+# which an example's do not unless it says so. Not packaged: `include`
+# leaves `examples/` out.
+[[example]]
+name = "demo"
+test = true
+
+# **The tour's opener for a clicked path** (`crates/baud-app/examples/demo-open.rs`):
+# a GIF to `kitten icat --hold`, the rest to helix, by `exec`, no shell.
+# Its tests run with the package's.
+[[example]]
+name = "demo-open"
+test = true
+
+# **The event rig** (`tests/event_rig.rs`): every effect baud asks of the
+# OS runs in a turn of its own, checked in a child `baud` built with the
+# test-only `effect-probe` feature, so the test is built only with it.
+# `test:unit` runs it on macOS, in `release-probe`'s own directory.
+[[test]]
+name = "event_rig"
+path = "tests/event_rig.rs"
+required-features = ["effect-probe"]
+
+# **The About window, built and never shown** (`tests/about_window.rs`):
+# AppKit views are main-thread-only and libtest runs each test on a thread
+# of its own, so the test is its own `main` and answers nextest's `--list`
+# itself.
+[[test]]
+name = "about_window"
+path = "tests/about_window.rs"
+harness = false
+
+# **The titlebar mark in real windows** (`tests/titlebar_mark.rs`): its own
+# `main`, for the same reason.
+[[test]]
+name = "titlebar_mark"
+path = "tests/titlebar_mark.rs"
+harness = false
+
+# **`cargo install baud` builds the binary the repository measures.** Cargo
+# reads a profile only from the root manifest. In the workspace that is
+# the root `Cargo.toml`, and cargo warns that this copy is ignored; the
+# published crate is built as its own root, and there this copy is the
+# profile: whole-program LTO, one codegen unit and the 64-byte function
+# alignment, which a crate built without it lacks. `cargo xtask publish`
+# holds it equal to the workspace's, and `build.rs` sets the macOS floor.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+rustflags = ["-C", "llvm-args=-align-all-functions=6"]

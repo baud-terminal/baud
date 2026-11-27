@@ -1,1 +1,0 @@
-../../LICENSES/libjpeg-turbo-README-ijg.txt

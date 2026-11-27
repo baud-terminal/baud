@@ -1,7 +1,7 @@
 //! A variable font whose glyphs need more scratch than a renderer's budget,
 //! with a .notdef that has ink.
 //!
-//! Writes `baud-font/tests/var/budget-cases.ttf`. A renderer draws a varied
+//! Writes `crates/baud-font/tests/var/budget-cases.ttf`. A renderer draws a varied
 //! glyph through scratch, one point a slot, and caps the scratch at
 //! HarfBuzz's HB_GLYF_MAX_POINTS (200,000); a glyph past the cap cannot be
 //! drawn, and TUS 5.3 leaves such a character "some placeholder", so the
@@ -48,7 +48,7 @@
 //! by even deltas at the extremes. lsb is xMin. heavy's 240,000 points do
 //! not fit maxp's 16-bit totals, so maxp's are written as values,
 //! saturated. Deterministic: the head timestamps are fixed. baud's own
-//! font, under the repository's licence (`baud-font/tests/licences.rs`
+//! font, under the repository's licence (`crates/baud-font/tests/licences.rs`
 //! lists it).
 
 use write_fonts::TableWriter;
@@ -305,7 +305,7 @@ pub fn fonts() -> Vec<(&'static str, Vec<u8>)> {
         ),
         (b"CPAL", cpal_v0(&[(0xFF, 0, 0, 0xFF), (0, 0, 0xFF, 0xFF)])),
     ]);
-    vec![("baud-font/tests/var/budget-cases.ttf", font)]
+    vec![("crates/baud-font/tests/var/budget-cases.ttf", font)]
 }
 
 #[cfg(test)]

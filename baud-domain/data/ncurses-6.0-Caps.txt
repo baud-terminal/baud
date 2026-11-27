@@ -1,1 +1,0 @@
-../../docs/research/sources/terminfo/ncurses-6.0-Caps

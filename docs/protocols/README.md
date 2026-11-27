@@ -4,11 +4,11 @@ One document per protocol level, mirroring the code and the tests:
 
 | protocol | implementation | tests | doc |
 |---|---|---|---|
-| VT52 | `baud-core/src/vt52.rs`, `baud-domain/src/vt/vt52.rs` | `baud-core/tests/vt52/` | [vt52.md](vt52.md) |
-| VT100 / ANSI | `baud-core/src/{write,ops,paint}.rs` | `baud-core/tests/vt100/` | [vt100.md](vt100.md) |
-| VT220 | `baud-core/src/dcs.rs`, `baud-core/src/write.rs` | `baud-core/tests/vt220/` | [vt220.md](vt220.md) |
-| VT420 | `baud-core/src/ops.rs` | `baud-core/tests/vt420/` | [vt420.md](vt420.md) |
-| xterm | `baud-core/src/osc.rs`, `baud-core/src/ops.rs` | `baud-core/tests/xterm/` | [xterm.md](xterm.md) |
+| VT52 | `crates/baud-core/src/vt52.rs`, `crates/baud-domain/src/vt/vt52.rs` | `crates/baud-core/tests/vt52/` | [vt52.md](vt52.md) |
+| VT100 / ANSI | `crates/baud-core/src/{write,ops,paint}.rs` | `crates/baud-core/tests/vt100/` | [vt100.md](vt100.md) |
+| VT220 | `crates/baud-core/src/dcs.rs`, `crates/baud-core/src/write.rs` | `crates/baud-core/tests/vt220/` | [vt220.md](vt220.md) |
+| VT420 | `crates/baud-core/src/ops.rs` | `crates/baud-core/tests/vt420/` | [vt420.md](vt420.md) |
+| xterm | `crates/baud-core/src/osc.rs`, `crates/baud-core/src/ops.rs` | `crates/baud-core/tests/xterm/` | [xterm.md](xterm.md) |
 
 Each says what the level is, what baud implements of it, what it declines and
 why, and which primary sources the claims rest on.
@@ -21,7 +21,7 @@ protocol from `xterm`; it is the same one with a different colour capability
 declared. There is therefore no implementation per `$TERM` value, and there
 should not be: there is one parser, and a profile is a question asked of it.
 
-`baud-core/tests/conformance/` asks that question mechanically. For each
+`crates/baud-core/tests/conformance/` asks that question mechanically. For each
 profile it replays every *output* capability from the ncurses entry and
 requires that nothing was recognised and dropped:
 

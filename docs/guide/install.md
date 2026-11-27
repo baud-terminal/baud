@@ -51,7 +51,7 @@ Clone the repository with git and build from the clone, with
 ```sh
 git clone https://github.com/baud-terminal/baud
 cd baud
-devenv shell -- scripts/bundle-macos.sh
+devenv shell -- tools/scripts/bundle-macos.sh
 ```
 
 This leaves `baud.app` in `target/`. Open it, or drag it to
@@ -133,7 +133,7 @@ text scaling, so text is larger than the same `font_size` on the Mac.
 runs it too. Every check runs locally: baud has no hosted CI.
 `devenv tasks run test:x86-avx2` runs the checks of the AVX2 scanner. They
 need an x86_64 Linux whose `/proc/cpuinfo` lists `avx2`, and they refuse to
-run on any other host. `scripts/check-fresh-shell.sh` starts the dev shell
+run on any other host. `tools/scripts/check-fresh-shell.sh` starts the dev shell
 the way a first run does, in a new clone and in a tree with no `.git`; it
 needs the network, so `devenv test` does not run it.
 [MEASUREMENTS.md](../../MEASUREMENTS.md) says how each benchmark is run.

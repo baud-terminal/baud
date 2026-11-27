@@ -1,4 +1,4 @@
-//! Writes `baud-font/tests/var/normalize.txt`; see the crate's docs and
+//! Writes `crates/baud-font/tests/var/normalize.txt`; see the crate's docs and
 //! `baud_oracle::oracle::var`.
 
 fn main() -> std::process::ExitCode {

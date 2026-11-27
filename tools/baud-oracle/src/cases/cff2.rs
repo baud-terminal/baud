@@ -1,7 +1,7 @@
 //! A CFF2 font built to reach what the real CFF2 fixture never does.
 //!
-//! Writes `baud-font/tests/var/cff2-cases.otf`. Source Code VF
-//! (`baud-font/tests/fonts/SourceCodeVF-Upright.otf`) and SFIndia carry no
+//! Writes `crates/baud-font/tests/var/cff2-cases.otf`. Source Code VF
+//! (`crates/baud-font/tests/fonts/SourceCodeVF-Upright.otf`) and SFIndia carry no
 //! hints, no hintmask, no flex, no global subroutines, one Font DICT, one
 //! axis and no Private DICT vsindex; this font has all of those, so
 //! HarfBuzz's drawing of it (the `cff2` oracle, `cff2-outlines.txt`)
@@ -503,5 +503,5 @@ pub fn fonts() -> Vec<(&'static str, Vec<u8>)> {
             ])),
         ),
     ]);
-    vec![("baud-font/tests/var/cff2-cases.otf", font)]
+    vec![("crates/baud-font/tests/var/cff2-cases.otf", font)]
 }

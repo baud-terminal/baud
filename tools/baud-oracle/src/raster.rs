@@ -1,4 +1,4 @@
-//! **FreeType as the rasterisation oracle for `baud-font/tests/raster.rs`**:
+//! **FreeType as the rasterisation oracle for `crates/baud-font/tests/raster.rs`**:
 //! every glyph of one face at the requested pixel sizes, through FreeType's
 //! unhinted smooth rasteriser (`FT_LOAD_NO_HINTING | FT_LOAD_TARGET_NORMAL`,
 //! `[[source: freetype-ftgrays]]`), each bitmap printed with the origin

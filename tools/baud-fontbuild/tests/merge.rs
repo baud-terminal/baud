@@ -14,10 +14,10 @@ use common::{EPOCH, noto_vf, read};
 
 fn stage(style: &str) -> Vec<u8> {
     let base = read(&format!(
-        "baud-app/fonts/jetbrains-mono/JetBrainsMono-{style}.ttf"
+        "crates/baud-app/fonts/jetbrains-mono/JetBrainsMono-{style}.ttf"
     ));
     let src = String::from_utf8(read(&format!(
-        "baud-app/fonts/glyphs/languages/hebrew/stage/{style}.txt"
+        "crates/baud-app/fonts/glyphs/languages/hebrew/stage/{style}.txt"
     )))
     .unwrap();
     build(&base, &src).unwrap()
@@ -38,7 +38,7 @@ fn every_style_merges_into_the_committed_face() {
     ] {
         let m = merge(&stage(style), n, style, EPOCH).unwrap_or_else(|e| panic!("{style}: {e}"));
         assert_eq!((m.kept, m.code_points), (783, 225), "{style}");
-        let committed = read(&format!("baud-app/fonts/built/{style}.ttf"));
+        let committed = read(&format!("crates/baud-app/fonts/built/{style}.ttf"));
         assert!(m.font == committed, "{style}: not the committed file");
         let r = reach(&m.font).unwrap();
         assert!(r.bytes_only.is_empty(), "{style}: {:?}", r.bytes_only);

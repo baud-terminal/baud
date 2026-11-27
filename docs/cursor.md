@@ -19,7 +19,7 @@ trail = "plasma"  # plasma | fire | lightning | ice | ufo | orb | liquid | quad 
 and a top-level key below it is read as the section's. `true` reads as the
 default, `trail = "plasma"`, and `false` as `trail = "off"`, so a config written
 when the key was a switch reads as it did.
-[config.toml.example](../config.toml.example) documents every key.
+[docs/config.toml.example](config.toml.example) documents every key.
 
 ## The cursor's colour
 
@@ -55,7 +55,7 @@ it.
 **On any other page**, a theme file's whatever its colour, or one a program sets
 with `OSC 11` in a colour other than those four, the amber is chosen against the
 page drawn, and the code computes it
-(`BaudCursor::on`, `baud-render/src/color.rs`): the logo's `#F4A32C` where it
+(`BaudCursor::on`, `crates/baud-render/src/color.rs`): the logo's `#F4A32C` where it
 reads at 4.5:1 against the page, and elsewhere that amber with its OKLCH
 lightness alone stepped away from the page by 0.0001 at a time -- its hue held,
 as much of its chroma as sRGB keeps, each step rounded to bytes -- to the first
@@ -88,7 +88,7 @@ and a trail in the text's colour. A colour set in the config is drawn as set.
 Every trail in the amber was counted for WCAG 2.3.1's flashes on the frames
 baud's CPU path draws, across a 64 by 20 cell window at 60 frames a second,
 one full pass and two repeats at once, on both themes
-(`baud-bench/tests/trail_flashes.rs`). Each is under the general and red
+(`crates/baud-bench/tests/trail_flashes.rs`). Each is under the general and red
 flash thresholds on both of the census's readings: the most that flashes
 more than three times a second is 24 square points, the light theme's
 liquid, of the 21,824 allowed, and 346 on the stricter chained reading. None
@@ -430,21 +430,21 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
 
 ## How the clips were made
 
-`scripts/trail-clips.sh` records them, from a release build:
+`tools/scripts/trail-clips.sh` records them, from a release build:
 
 ```sh
-cargo build --release -p baud && scripts/trail-clips.sh
+cargo build --release -p baud && tools/scripts/trail-clips.sh
 ```
 
 For each trail it launches baud at an 80x24 grid with a config of its own --
 the built-in fonts at 16 pt (Menlo when the committed clips were recorded;
 the embedded JetBrains Mono since it became the default), a
 steady block cursor and that trail,
-nothing read from `~/.config` -- and runs `scripts/trail-demo.sh` in it, which
+nothing read from `~/.config` -- and runs `tools/scripts/trail-demo.sh` in it, which
 makes six moves 1.15 s apart: right, down, left, up, then the two diagonals.
-`scripts/trail-record.swift`, in its window form, records baud's window
+`tools/scripts/trail-record.swift`, in its window form, records baud's window
 alone through ScreenCaptureKit at up to 120 frames a second, and
-`scripts/trail-still.swift` takes the still from the diagonal.
+`tools/scripts/trail-still.swift` takes the still from the diagonal.
 
 It checks what it made rather than trusting it. baud has to have read the
 config without a complaint, so a clip labelled "quad" cannot be the default

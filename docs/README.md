@@ -16,7 +16,7 @@ them.
 | [guide/performance.md](guide/performance.md) | how fast baud is, what was measured, and what was not |
 | [cursor.md](cursor.md) | the cursor trails, a still of each; [cursor.html](cursor.html) plays them side by side from a checkout |
 | [guide/licensing.md](guide/licensing.md) | what the licence allows, a commercial licence, and sponsoring |
-| [../config.toml.example](../config.toml.example) | the config file baud writes when it finds none, every key commented out at its default and explained |
+| [config.toml.example](config.toml.example) | the config file baud writes when it finds none, every key commented out at its default and explained |
 | [../SECURITY.md](../SECURITY.md) | what baud trusts, what it refuses, and how to report a vulnerability |
 
 ## Embed the core
@@ -55,7 +55,7 @@ them.
 xterm's `ctlseqs`, Paul Flo Williams' DEC ANSI parser, ECMA-48, the VT510
 programmer reference, and the papers behind the SIMD and FSM work. Each is
 recorded in [`MANIFEST.toml`](research/sources/MANIFEST.toml) with a SHA-256,
-and `scripts/check-sources.sh` re-hashes them, so a citation to a key the
+and `tools/scripts/check-sources.sh` re-hashes them, so a citation to a key the
 manifest does not carry — or one recorded as `gated`, meaning never obtained —
 fails the build.
 
@@ -99,31 +99,31 @@ their entries' titles:
 | AZ | a window in the background: the unfocused cursor, the inactive selection, theme cursor colours |
 | BE | the Linux app under a pointer: the virtual pointer and keyboard protocols a headless sway takes, and what the app did there; and what a Linux frame copies and damages on two sways |
 | BG | where baud-font's code came from: HarfBuzz 10.2.0's and 12.3.0's hb-set-digest.hh and the ttf-parser 0.25.1 files baud-font's code is read against |
-| BL | the bell: what a `BEL` does in a macOS window -- the alert sound, an attention request, a raise (`baud-app/src/bell.rs` cites them) |
-| BU | bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click (`baud-app/src/link.rs` cites them) |
-| CR | the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (`baud-app/src/reload.rs` cites them) |
-| WN | more than one window: a new window, a window's close, the last window closed, and the Dock's reopen (`baud-app/src/windows.rs` cites them) |
-| GP | the brand pictures: GitHub's picture limits, the five-unit code the link picture's tape spells, the tape's hole sizes, and the font release the letters are traced from (`tools/baud-pictures` and `assets/logo/README.md` cite them) |
-| SP | the shell prompt baud ships: starship 1.27.0's configuration schema, which `assets/starship/baud.toml` is checked against (`baud-app/tests/starship_preset.rs` cites it) |
-| FM | the tour film's pieces: the wallpaper photograph's licence, CC0, with CC0's legal code, and the licences of the Noto emoji, CJK and other fonts the demo fetches to draw its scenes (`assets/demo/LICENSES.md` cites them) |
-| TB | the title bar's double-click: the Desktop & Dock setting's four actions, the defaults search list it is read from, how a zoom finds its frame, and how Chromium, Firefox and iTerm2 read the setting and call Fill (`baud-present-macos/src/container.rs` and `baud-app/src/sdk_gates.rs` cite them) |
+| BL | the bell: what a `BEL` does in a macOS window -- the alert sound, an attention request, a raise (`crates/baud-app/src/bell.rs` cites them) |
+| BU | bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click (`crates/baud-app/src/link.rs` cites them) |
+| CR | the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (`crates/baud-app/src/reload.rs` cites them) |
+| WN | more than one window: a new window, a window's close, the last window closed, and the Dock's reopen (`crates/baud-app/src/windows.rs` cites them) |
+| GP | the brand pictures: GitHub's picture limits, the five-unit code the link picture's tape spells, the tape's hole sizes, and the font release the letters are traced from (`tools/baud-pictures` and `docs/assets/logo/README.md` cite them) |
+| SP | the shell prompt baud ships: starship 1.27.0's configuration schema, which `docs/assets/starship/baud.toml` is checked against (`crates/baud-app/tests/starship_preset.rs` cites it) |
+| FM | the tour film's pieces: the wallpaper photograph's licence, CC0, with CC0's legal code, and the licences of the Noto emoji, CJK and other fonts the demo fetches to draw its scenes (`docs/assets/demo/LICENSES.md` cites them) |
+| TB | the title bar's double-click: the Desktop & Dock setting's four actions, the defaults search list it is read from, how a zoom finds its frame, and how Chromium, Firefox and iTerm2 read the setting and call Fill (`crates/baud-present-macos/src/container.rs` and `crates/baud-app/src/sdk_gates.rs` cite them) |
 | WF | the window's facts: the notifications that change a window's frame, its screen, its backing scale and whether it is minimized, which XTWINOPS's reports answer from |
 
 The table is held to the manifest by `every_source_group_is_in_the_index`
-(`baud-core/tests/docs.rs`), which fails when a group has no row.
+(`crates/baud-core/tests/docs.rs`), which fails when a group has no row.
 
 ## The rule these documents follow
 
 A claim is either mechanically checked or it is not made.
 
 - `vt-coverage.md`'s **done** rows are checked by
-  `baud-core/tests/coverage.rs`.
-- The embedding guide's Rust example is `baud-core/examples/quickstart.rs`,
-  compiled by the gate, with `baud-core/tests/embedding.rs` asserting they
+  `crates/baud-core/tests/coverage.rs`.
+- The embedding guide's Rust example is `crates/baud-core/examples/quickstart.rs`,
+  compiled by the gate, with `crates/baud-core/tests/embedding.rs` asserting they
   have not drifted.
-- Every source citation is checked by `scripts/check-sources.sh`, which
+- Every source citation is checked by `tools/scripts/check-sources.sh`, which
   re-hashes the file behind each key.
-- Type-system claims are checked by `audit_all.sh`.
+- Type-system claims are checked by `tools/audit_all.sh`.
 
 ## How these documents are kept true
 
@@ -132,15 +132,15 @@ the build instead:
 
 | check | what it holds |
 |---|---|
-| `baud-core/tests/coverage.rs` | every **done** row names an operation some test mentions; no row is `parsed` or `todo`, bold or bare, every `partial` row names its gap, and the rows at `partial` equal the counts `vt-coverage.md` and `input-coverage.md` state; **every `out` row states a reason**; the operation counts quoted in README and MEASUREMENTS.md match the table |
-| `baud-core/tests/conformance/enumerated.rs` | every **done** row's sequence, synthesised from the table and fed to a real `Term`, reaches a handler rather than being counted unsupported |
-| `baud-core/tests/conformance/spec_inventory.rs` | the reverse direction: every plain CSI final, every CSI *form* (markers and intermediates), every `ESC Fe`, **every `ESC` form with an intermediate — including all four G-slots × every charset final**, every `OSC Ps` and every `DCS` form that **`[[source: ctlseqs]]` defines** is either acted on or counted; and a final byte the specification gives two *arities* means two things — so an operation baud never enumerated cannot be silently swallowed |
-| `baud-core/tests/encoding/graphemes.rs` | all 766 cases of Unicode's `GraphemeBreakTest.txt`, and the generated tables still match the pinned data |
-| `baud-core/tests/encoding/width.rs` | the generated width tables still match the pinned `EastAsianWidth.txt` and general category |
-| `baud-core/tests/state_fields.rs` | every named field of every `baud-core` struct is read by code, not only assigned, so a mode the terminal records is one it acts on and a counter it keeps is one it reports; `rustc` does not check this, because it counts an assignment as a use |
-| `baud-core/tests/docs.rs` | every relative link resolves; every repository path named in backticks exists; every test named as evidence exists; every manifest group has a row in the index above |
-| `scripts/check-sources.sh` | every `[[source: …]]` citation — in the docs **and** in the code — resolves to a document pinned by SHA-256 in `MANIFEST.toml`, and every learn.microsoft.com page there carries the SHA-256 of its article text, which `cargo xtask page-text` fetches and compares on demand |
-| `xtask/tests/no_python.rs` | `cargo xtask no-python`: no tracked file is Python or runs it, in a script, a shebang, a nix attribute, a `Command::new` or a recipe in a document; each form is planted and red, and the repository itself passes |
-| `xtask/tests/features.rs` | `guide/features.md` is what `cargo xtask features` writes from `docs/data/features.toml`; every proof path and test a feature names exists; a feature marked built names a test, a done coverage row or a measurement; the data holds no field the generator does not read |
-| `baud-core/tests/embedding.rs` | the usage example in `docs/embedding.md` is compiled, and its block matches the example's body line for line, apart from blank lines, `use` lines and the example's `println!` |
-| `baud-app/src/config.rs` | `docs/guide/configuration.md` lists every key `Config::apply` matches and no other; `config.toml.example` names every key the reader acts on and no retired one, each commented out and, uncommented alone, read as its default but for a marked list of examples, and the file baud writes from it reads as the defaults with nothing said (`baud-app/build.rs` stops on a line in force, a key with no comment, a key or section given twice or a section out of place); `docs/cursor.md` and `docs/cursor.html` show every trail |
+| `crates/baud-core/tests/coverage.rs` | every **done** row names an operation some test mentions; no row is `parsed` or `todo`, bold or bare, every `partial` row names its gap, and the rows at `partial` equal the counts `vt-coverage.md` and `input-coverage.md` state; **every `out` row states a reason**; the operation counts quoted in README and MEASUREMENTS.md match the table |
+| `crates/baud-core/tests/conformance/enumerated.rs` | every **done** row's sequence, synthesised from the table and fed to a real `Term`, reaches a handler rather than being counted unsupported |
+| `crates/baud-core/tests/conformance/spec_inventory.rs` | the reverse direction: every plain CSI final, every CSI *form* (markers and intermediates), every `ESC Fe`, **every `ESC` form with an intermediate — including all four G-slots × every charset final**, every `OSC Ps` and every `DCS` form that **`[[source: ctlseqs]]` defines** is either acted on or counted; and a final byte the specification gives two *arities* means two things — so an operation baud never enumerated cannot be silently swallowed |
+| `crates/baud-core/tests/encoding/graphemes.rs` | all 766 cases of Unicode's `GraphemeBreakTest.txt`, and the generated tables still match the pinned data |
+| `crates/baud-core/tests/encoding/width.rs` | the generated width tables still match the pinned `EastAsianWidth.txt` and general category |
+| `crates/baud-core/tests/state_fields.rs` | every named field of every `baud-core` struct is read by code, not only assigned, so a mode the terminal records is one it acts on and a counter it keeps is one it reports; `rustc` does not check this, because it counts an assignment as a use |
+| `crates/baud-core/tests/docs.rs` | every relative link resolves; every repository path named in backticks exists; every test named as evidence exists; every manifest group has a row in the index above |
+| `tools/scripts/check-sources.sh` | every `[[source: …]]` citation — in the docs **and** in the code — resolves to a document pinned by SHA-256 in `MANIFEST.toml`, and every learn.microsoft.com page there carries the SHA-256 of its article text, which `cargo xtask page-text` fetches and compares on demand |
+| `crates/xtask/tests/no_python.rs` | `cargo xtask no-python`: no tracked file is Python or runs it, in a script, a shebang, a nix attribute, a `Command::new` or a recipe in a document; each form is planted and red, and the repository itself passes |
+| `crates/xtask/tests/features.rs` | `guide/features.md` is what `cargo xtask features` writes from `docs/data/features.toml`; every proof path and test a feature names exists; a feature marked built names a test, a done coverage row or a measurement; the data holds no field the generator does not read |
+| `crates/baud-core/tests/embedding.rs` | the usage example in `docs/embedding.md` is compiled, and its block matches the example's body line for line, apart from blank lines, `use` lines and the example's `println!` |
+| `crates/baud-app/src/config.rs` | `docs/guide/configuration.md` lists every key `Config::apply` matches and no other; `docs/config.toml.example` names every key the reader acts on and no retired one, each commented out and, uncommented alone, read as its default but for a marked list of examples, and the file baud writes from it reads as the defaults with nothing said (`crates/baud-app/build.rs` stops on a line in force, a key with no comment, a key or section given twice or a section out of place); `docs/cursor.md` and `docs/cursor.html` show every trail |

@@ -22,7 +22,7 @@ use crate::{BINDING, FREETYPE, HARFBUZZ, Oracle, contours_hb, fmt, ft, ft_row, h
 /// `bearings.txt`.
 pub const ORACLE: Oracle = Oracle {
     name: "bearing",
-    file: "baud-font/tests/var/bearings.txt",
+    file: "crates/baud-font/tests/var/bearings.txt",
     lines,
 };
 
@@ -58,7 +58,7 @@ pub fn start(font: &FontRef, glyph: GlyphId) -> i32 {
 fn lines(root: &Path) -> Vec<String> {
     let lib = ft::Library::new();
     crate::pinned(Some(&lib));
-    let dir = root.join("baud-font/tests/var");
+    let dir = root.join("crates/baud-font/tests/var");
     let mut out = vec![
         format!(
             "# font  glyph  name  wght (or - for the default)  engine  contours  (HarfBuzz {HARFBUZZ}, {BINDING}, FreeType {FREETYPE})"

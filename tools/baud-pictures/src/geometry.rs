@@ -3,8 +3,8 @@
 //! `baud-pictures geometry <walls.png> <out dir>`
 //!
 //! `walls.png` is the logo film's canvas of the held lockup on the dark
-//! half, 840 by 580, its block shown (`baud-app/src/logo_film.rs`):
-//! `assets/readme/logo-walls.png`, the drawing the plasma's path was
+//! half, 840 by 580, its block shown (`crates/baud-app/src/logo_film.rs`):
+//! `docs/assets/readme/logo-walls.png`, the drawing the plasma's path was
 //! chosen against. Writes into `out dir`, each 840 by 580 row by row:
 //!
 //! - `sdf.f32`: the signed distance to the glyphs' outline in canvas

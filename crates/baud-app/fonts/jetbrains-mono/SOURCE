@@ -1,0 +1,18 @@
+JetBrains Mono 2.304, Regular, Bold, Italic and Bold Italic. The Italic and Bold Italic
+are baud's embedded faces as they are. The Regular and Bold are the base that
+tools/scripts/build-fonts.sh builds crates/baud-app/fonts/built/ from; the built files are what is
+embedded in those two styles (built/FONTLOG.txt).
+
+Release:   JetBrains Mono v2.304
+Archive:   https://github.com/JetBrains/JetBrainsMono/releases/download/v2.304/JetBrainsMono-2.304.zip
+  sha256   6f6376c6ed2960ea8a963cd7387ec9d76e3f629125bc33d1fdcd7eb7012f7bbf
+Fonts:     fonts/ttf/JetBrainsMono-{Regular,Bold,Italic,BoldItalic}.ttf, unmodified
+  Regular: 273900 bytes, sha256 a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f
+  Bold: 277828 bytes, sha256 5590990c82e097397517f275f430af4546e1c45cff408bde4255dad142479dcb
+  Italic: 276840 bytes, sha256 9d0a1f7a708e6af183f1193b7e81d40da294f5c67682c085d8401c60aac8ded4
+  BoldItalic: 279832 bytes, sha256 4039d5ce0ed225bf9c8b2c8c6436290ae2f356b7e90d70fa666227238324aa3b
+Fetched:   2026-09-29
+
+OFL.txt and AUTHORS.txt are the archive's own, unmodified: SIL Open Font
+License 1.1, "Copyright 2020 The JetBrains Mono Project Authors", no
+Reserved Font Name. tools/scripts/bundle-macos.sh copies them into the bundle.

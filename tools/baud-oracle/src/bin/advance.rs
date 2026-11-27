@@ -1,4 +1,4 @@
-//! Writes `baud-font/tests/var/advances.txt`; see the crate's docs and
+//! Writes `crates/baud-font/tests/var/advances.txt`; see the crate's docs and
 //! `baud_oracle::oracle::advance`.
 
 fn main() -> std::process::ExitCode {

@@ -1,4 +1,4 @@
-//! **`baud-oracle shape-helpers`: what `scripts/gen-shape-fixtures.sh`
+//! **`baud-oracle shape-helpers`: what `tools/scripts/gen-shape-fixtures.sh`
 //! asked Python for**, between its `hb-shape` calls. hb-shape stays the
 //! oracle; these only prepare its input and label its output, and each is
 //! the port of the inline block it replaces, output for output:

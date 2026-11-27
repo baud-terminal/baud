@@ -52,12 +52,12 @@ rustc-ice-*.txt
 # it keeps the next one visible rather than silently ignored.
 $S/
 
-# The tour's MP4 and its timeline, which `--record assets/demo/tour.mp4`
+# The tour's MP4 and its timeline, which `--record docs/assets/demo/tour.mp4`
 # writes beside its committed record: the MP4 is uploaded, not kept here,
 # and an untracked file would make the next take's tree dirty.
 /assets/demo/tour.mp4
 /assets/demo/tour.timeline.tsv
-# Its two versions, which `scripts/demo-sound.sh` writes beside it, and the
+# Its two versions, which `tools/scripts/demo-sound.sh` writes beside it, and the
 # directory that run works in.
 /assets/demo/tour.silent.mp4
 /assets/demo/tour.clicks.mp4

@@ -18,18 +18,18 @@ let
   # `test:unit`'s test build and run, and with `--no-run` the warm process's
   # build: one string, so the two cannot build with different RUSTFLAGS or a
   # different profile, and the gate finds the watcher's artifacts current.
-  # `baud-bench/tests/warm.rs` holds both sites to it. Not `--no-fail-fast`,
+  # `crates/baud-bench/tests/warm.rs` holds both sites to it. Not `--no-fail-fast`,
   # which nextest refuses beside `--no-run`; `test:unit` adds it.
   unitBuild = "RUSTFLAGS='-D warnings' cargo nextest run --release --cargo-quiet ${scope}";
 
-  # **The event rig, macOS's** (`baud-app/tests/event_rig.rs`): every effect
+  # **The event rig, macOS's** (`crates/baud-app/tests/event_rig.rs`): every effect
   # baud asks of the OS runs in a turn of its own. It needs `baud` built
   # with the test-only `effect-probe` feature, so it is a build of its own,
   # under the gate's RUSTFLAGS, in `release-probe`'s directory (the
   # workspace Cargo.toml says why). `test:unit` runs it after the suite, and
   # the warm process builds it after the suite's build.
   rigBuild = "RUSTFLAGS='-D warnings' cargo nextest run --cargo-profile release-probe --cargo-quiet -p baud --features effect-probe --test event_rig";
-  # **A band's reserve, held to its count** (`baud-core/tests/band_reserve.rs`):
+  # **A band's reserve, held to its count** (`crates/baud-core/tests/band_reserve.rs`):
   # it needs `baud-core` built with the test-only `probe-band-pin` feature,
   # so it is a build of its own, as the rig is, on every host.
   pinBuild = "RUSTFLAGS='-D warnings' cargo nextest run --cargo-profile release-probe --cargo-quiet -p baud-core --features probe-band-pin,alloc --test band_reserve";
@@ -42,7 +42,7 @@ let
   # re-run after a small fix builds `--cargo-profile fast` in its own slot's
   # target directory, which cargo keys on that path, so a build here would
   # warm nothing it reads.
-  watch = "exec bash \"$DEVENV_ROOT/scripts/warm.sh\" watch ${lib.escapeShellArg warmBuild}";
+  watch = "exec bash \"$DEVENV_ROOT/tools/scripts/warm.sh\" watch ${lib.escapeShellArg warmBuild}";
   baconConfig = ''
     default_job = "watch"
     [jobs.watch]
@@ -80,7 +80,7 @@ let
   # builds does not go red, it goes absent.
   linuxTarget = "aarch64-unknown-linux-gnu";
   # The disassembler `test:x86-avx2` reads the AVX2 arm with. GNU objdump,
-  # whose AT&T output is what `scripts/x86-avx2.sh` matches; only Linux
+  # whose AT&T output is what `tools/scripts/x86-avx2.sh` matches; only Linux
   # builds it, since the script refuses every other host first.
   objdump =
     if pkgs.stdenv.hostPlatform.isLinux
@@ -139,10 +139,10 @@ in
     # A history rewrite runs from the shell as well.
     pkgs.git-filter-repo
     # The `warm` process watches the tree through watchexec
-    # (`scripts/warm.sh watch`).
+    # (`tools/scripts/warm.sh watch`).
     pkgs.watchexec
     # `kitten icat` for the live check that it draws under baud's default
-    # config (`baud-app/src/programs.rs`), which a machine without kitten
+    # config (`crates/baud-app/src/programs.rs`), which a machine without kitten
     # skips. kitty's package carries `kitten`.
     pkgs.kitty
     # The two watchers `devenv up` runs (`processes` below).
@@ -153,7 +153,7 @@ in
   # shell that opens none before its command
   # (`pty::tests::a_spawned_child_opens_its_controlling_terminal_by_dev_tty`).
   # macOS ships it at /bin/dash; a Linux host may have none.
-  # valgrind, for the deterministic counter gate (`scripts/perf-gate.sh`, run
+  # valgrind, for the deterministic counter gate (`tools/scripts/perf-gate.sh`, run
   # by `test:perf-gate`), which counts instructions and simulated cache
   # misses in the benches' timed loops through callgrind; nixpkgs marks it
   # broken on aarch64-darwin, and the gate runs on x86-64 Linux.
@@ -161,13 +161,13 @@ in
 
   # **The release test build, kept warm while you work.** `warm-run` runs a
   # watcher in the foreground that runs
-  # `test:unit`'s builds, `--no-run`, through `scripts/bounded` at nice 10,
+  # `test:unit`'s builds, `--no-run`, through `tools/scripts/bounded` at nice 10,
   # 2 s after the last save, so the gate finds nothing left to compile in this
   # checkout's `./target`. `warm-pause`
   # stops the build in flight and starts no other until `warm-resume`,
   # `warm-status` prints one line on the watcher, the pause and the build,
   # and every bench and timing example refuses to measure beside an unpaused
-  # watcher (`baud-bench/src/warm.rs`). `scripts/warm.sh` has the rest.
+  # watcher (`crates/baud-bench/src/warm.rs`). `tools/scripts/warm.sh` has the rest.
   #
   # **Not under `devenv test`**, which starts every process before it runs
   # `enterTest` and stops them all after (devenv 2.4.0, `test` in
@@ -181,8 +181,8 @@ in
   # for the benches' refusal beside a watcher. Each watcher runs ONE job
   # script, named by `BAUD_WATCH_JOB`, and its folder is `BAUD_WATCH`, both
   # set in the untracked `devenv.local.nix` (a bench refuses while that folder
-  # holds no `.paused`, baud-bench/src/warm.rs): it builds in its own target outside this tree,
-  # runs under `scripts/bounded`, honours a pause, never runs a Metal test,
+  # holds no `.paused`, crates/baud-bench/src/warm.rs): it builds in its own target outside this tree,
+  # runs under `tools/scripts/bounded`, honours a pause, never runs a Metal test,
   # and writes its result outside the tree. Unset, a watcher says so and
   # idles. bacon 3.26: headless, no `.bacon-locations` export, and a change
   # during a run waits for it to end (`wait_then_restart`), so a run is never
@@ -205,15 +205,15 @@ in
   scripts.warm-run.exec = watch;
 
   scripts.warm-status.exec = ''
-    bash "$DEVENV_ROOT/scripts/warm.sh" status
+    bash "$DEVENV_ROOT/tools/scripts/warm.sh" status
   '';
 
   scripts.warm-pause.exec = ''
-    bash "$DEVENV_ROOT/scripts/warm.sh" pause
+    bash "$DEVENV_ROOT/tools/scripts/warm.sh" pause
   '';
 
   scripts.warm-resume.exec = ''
-    bash "$DEVENV_ROOT/scripts/warm.sh" resume
+    bash "$DEVENV_ROOT/tools/scripts/warm.sh" resume
   '';
 
   # Development scripts
@@ -236,7 +236,7 @@ in
     treefmt --fail-on-change
   '';
 
-  # **`--all-targets`, because without it clippy sees neither `tests/` nor a
+  # **`--all-targets`, because without it clippy sees neither `tools/tests/` nor a
   # `#[cfg(test)] mod`.** The gate was green for as long as it has existed
   # while `cargo clippy --workspace --all-targets` carried 13 errors -- five
   # `format!`s with nothing to interpolate, two hand-rolled range tests, three
@@ -269,7 +269,7 @@ in
 
   scripts.dev-audit.exec = ''
     echo "Running the type-system audit..."
-    sh ./audit_all.sh
+    sh ./tools/audit_all.sh
   '';
 
   scripts.dev-ci.exec = ''
@@ -294,11 +294,11 @@ in
     echo "=== linux ==="
     cargo clippy --quiet -p baud --target ${linuxTarget} --all-targets -- -D warnings || { echo "FAILED: linux"; exit 1; }
     echo "=== sources ==="
-    bash ./scripts/check-sources.sh || { echo "FAILED: sources"; exit 1; }
+    bash ./tools/scripts/check-sources.sh || { echo "FAILED: sources"; exit 1; }
     echo "=== no-python ==="
     cargo xtask no-python || { echo "FAILED: no-python"; exit 1; }
     echo "=== audit ==="
-    sh ./audit_all.sh || { echo "FAILED: audit"; exit 1; }
+    sh ./tools/audit_all.sh || { echo "FAILED: audit"; exit 1; }
     echo "=== ALL PASSED ==="
   '';
 
@@ -322,10 +322,10 @@ in
   # **Vulkan for the GPU path's tests, on Linux**: the loader, which
   # `baud-present-vulkan` opens at run time, and the drivers of the pinned
   # Mesa alone, in place of the system's: lavapipe, its CPU Vulkan, so
-  # `baud-present-vulkan/tests/lavapipe.rs` runs on any Linux box, with a
-  # GPU or none, and the GPU drivers, so `scripts/linux-vulkan-radv.sh` finds
+  # `crates/baud-present-vulkan/tests/lavapipe.rs` runs on any Linux box, with a
+  # GPU or none, and the GPU drivers, so `tools/scripts/linux-vulkan-radv.sh` finds
   # the GPU through the pinned RADV. The vendor matrix
-  # (`baud-present-vulkan/tests/vendors.rs`) holds each driver to a
+  # (`crates/baud-present-vulkan/tests/vendors.rs`) holds each driver to a
   # committed row, which moves only when this pin is updated, never with a
   # host's own Mesa.
   // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
@@ -458,7 +458,7 @@ in
     # The gates the pushed commits need, on pre-push rather than pre-commit.
     # Every check is local: no hosted service runs any of them.
     #
-    # `scripts/pre-push.sh` runs what `cargo xtask test-scope` names for the
+    # `tools/scripts/pre-push.sh` runs what `cargo xtask test-scope` names for the
     # pushed range (`cargo xtask scoped-test`): the gates that build nothing,
     # then clippy, tests, the rig and the other builds only for the crates
     # and test binaries the change reaches. A change it cannot scope, a new
@@ -470,7 +470,7 @@ in
     dev-ci = {
       enable = true;
       name = "dev-ci (the gates the pushed commits need)";
-      entry = "bash ./scripts/pre-push.sh";
+      entry = "bash ./tools/scripts/pre-push.sh";
       stages = [ "pre-push" ];
       pass_filenames = false;
       always_run = true;
@@ -520,7 +520,7 @@ in
     };
 
     # --release is for speed now, not correctness. The throughput floors this
-    # comment once cited (baud-core/tests/perf_floor.rs) left with baud-core2
+    # comment once cited (crates/baud-core/tests/perf_floor.rs) left with baud-core2
     # (108f7ef), and the last wall-clock bound became a bench on 2026-09-22, so
     # nothing in the suite fails on the profile. A debug run takes minutes where
     # release takes seconds.
@@ -560,13 +560,13 @@ in
     # The source-provenance gate. A design claim that cites a paper nobody
     # fetched is worse than one with no citation, because it looks checked.
     "test:sources" = {
-      exec = "bash ./scripts/check-sources.sh";
+      exec = "bash ./tools/scripts/check-sources.sh";
       after = [ "test:fmt" ];
     };
 
     # No tracked file is Python or runs it: nothing here declares an
     # interpreter any more, so a script that calls one again would work on
-    # the machine it was written on and nowhere else. `xtask/src/no_python.rs`
+    # the machine it was written on and nowhere else. `crates/xtask/src/no_python.rs`
     # says what it reads. A plain edge, as sources has: it needs no other gate.
     "test:no-python" = {
       exec = "cargo xtask no-python";
@@ -575,9 +575,9 @@ in
 
     # The type-system gate: raw integers outside the newtype internals are a
     # bug waiting for two quantities to be confused. Per-file limits and the
-    # reason for each live in `xtask/src/audit.rs`.
+    # reason for each live in `crates/xtask/src/audit.rs`.
     "test:audit" = {
-      exec = "sh ./audit_all.sh";
+      exec = "sh ./tools/audit_all.sh";
       after = [ "test:linux@completed" ];
     };
     # Every feature arm must build on its own. `--all-features` builds them all
@@ -613,14 +613,14 @@ in
 
     # **The deterministic counter gate**: callgrind's instruction and
     # simulated cache-miss counts in `ingest2`'s timed loop, one rep of each
-    # recording `perf-budgets.toml` names, against the baselines there,
-    # with an A/A per input and a wrong-name control (`scripts/perf-gate.sh`
+    # recording `tools/perf-budgets.toml` names, against the baselines there,
+    # with an A/A per input and a wrong-name control (`tools/scripts/perf-gate.sh`
     # says what fails and what warns). The baselines are x86_64's, and on
     # any other ISA it refuses. Run by hand (`devenv tasks run
     # test:perf-gate`) and not in `enterTest`, as the feature suites are. No
     # `after` edge: run alone, its failure is hard.
     "test:perf-gate" = {
-      exec = "bash ./scripts/perf-gate.sh";
+      exec = "bash ./tools/scripts/perf-gate.sh";
     };
 
     # release-plz writes CHANGELOG.md through `release-plz.toml`'s commit
@@ -656,14 +656,14 @@ in
       exec = "cargo xtask publish --verify";
       # After the features gate, not after paths: the verify builds the
       # twelve crates and their dependencies from nothing, in a folder of its
-      # own under ./target (xtask/src/publish.rs, package()), so it waits for the
+      # own under ./target (crates/xtask/src/publish.rs, package()), so it waits for the
       # cargo chain to finish rather than share the machine with it.
       after = [ "test:features@completed" ];
     };
 
     # **The AVX2 arm's checks, the ones no other host can make**
-    # (`scripts/x86-avx2.sh` says what each proves): `Avx2` against
-    # `Portable` (`baud-isa-x86-64/tests/agrees.rs`) and the crate's other
+    # (`tools/scripts/x86-avx2.sh` says what each proves): `Avx2` against
+    # `Portable` (`crates/baud-isa-x86-64/tests/agrees.rs`) and the crate's other
     # tests, the workspace suite under `baud-core/avx2-scan`, and the
     # disassembly showing the arm is live -- a `vpmovmskb` on a `%ymm` in the
     # avx2 build of the `ingest2` bench, and that build differing from the
@@ -678,7 +678,7 @@ in
     # `after` edge: run alone, it schedules no other gate and its failure is
     # hard (see the comment above `enterTest`).
     "test:x86-avx2" = {
-      exec = "OBJDUMP=${objdump} bash ./scripts/x86-avx2.sh";
+      exec = "OBJDUMP=${objdump} bash ./tools/scripts/x86-avx2.sh";
     };
 
     # RustSec advisories, which SECURITY.md asks reporters for. Run by hand
@@ -692,7 +692,7 @@ in
     "test:advisories" = {
       exec = ''
         status=0
-        for lock in Cargo.lock bench-others/*/Cargo.lock; do
+        for lock in Cargo.lock tools/bench-others/*/Cargo.lock; do
           echo "=== $lock ==="
           ${pkgs.cargo-audit}/bin/cargo-audit audit --file "$lock" || status=1
         done

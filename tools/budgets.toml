@@ -1,0 +1,21 @@
+# **What the repository's runs may use.** A section a tool reads, one key a
+# line. `tools/scripts/bounded` reads this and refuses to run anything when it cannot.
+#
+# Each `memory-max` is a quoted size in systemd's format: digits and an optional
+# K, M, G or T, each of 1024, and with no letter a count of bytes. Each value
+# has its comment on the lines above it, because the line itself must end at the
+# closing quote: another project reads this key with
+#
+#   sed -n '/^\[tests\]$/,/^\[/s/^memory-max = "\([0-9][0-9]*[KMGT]\{0,1\}\)"$/\1/p'
+#
+# and a missing value is an error in both.
+
+[tests]
+# What one test binary, or the tree under one `tools/scripts/bounded --timeout`, may
+# take: about ten times the largest per-test peak measured, raised only in a
+# commit of its own that says why. MEASUREMENTS.md, "One binary cannot take the
+# machine down", has the peaks: 1.79 GiB for the largest binary and 3.36 GiB for
+# the largest tree, which is why 16G stands. `BAUD_TEST_MEMORY_BOUND_MIB` replaces
+# it for one run, in MiB, and a machine with less memory than this has that for
+# its bound.
+memory-max = "16G"

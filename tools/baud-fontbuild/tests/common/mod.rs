@@ -1,6 +1,6 @@
 //! What the font-build tests read that is not in the repository: Noto
 //! Sans Devanagari 2.007's variable font, from the cache
-//! `scripts/build-fonts.sh` fetches it into, and fontTools 4.63.0's
+//! `tools/scripts/build-fonts.sh` fetches it into, and fontTools 4.63.0's
 //! instances of it, from the directory `BAUD_FONTTOOLS_NOTO` names. Each is
 //! refused unless it hashes as pinned; a test that needs one that is
 //! absent says so and passes on what it has.

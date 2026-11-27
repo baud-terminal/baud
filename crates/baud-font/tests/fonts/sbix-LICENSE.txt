@@ -1,0 +1,4 @@
+sbix-strikes.ttf is written by crates/baud-font/tests/bitmap.rs from nothing but
+that test: its images are colour fields and colour ramps the test draws,
+and its tables are written from scratch. It carries no third-party data and is
+distributed under the repository's licence, CC-BY-NC-SA-4.0 (Cargo.toml).

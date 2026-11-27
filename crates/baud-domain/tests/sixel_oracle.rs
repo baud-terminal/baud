@@ -1,0 +1,130 @@
+//! The Sixel decode-correctness gate: baud decodes a real image to the exact
+//! pixels libsixel's `sixel2png` decodes it to.
+//!
+//! Where `sixel_decode.rs` checks hand-authored byte strings against the
+//! grammar, this checks a whole real image against an *independent
+//! implementation*. It is the oracle a scrambled preview turned out not to
+//! need at the decoder: baud's decode is byte-identical to libsixel here and
+//! was AE=0 against `sixel2png` at every size and chunk boundary tried, so a
+//! previewer's garbled image was never a decode fault -- it was a placement
+//! leak (`crates/baud-core/tests/sixel.rs`).
+//!
+//! The fixture is `img2sixel`'s output for ImageMagick's
+//! `-size 96x72 gradient:red-blue -swirl 60`, made by `magick -size 96x72
+//! gradient:red-blue -swirl 60 -rotate 0 g.png; img2sixel g.png >
+//! img2sixel-96x72.six; sixel2png -i img2sixel-96x72.six -o o.png; magick
+//! o.png -depth 8 rgb:img2sixel-96x72.oracle-rgb` (re-run with ImageMagick
+//! 7.1.2-31 and libsixel 1.10.5: both files `cmp`-identical; `-rotate 0`
+//! changes no byte); the reference is
+//! that Sixel through `sixel2png` (libsixel 1.10.5), committed as raw 8-bit
+//! RGB beside it, so the gate needs no external tool at run time. Both come
+//! from libsixel, so this pins baud against libsixel's own encode/decode
+//! round trip -- the palette scaling (`0..100` percent to `0..255` with the
+//! same rounding), the band order and the run-length expansion all at once.
+
+use baud_domain::{Pixel, Sixel, SixelAspect, SixelCanvas};
+
+const FILE: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../tools/tests/recordings/sixel/img2sixel-96x72.six"
+));
+
+/// The body the decoder is handed: the bytes after the envelope's `q` and
+/// before its `ESC \`, as `baud-core` hands it.
+fn body() -> &'static [u8] {
+    let q = FILE
+        .iter()
+        .position(|&b| b == b'q')
+        .expect("the envelope's q");
+    let st = FILE
+        .windows(2)
+        .rposition(|w| w == [0x1b, 0x5c])
+        .expect("the ST");
+    &FILE[q + 1..st]
+}
+
+/// img2sixel's envelope is `ESC P q`: `P1` omitted, which is 2:1
+/// (`[[source: vt3xx-sixel]]`), and its raster command `"1;1` overrides it.
+fn aspect() -> SixelAspect {
+    SixelAspect::from_macro(None)
+}
+
+/// `sixel2png`'s decode of `FILE`, 96x72 row-major 8-bit RGB triples.
+const ORACLE: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../tools/tests/recordings/sixel/img2sixel-96x72.oracle-rgb"
+));
+
+/// The image's declared raster size, `sixel2png`'s reference dimensions.
+const OW: usize = 96;
+const OH: usize = 72;
+
+#[test]
+fn baud_decodes_a_real_sixel_to_what_libsixel_decodes_it_to() {
+    let report = Sixel::extent(body(), aspect());
+    let (w, h) = (report.width, report.height);
+
+    // baud's width is the data's *extent* -- the last column the cursor reached
+    // -- by design (`SixelReport::width`), not the declared `Ph`. For this file
+    // the two agree: fed the body after `q`, as `baud-core` hands it, the extent
+    // is exactly the declared 96x72. Fed the whole file, envelope and all, as
+    // this test did before 2026-10-11, the envelope's `P` and `q` drew as two
+    // data columns and the extent read 98.
+    assert!(
+        w.index() == OW && h.index() == OH,
+        "the extent is the declared {OW}x{OH}, {}x{} here",
+        w.raw(),
+        h.raw()
+    );
+
+    let mut image = vec![Pixel::CLEAR; w.index() * h.index()];
+    let mut canvas = SixelCanvas::new(&mut image, w);
+    let filled = Sixel::decode(body(), aspect(), &mut canvas);
+    assert_eq!(
+        filled.refused, 0,
+        "every pixel fits the extent-sized canvas"
+    );
+
+    // Every pixel baud *paints* is byte-identical to libsixel's -- the whole
+    // point, and it exercises the palette scaling (0..100 percent to 0..255,
+    // with the same rounding), the band order and the run-length expansion all
+    // at once. The pixels baud leaves *unpainted* are a design difference, not
+    // a decode fault: baud draws them transparent so a Sixel composites over
+    // the cells beneath it, where `sixel2png` fills them opaque; those are
+    // skipped here and pinned by their own count so a regression that started
+    // dropping painted pixels could not hide as "more transparent".
+    assert_eq!(ORACLE.len(), OW * OH * 3, "one RGB triple a pixel, 96x72");
+    let stride = w.index();
+    let mut painted = 0usize;
+    let mut transparent = 0usize;
+    let mut first = None;
+    for y in 0..OH {
+        for x in 0..OW {
+            let p = image[y * stride + x];
+            match (p != Pixel::CLEAR).then(|| p.rgb()) {
+                None => transparent += 1,
+                Some((r, g, b)) => {
+                    let (r, g, b) = (r.get(), g.get(), b.get());
+                    painted += 1;
+                    let o = (y * OW + x) * 3;
+                    let want = [ORACLE[o], ORACLE[o + 1], ORACLE[o + 2]];
+                    if [r, g, b] != want && first.is_none() {
+                        first = Some((x, y, [r, g, b], want));
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(
+        first, None,
+        "a painted pixel differs from sixel2png's decode"
+    );
+    // The overwhelming majority is painted and identical; only a handful of
+    // background pixels are transparent, which is the design difference above,
+    // not a decode that quietly stopped painting.
+    assert!(
+        painted > OW * OH * 99 / 100,
+        "nearly every pixel is painted and matches: {painted} of {}, {transparent} transparent",
+        OW * OH
+    );
+}

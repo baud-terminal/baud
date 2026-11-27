@@ -1,0 +1,522 @@
+//! **Nix builds baud with the compiler the repository uses, from the
+//! repository's own address.** The dev shell takes rust-overlay and
+//! nixpkgs, the latter through devenv's wrapper of it, at the revisions
+//! `devenv.lock` holds, and its nightly from that rust-overlay; the root
+//! `flake.nix`, which `nix run` and `nix build` read, pins its own inputs
+//! in `flake.lock`, nixpkgs without the wrapper, and names the nightly by
+//! date; and the document that names a nightly, docs/embedding.md,
+//! gives that date. This file fails on a
+//! lock bumped alone and on a document left on an old nightly. The dev
+//! shell names no date, so both locks moved together can take its nightly
+//! past the flake's; that pair is not held here, and neither is the
+//! date's other copy: the defaults of `tools/scripts/linux-*.sh`.
+//!
+//! The install guides give `nix run` the address `Cargo.toml`'s
+//! `repository` names, and no document, manifest or notice names another
+//! home for the repository: a move of the repository is one line of
+//! `Cargo.toml`, and this file lists every place left behind.
+
+use std::path::PathBuf;
+
+fn workspace() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+fn read(rel: &str) -> String {
+    std::fs::read_to_string(workspace().join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"))
+}
+
+/// The string value of `"key": "…"` in `block`, if it is there.
+fn field<'a>(block: &'a str, key: &str) -> Option<&'a str> {
+    let open = format!("\"{key}\": \"");
+    let at = block.find(&open)? + open.len();
+    let len = block[at..].find('"')?;
+    Some(&block[at..at + len])
+}
+
+/// Every `"locked"` entry of a nix lock file, as (owner/repo, rev).
+/// A lock's `"locked"` objects are flat, so each ends at the first `}`.
+fn locked(lock: &str) -> Vec<(String, String)> {
+    lock.split("\"locked\": {")
+        .skip(1)
+        .filter_map(|rest| {
+            let block = &rest[..rest.find('}')?];
+            let repo = format!("{}/{}", field(block, "owner")?, field(block, "repo")?);
+            Some((repo, field(block, "rev")?.to_owned()))
+        })
+        .collect()
+}
+
+/// **The flake locks the dev shell's nixpkgs and rust-overlay at the
+/// shell's revisions**, so `nix build` and the shell agree on the compiler
+/// and on what links with it: rust-overlay's revision gives rustc, and the
+/// nixpkgs revision the stdenv. The shell's nixpkgs is that revision behind
+/// devenv's wrapper (`nixpkgs-src` in `devenv.lock`), and the flake locks
+/// the revision without it: see
+/// `the_package_s_nixpkgs_is_built_during_no_evaluation`. Every input is
+/// held but the demo's two: `nixpkgs-demo`, from which the README
+/// session's container takes its packages (`nix/demo-container/default.nix`),
+/// and `nixpkgs-demo-mac`, the nixpkgs of the demo's programs on the Mac,
+/// from which its mpv is built (`nix/demo-mpv/default.nix`). Each is pinned
+/// in `flake.nix` by its commit and locked at it, and builds nothing of
+/// baud's. The control: neither revision is the shell's.
+#[test]
+fn the_flake_locks_the_dev_shells_nixpkgs_and_rust_overlay() {
+    let lock = read("flake.lock");
+    let demos: Vec<String> = ["nixpkgs-demo", "nixpkgs-demo-mac"]
+        .into_iter()
+        .map(|input| {
+            let rev = lock
+                .find(&format!("\"{input}\": {{"))
+                .map(|at| &lock[at..])
+                .and_then(|node| node.split("\"locked\": {").nth(1))
+                .and_then(|block| field(&block[..block.find('}')?], "rev"))
+                .unwrap_or_else(|| panic!("the demo's {input} is locked"))
+                .to_owned();
+            assert!(
+                read("flake.nix")
+                    .contains(&format!("{input}.url = \"github:NixOS/nixpkgs/{rev}\";")),
+                "the demo's {input} is pinned by the commit it is locked at"
+            );
+            rev
+        })
+        .collect();
+    let flake: Vec<_> = locked(&lock)
+        .into_iter()
+        .filter(|(repo, rev)| !(repo == "NixOS/nixpkgs" && demos.contains(rev)))
+        .collect();
+    assert!(
+        !locked(&read("devenv.lock"))
+            .iter()
+            .any(|(_, rev)| demos.contains(rev)),
+        "the control: no demo revision is the shell's"
+    );
+    let devenv = locked(&read("devenv.lock"));
+    for repo in ["NixOS/nixpkgs", "oxalica/rust-overlay"] {
+        assert!(
+            flake.iter().any(|(r, _)| r == repo),
+            "flake.lock locks no {repo}: {flake:?}"
+        );
+    }
+    for (repo, rev) in &flake {
+        let shell: Vec<_> = devenv.iter().filter(|(r, _)| r == repo).collect();
+        assert!(
+            !shell.is_empty(),
+            "flake.lock locks {repo}, which devenv.lock does not"
+        );
+        assert!(
+            shell.iter().all(|(_, r)| r == rev),
+            "flake.lock has {repo} at {rev}, devenv.lock at {shell:?}"
+        );
+    }
+}
+
+/// Why the flake's `nixpkgs` would need a build during evaluation, if it
+/// would: `nix` is `flake.nix` and `lock` is `flake.lock`. Plain nixpkgs
+/// evaluates on any machine, for any system. A wrapper of it does not when
+/// it patches its source with a derivation, as `cachix/devenv-nixpkgs` does:
+/// a wrapper shows as another address, or as a locked input of its own.
+fn evaluation_builds(nix: &str, lock: &str) -> Option<String> {
+    let open = "    nixpkgs.url = \"github:NixOS/nixpkgs/";
+    let Some(at) = nix.find(open) else {
+        return Some("the nixpkgs input is not NixOS/nixpkgs at a commit".to_owned());
+    };
+    let rest = &nix[at + open.len()..];
+    let Some(rev) = rest.find('"').map(|end| &rest[..end]) else {
+        return Some("the nixpkgs input does not close".to_owned());
+    };
+    let node = lock
+        .find("\"nixpkgs\": {")
+        .map(|at| &lock[at..])
+        .and_then(|node| Some(&node[..node.find("\"original\"")?]));
+    let Some(node) = node else {
+        return Some("flake.lock has no nixpkgs".to_owned());
+    };
+    if node.contains("\"inputs\"") {
+        return Some(format!(
+            "flake.lock's nixpkgs has inputs of its own: {node}"
+        ));
+    }
+    if field(node, "owner") != Some("NixOS")
+        || field(node, "repo") != Some("nixpkgs")
+        || field(node, "rev") != Some(rev)
+    {
+        return Some(format!("flake.lock's nixpkgs is not {rev}: {node}"));
+    }
+    lock.contains("devenv-nixpkgs")
+        .then(|| "flake.lock holds devenv-nixpkgs".to_owned())
+}
+
+/// **The package's nixpkgs is built during no evaluation.** A NixOS
+/// configuration evaluated on a Mac for a Linux host reads
+/// `packages.${system}.baud`, and with import-from-derivation in the path
+/// that asks the Mac to build for Linux. `tools/scripts/check-flake-eval.sh` is the
+/// real check, by nix, and this one holds the shape without it. The
+/// controls: the wrapper's address, an input of the locked nixpkgs and a
+/// revision the lock does not hold are each refused.
+#[test]
+fn the_package_s_nixpkgs_is_built_during_no_evaluation() {
+    let (nix, lock) = (read("flake.nix"), read("flake.lock"));
+    assert_eq!(evaluation_builds(&nix, &lock), None);
+
+    let input = "nixpkgs.url = \"github:NixOS/nixpkgs/";
+    let wrapped = nix.replace(input, "nixpkgs.url = \"github:cachix/devenv-nixpkgs/");
+    assert_ne!(wrapped, nix, "the control's anchor");
+    assert!(evaluation_builds(&wrapped, &lock).is_some(), "the address");
+
+    let open = "\"nixpkgs\": {\n";
+    let with_input = lock.replacen(open, "\"nixpkgs\": {\n\"inputs\": {},\n", 1);
+    assert_ne!(with_input, lock, "the control's anchor");
+    assert!(evaluation_builds(&nix, &with_input).is_some(), "the input");
+
+    let moved = nix.replacen(input, "nixpkgs.url = \"github:NixOS/nixpkgs/0", 1);
+    assert_ne!(moved, nix, "the control's anchor");
+    assert!(evaluation_builds(&moved, &lock).is_some(), "the revision");
+}
+
+#[test]
+fn the_documents_give_the_nightly_the_flake_builds_with() {
+    let flake = read("flake.nix");
+    let open = "rust-bin.nightly.\"";
+    let at = flake.find(open).expect("flake.nix names a dated nightly") + open.len();
+    let date = &flake[at..at + flake[at..].find('"').expect("the date closes")];
+    assert_eq!(date.len(), "2026-04-11".len(), "{date:?} is not a date");
+
+    // docs/embedding.md is the one tracked document naming a nightly; the
+    // contributor guide that also named one is not in this tree.
+    let doc = "docs/embedding.md";
+    let text = read(doc);
+    let named: Vec<_> = text
+        .match_indices("nightly-")
+        .map(|(i, m)| &text[i + m.len()..(i + m.len() + date.len()).min(text.len())])
+        .collect();
+    assert!(!named.is_empty(), "{doc} names no `nightly-…`");
+    assert!(
+        named.iter().all(|d| *d == date),
+        "{doc} names nightly {named:?}, the flake {date}"
+    );
+}
+
+/// `account/name`, the repository's address on GitHub, from the
+/// workspace's `repository`.
+fn home() -> String {
+    let cargo = read("Cargo.toml");
+    let line = cargo
+        .lines()
+        .find(|l| l.starts_with("repository = \""))
+        .expect("Cargo.toml names the repository");
+    let url = line["repository = \"".len()..].trim_end_matches('"');
+    url.strip_prefix("https://github.com/")
+        .expect("the repository is on GitHub")
+        .trim_end_matches('/')
+        .to_owned()
+}
+
+/// Every file a reader or a build takes the repository's address from:
+/// the Markdown, Nix and TOML files and the crates' NOTICEs that git
+/// tracks. A file git does not track, such as a local notes file, is not
+/// the repository's; the evidence is kept as it was fetched or recorded,
+/// and the history as it was written.
+fn addressed() -> Vec<PathBuf> {
+    const EVIDENCE: [&str; 2] = ["docs/research/sources/", "tools/tests/recordings/"];
+    tracked()
+        .iter()
+        .map(String::as_str)
+        .filter(|rel| {
+            let name = rel.rsplit('/').next().unwrap_or(rel);
+            let history = *rel == "docs/record.md" || name.starts_with("CHANGELOG");
+            let kind =
+                name == "NOTICE" || [".md", ".nix", ".toml"].iter().any(|x| name.ends_with(x));
+            kind && !history && !EVIDENCE.iter().any(|e| rel.starts_with(e))
+        })
+        .map(|rel| workspace().join(rel))
+        .collect()
+}
+
+/// The workspace's files, relative to its root: git's tracked list in a
+/// checkout, and in a `git archive` export, which has no `.git` and holds
+/// only tracked files, every file under the root but the build output.
+fn tracked() -> Vec<String> {
+    let root = workspace();
+    if !root.join(".git").exists() {
+        let mut found = Vec::new();
+        let mut dirs = vec![root.clone()];
+        while let Some(dir) = dirs.pop() {
+            for e in std::fs::read_dir(&dir).expect("the workspace reads") {
+                let e = e.expect("a directory entry");
+                let kind = e.file_type().expect("its type");
+                if kind.is_dir()
+                    && !matches!(
+                        e.file_name().to_str(),
+                        Some("target" | ".devenv" | ".direnv")
+                    )
+                {
+                    dirs.push(e.path());
+                } else if kind.is_file() {
+                    let rel = e
+                        .path()
+                        .strip_prefix(&root)
+                        .expect("under the root")
+                        .to_owned();
+                    found.push(rel.to_str().expect("UTF-8 paths").to_owned());
+                }
+            }
+        }
+        return found;
+    }
+    let out = std::process::Command::new("git")
+        .args(["ls-files", "-z"])
+        .current_dir(&root)
+        .output()
+        .expect("git runs");
+    assert!(
+        out.status.success(),
+        "git ls-files: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8(out.stdout)
+        .expect("the tracked paths are UTF-8")
+        .split('\0')
+        .filter(|rel| !rel.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Each `account/name` that `text` gives after `github.com/` or `github:`.
+fn on_github(text: &str) -> Vec<String> {
+    let part = |s: &str| {
+        let n = s
+            .find(|c: char| !(c.is_ascii_alphanumeric() || "-_.".contains(c)))
+            .unwrap_or(s.len());
+        s[..n].to_owned()
+    };
+    let mut found = Vec::new();
+    for mark in ["github.com/", "github:"] {
+        for (i, _) in text.match_indices(mark) {
+            let rest = &text[i + mark.len()..];
+            let account = part(rest);
+            let Some(after) = rest[account.len()..].strip_prefix('/') else {
+                continue;
+            };
+            let name = part(after);
+            let name = name.trim_end_matches('.').trim_end_matches(".git");
+            if !account.is_empty() && !name.is_empty() {
+                found.push(format!("{account}/{name}"));
+            }
+        }
+    }
+    found
+}
+
+#[test]
+fn every_address_of_the_repository_is_its_home() {
+    let home = home();
+    let name = home.split_once('/').map_or("", |(_, n)| n);
+    assert!(!name.is_empty(), "{home:?} is not account/name");
+
+    let files = addressed();
+    let (mut homes, mut stale) = (0usize, Vec::new());
+    for f in &files {
+        let Ok(text) = std::fs::read_to_string(f) else {
+            continue;
+        };
+        for at in on_github(&text) {
+            if at == home {
+                homes += 1;
+            } else if at.split_once('/').is_some_and(|(_, n)| n == name) {
+                let rel = f.strip_prefix(workspace()).expect("under the workspace");
+                stale.push(format!("{}: {at}", rel.display()));
+            }
+        }
+    }
+    stale.sort();
+    assert!(files.len() > 20, "only {} files read", files.len());
+    assert!(
+        stale.is_empty(),
+        "the repository is {home}, and these name another home:\n  {}",
+        stale.join("\n  ")
+    );
+    // The control: the probe can fire, and fires on the home itself.
+    assert!(homes > 10, "the home {home} is named only {homes} times");
+
+    // `nix run` with the home and nothing after its name.
+    let run = format!("nix run github:{home}");
+    for guide in [
+        "README.md",
+        "docs/guide/install.md",
+        "crates/baud-app/README.md",
+    ] {
+        let text = read(guide);
+        let gives = text.match_indices(&run).any(|(i, _)| {
+            text[i + run.len()..]
+                .chars()
+                .next()
+                .is_none_or(|c| c.is_whitespace() || c == '`')
+        });
+        assert!(gives, "{guide} does not give `{run}`");
+    }
+}
+
+/// **The committed icon is the dock PNGs packed**: the bundle copies
+/// `nix/packaging/macos/baud.icns`, so a build with no `iconutil` -- the Nix
+/// package's -- carries the icon a clone's bundle does, and this fails
+/// once the PNGs move without it. iconutil packs the same PNGs into the
+/// same bytes each run, which the control checks: two packings agree.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_committed_icon_is_the_dock_pictures_packed() {
+    let dir = std::env::temp_dir().join(format!("baud-icns-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a scratch directory");
+    let pack = |name: &str| {
+        let out = dir.join(name);
+        let ran = std::process::Command::new("bash")
+            .arg(workspace().join("tools/scripts/bundle-macos.sh"))
+            .args(["--icns".as_ref(), out.as_os_str()])
+            .status()
+            .expect("bundle-macos.sh runs");
+        assert!(ran.success(), "bundle-macos.sh --icns failed");
+        std::fs::read(&out).expect("the icon")
+    };
+    let (a, b) = (pack("a.icns"), pack("b.icns"));
+    assert_eq!(a, b, "the control: iconutil packs alike twice");
+    let committed = std::fs::read(workspace().join("nix/packaging/macos/baud.icns"))
+        .expect("the committed icon");
+    assert!(
+        a == committed,
+        "nix/packaging/macos/baud.icns is not the PNGs packed -- run \
+         tools/scripts/bundle-macos.sh --icns nix/packaging/macos/baud.icns"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// **The Nix package carries the app**: on macOS the bundle, assembled by
+/// the script a clone's build runs, with `bin/baud` its executable; on
+/// Linux the desktop entry, named for the window's Wayland app_id, and
+/// the icon it names. Beside its `TerminalEmulator` category the entry
+/// names the argument a command follows, `X-TerminalArgExec=-e`, which is
+/// the flag baud's command line takes (`run_arg::FLAG`): a desktop that
+/// opens a command in the default terminal runs `baud -e <command> [args]`.
+/// Perturbation: drop the key, or change `run_arg::FLAG`, and this fails.
+#[test]
+fn the_nix_package_ships_the_app() {
+    let flake = read("flake.nix");
+    for needle in [
+        "bash tools/scripts/bundle-macos.sh --assemble \"$out/bin/baud\" \"$app\"",
+        "ln -s ../Applications/baud.app/Contents/MacOS/baud \"$out/bin/baud\"",
+        "nix/packaging/linux/org.baud.terminal.desktop",
+        "desktop-file-validate",
+        "apps/org.baud.terminal.png",
+        "pname = \"baud\";",
+        "mainProgram = \"baud\";",
+    ] {
+        assert!(flake.contains(needle), "flake.nix lacks {needle}");
+    }
+    let linux = read("crates/baud-app/src/linux.rs");
+    assert!(
+        linux.contains("Window::open(&mut conn, \"baud\", \"org.baud.terminal\")"),
+        "the window's app_id moved from the desktop entry's name"
+    );
+    let entry = read("nix/packaging/linux/org.baud.terminal.desktop");
+    assert!(entry.contains("\nIcon=org.baud.terminal\n"), "{entry}");
+    assert!(entry.contains("\nExec=baud\n"), "{entry}");
+    assert!(entry.contains("TerminalEmulator;"), "{entry}");
+    assert!(entry.contains("\nX-TerminalArgExec=-e\n"), "{entry}");
+    let run_arg = read("crates/baud-app/src/run_arg.rs");
+    assert!(
+        run_arg.contains("pub(crate) const FLAG: &str = \"-e\";"),
+        "the entry's X-TerminalArgExec names a flag baud no longer takes"
+    );
+}
+
+/// **The app carries baud's licence and the third-party notices**, each
+/// the repository's own file byte for byte, in `Contents/Resources/`. The
+/// bundle is assembled as the Nix package assembles it, `--assemble`,
+/// around a stand-in executable, into a folder not named `.app` and
+/// removed after: no build, no signing, and nothing in it is run. The
+/// icon is compared the same way, the control that the assembly ran and
+/// that a copy compares equal.
+#[cfg(unix)]
+#[test]
+fn the_app_carries_the_licence_and_the_notices() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("bundle-licence");
+    std::fs::create_dir_all(&dir).expect("a scratch directory");
+    let bin = dir.join("baud");
+    std::fs::write(&bin, "#!/bin/sh\n").expect("the stand-in executable");
+    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755))
+        .expect("the stand-in is executable");
+    let app = dir.join("assembled");
+    let ran = std::process::Command::new("bash")
+        .arg(workspace().join("tools/scripts/bundle-macos.sh"))
+        .args(["--assemble".as_ref(), bin.as_os_str(), app.as_os_str()])
+        .output()
+        .expect("bundle-macos.sh runs");
+    assert!(
+        ran.status.success(),
+        "bundle-macos.sh --assemble failed: {}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    let resources = app.join("Contents/Resources");
+    for (repo, bundled) in [
+        ("nix/packaging/macos/baud.icns", "baud.icns"),
+        ("LICENSE", "LICENSE"),
+        ("THIRD_PARTY.md", "THIRD_PARTY.md"),
+    ] {
+        let want = std::fs::read(workspace().join(repo)).unwrap_or_else(|e| panic!("{repo}: {e}"));
+        let got = std::fs::read(resources.join(bundled))
+            .unwrap_or_else(|e| panic!("the bundle carries no {bundled}: {e}"));
+        assert!(
+            got == want,
+            "the bundle's {bundled} is not {repo} byte for byte"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The quoted entries of `settings.global.excludes` in `devenv.nix`, with
+/// its comments left out, so an entry a comment only mentions does not count.
+fn treefmt_excludes() -> Vec<String> {
+    let nix = read("devenv.nix");
+    let open = "settings.global.excludes = [";
+    let at = nix.find(open).expect("devenv.nix sets treefmt's excludes") + open.len();
+    let list = &nix[at..at + nix[at..].find("];").expect("the list closes")];
+    list.lines()
+        .map(|line| line.split('#').next().unwrap_or_default())
+        .filter_map(|line| line.trim().trim_end_matches(',').strip_prefix('"'))
+        .filter_map(|entry| entry.strip_suffix('"'))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// **treefmt's excludes hold the globs that were seen to keep it out.** With
+/// `.devenv/` listed, entering `devenv shell` in a tree with no `.git` changed
+/// the CLI's own `.devenv/bootstrap/bootstrapLib.nix`: `deadnix --edit`, run
+/// alone on a copy, deletes the unused `devenv_lock`, and the shell failed on
+/// "called with unexpected argument 'devenv_lock'". With `.devenv/*` alone, a
+/// build then had generated `.rs` files under `target/` changed. The run behind
+/// this is `tools/scripts/check-fresh-shell.sh`, whose clone arm alone is green on
+/// that failure, so its archive arm is held here too.
+#[test]
+fn treefmt_cannot_reach_what_the_dev_shell_evaluates() {
+    let excludes = treefmt_excludes();
+    assert!(
+        excludes.iter().any(|e| e == "docs/research/sources/*"),
+        "the control: the reader finds an exclude known to be there: {excludes:?}"
+    );
+    for glob in [".devenv/*", ".direnv/*", "target/*"] {
+        assert!(
+            excludes.iter().any(|e| e == glob),
+            "`{glob}` is not among treefmt's excludes: {excludes:?}"
+        );
+    }
+    let directories: Vec<_> = excludes.iter().filter(|e| e.ends_with('/')).collect();
+    assert!(
+        directories.is_empty(),
+        "the directory form was seen to keep nothing out: {directories:?}"
+    );
+
+    let script = read("tools/scripts/check-fresh-shell.sh");
+    for arm in ["git clone -q --no-local", "git archive "] {
+        assert!(script.contains(arm), "the fresh-shell check lost {arm:?}");
+    }
+}

@@ -1,6 +1,6 @@
 # Byte-exact fixtures. A recording is a terminal's input as it arrived, carriage returns included,
 # and a patch applied as text drops a line's CR, so recordings never pass through text handling.
-tests/**/*.raw binary
+tools/tests/**/*.raw binary
 *.png binary
 *.jpg binary
 *.gif binary
@@ -14,9 +14,9 @@ tests/**/*.raw binary
 docs/research/sources/** -text
 # Licence texts keep the CRLF line ends they ship with.
 LICENSES/windows-terminal-MIT.txt -text
-baud-app/fonts/glyphs/languages/hebrew/OFL.txt -text
-baud-app/fonts/glyphs/languages/hebrew/stage/CascadiaMono-OFL.txt -text
-baud-app/fonts/symbols-nerd-font/icon-licences/codicons/LICENSE.txt -text
-baud-app/fonts/symbols-nerd-font/icon-licences/weather-icons/OFL.txt -text
-baud-font/tests/fonts/SourceCodeVF-LICENSE.txt -text
-baud-font/tests/var/SourceCodeVF-LICENSE.txt -text
+crates/baud-app/fonts/glyphs/languages/hebrew/OFL.txt -text
+crates/baud-app/fonts/glyphs/languages/hebrew/stage/CascadiaMono-OFL.txt -text
+crates/baud-app/fonts/symbols-nerd-font/icon-licences/codicons/LICENSE.txt -text
+crates/baud-app/fonts/symbols-nerd-font/icon-licences/weather-icons/OFL.txt -text
+crates/baud-font/tests/fonts/SourceCodeVF-LICENSE.txt -text
+crates/baud-font/tests/var/SourceCodeVF-LICENSE.txt -text

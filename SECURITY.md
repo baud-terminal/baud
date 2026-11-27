@@ -7,7 +7,7 @@ Everything below follows from that.
 
 ## What baud does on your machine
 
-The `baud` package (`baud-app/`), the binary `baud`, starts your `$SHELL` as a login shell on a pty
+The `baud` package (`crates/baud-app/`), the binary `baud`, starts your `$SHELL` as a login shell on a pty
 (`forkpty` and `execve`), with the variables other terminals set removed --
 in your home directory when baud's parent is launchd (`open`, and so,
 inferred, the Dock and Finder), where baud was started otherwise. It reads
@@ -112,7 +112,7 @@ so what is promised is that a payload containing no `ESC` is inert.
 link opens `http`, `https` and `mailto` with the system's handler, reveals a
 `file` link on this host in Finder, and refuses everything else, because every
 other registered scheme is an application the opener would launch on output an
-attacker controls (`baud-app/src/link.rs`). A URI with a byte outside
+attacker controls (`crates/baud-app/src/link.rs`). A URI with a byte outside
 printable ASCII is refused, and an `http` or `https` link with an empty host
 is refused. A `mailto` may carry only its recipients and `to`, `subject` and
 `body`, so `bcc=` cannot add a hidden recipient; it is handed on rebuilt from
@@ -139,7 +139,7 @@ written by a program it could not name.
 **You can add to the schemes a click opens, or change what a click does, in
 your own config.
 Nothing a program prints can.** A `[link.NAME]` rule names one scheme and sends its links to
-the system's handler or to a program you name (`baud-app/src/rules.rs`); a
+the system's handler or to a program you name (`crates/baud-app/src/rules.rs`); a
 `[link.path]` rule can send a clicked printed path to one. Rules are read only
 from your config file: not from a theme file, an escape sequence or the
 environment. What a link says is still checked, and no rule can change these:

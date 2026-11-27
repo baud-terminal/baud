@@ -534,7 +534,7 @@ fn the_word_stays_on_the_walls_and_the_mark_moves_as_it_says() {
     let (w, h) = (W, H);
     let bytes = std::fs::read(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../assets/readme/logo-walls.png"
+        "/../../docs/assets/readme/logo-walls.png"
     ))
     .unwrap();
     let walls = png::decode(&bytes).unwrap();
@@ -590,7 +590,7 @@ fn the_word_stays_on_the_walls_and_the_mark_moves_as_it_says() {
 fn the_walls_are_the_pinned_file_or_refused() {
     let walls = std::fs::read(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../assets/readme/logo-walls.png"
+        "/../../docs/assets/readme/logo-walls.png"
     ))
     .unwrap();
     assert!(logo::walls_pinned(&walls).is_ok());
@@ -598,20 +598,20 @@ fn the_walls_are_the_pinned_file_or_refused() {
     flipped[100] ^= 1;
     assert_eq!(
         logo::walls_pinned(&flipped).unwrap_err(),
-        "assets/readme/logo-walls.png is not the walls the path was chosen against"
+        "docs/assets/readme/logo-walls.png is not the walls the path was chosen against"
     );
 }
 
 #[test]
 fn check_says_same_only_of_the_same_bytes() {
-    let path = "assets/readme/logo-dark.gif";
+    let path = "docs/assets/readme/logo-dark.gif";
     assert_eq!(
         logo::compared(path, Some(b"GIF"), b"GIF"),
-        ("same    assets/readme/logo-dark.gif".to_string(), None)
+        ("same    docs/assets/readme/logo-dark.gif".to_string(), None)
     );
     let differs = (
-        "DIFFERS assets/readme/logo-dark.gif".to_string(),
-        Some("assets/readme/logo-dark.gif is not what the film and encoders make".to_string()),
+        "DIFFERS docs/assets/readme/logo-dark.gif".to_string(),
+        Some("docs/assets/readme/logo-dark.gif is not what the film and encoders make".to_string()),
     );
     // A byte past the trailer, and a file not there at all.
     assert_eq!(logo::compared(path, Some(b"GIFx"), b"GIF"), differs);

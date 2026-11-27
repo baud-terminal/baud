@@ -409,7 +409,7 @@ pub fn compose(path: &Path, locale: &str) -> Result<String, String> {
 }
 
 /// The keymap fixtures, relative to the root.
-const FIXTURES: &str = "baud-xkb/tests/fixtures";
+const FIXTURES: &str = "crates/baud-xkb/tests/fixtures";
 
 /// Every Compose fixture and the environment it was recorded under: the
 /// file, the locale, and whether `HOME` is set. `XLOCALEDIR` is

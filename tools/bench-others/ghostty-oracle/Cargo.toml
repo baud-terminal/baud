@@ -1,0 +1,16 @@
+[package]
+name = "ghostty-oracle"
+version = "0.1.0"
+edition = "2021"
+# Not published: nothing here is.
+publish = false
+description = "V10's oracle: baud-core against libghostty-vt, cell for cell, at every read size."
+
+[dependencies]
+# `alloc` for `Owned`: the harness has an allocator and the core does not need one.
+baud-core = { path = "../../../crates/baud-core", features = ["alloc"] }
+
+# Its own root: outside the repository's workspace, as every harness under
+# tools/bench-others/ is, and resolvable from a worktree nested in a checkout, where
+# cargo would otherwise walk on past the excluding root to the outer one.
+[workspace]

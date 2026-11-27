@@ -28,7 +28,7 @@ fn fnv64(data: &[u8]) -> u64 {
 
 /// The committed file's data lines.
 fn committed(file: &str) -> Vec<String> {
-    std::fs::read_to_string(repo().join("baud-font/tests/var").join(file))
+    std::fs::read_to_string(repo().join("crates/baud-font/tests/var").join(file))
         .expect("the committed file")
         .lines()
         .filter(|l| !l.starts_with('#'))

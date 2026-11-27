@@ -1,5 +1,5 @@
-//! **baud's brand pictures**: every file in `assets/logo/` and the
-//! repository's link picture, `assets/readme/social.svg` and `.png`,
+//! **baud's brand pictures**: every file in `docs/assets/logo/` and the
+//! repository's link picture, `docs/assets/readme/social.svg` and `.png`,
 //! drawn from one mark ([`brand`]); and the README's header logo
 //! ([`logo`]): the walls' geometry ([`geometry`]) and each frame's
 //! strands ([`plasma`]), filmed by baud's renderer and encoded, the GIFs
@@ -32,13 +32,13 @@
 //!
 //! `brand` writes every file; `--check` writes nothing and fails unless
 //! each equals the committed file byte for byte, they are every file in
-//! `assets/logo/`, no SVG names a font, and both GitHub pictures meet
+//! `docs/assets/logo/`, no SVG names a font, and both GitHub pictures meet
 //! GitHub's limits. `--root DIR` reads and writes another tree.
 //! `logo` films and encodes the README's four logo files and `logo
 //! --check` compares them with the committed ones, writing none; `--keep
 //! DIR` films into the empty DIR and leaves the frames, strands and
 //! encodes there. `logo --ufo` does the same for the UFO logo,
-//! `assets/demo/ufo-logo-dark.gif` and `-light.gif` and a provenance file
+//! `docs/assets/demo/ufo-logo-dark.gif` and `-light.gif` and a provenance file
 //! beside each: the ufo trail's saucer threading the letters ([`ufo`]).
 //! `geometry <walls.png> <out dir>` and `plasma <geometry dir> <dark|light>
 //! <on_ms> <off_ms> <out>` are the film's two steps, run alone.
@@ -62,5 +62,5 @@ pub mod zip;
 pub mod zlib;
 
 /// SHA-256, the one the repository's gates use.
-#[path = "../../../xtask/src/sha256.rs"]
+#[path = "../../../crates/xtask/src/sha256.rs"]
 pub mod sha256;

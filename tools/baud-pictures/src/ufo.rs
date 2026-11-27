@@ -692,8 +692,8 @@ pub fn lines(plan: &Plan, block_x: f64) -> String {
 
 /// The UFO logo's GIFs, each half's, in [`logo::HALVES`]' order.
 pub const GIFS: [&str; 2] = [
-    "assets/demo/ufo-logo-dark.gif",
-    "assets/demo/ufo-logo-light.gif",
+    "docs/assets/demo/ufo-logo-dark.gif",
+    "docs/assets/demo/ufo-logo-light.gif",
 ];
 
 /// A GIF's provenance file: its path and this.
@@ -760,7 +760,7 @@ pub fn provenance(
     line(
         "drawn_by",
         q(
-            "baud-app/src/ufo_film.rs: the lockup by baud's CPU renderer, the saucer and its beam by baud-render's ufo trail",
+            "crates/baud-app/src/ufo_film.rs: the lockup by baud's CPU renderer, the saucer and its beam by baud-render's ufo trail",
         ),
     );
     line(

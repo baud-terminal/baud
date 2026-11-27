@@ -1,6 +1,6 @@
 //! baud-font's partial bake against fontTools 4.63.0: Noto Sans
 //! Devanagari's variable font pinned at wght 400 and 700, its width axis
-//! kept, is the instance `scripts/build-fonts.sh` pins, and compares equal
+//! kept, is the instance `tools/scripts/build-fonts.sh` pins, and compares equal
 //! to fontTools' `instantiateVariableFont(font, {"wght": w})`
 //! (`[[source: fonttools-4-63-0-instancer]]`) of the same file, every table
 //! expanded and none left as bytes. The variable font is
@@ -14,7 +14,7 @@ use baud_fontbuild::instance::instance;
 use baud_fontbuild::{compare, reach};
 use common::{EPOCH, fonttools, noto_vf, sha256};
 
-/// The instances `scripts/build-fonts.sh` pins.
+/// The instances `tools/scripts/build-fonts.sh` pins.
 const PINNED: [(i32, &str); 2] = [
     (
         400,
@@ -78,7 +78,7 @@ fn the_noto_instances_are_fonttools_in_every_table() {
 /// A face of one axis is the full bake's, and the partial bake refuses it.
 #[test]
 fn a_face_of_one_axis_is_refused() {
-    let jbm = common::read("baud-font/tests/fonts/JetBrainsMono-Variable.ttf");
+    let jbm = common::read("crates/baud-font/tests/fonts/JetBrainsMono-Variable.ttf");
     let err = instance(&jbm, 400, EPOCH).unwrap_err();
     assert!(err.contains("Axes"), "{err}");
 }

@@ -13,7 +13,7 @@ use crate::{BINDING, HARFBUZZ, Oracle, hb};
 /// `normalize.txt`.
 pub const ORACLE: Oracle = Oracle {
     name: "var",
-    file: "baud-font/tests/var/normalize.txt",
+    file: "crates/baud-font/tests/var/normalize.txt",
     lines,
 };
 
@@ -32,7 +32,7 @@ fn lines(root: &Path) -> Vec<String> {
         crate::generated_by("var"),
     ];
     for name in FONTS {
-        let blob = hb::Blob::from_file(&root.join("baud-font/tests/fonts").join(name));
+        let blob = hb::Blob::from_file(&root.join("crates/baud-font/tests/fonts").join(name));
         let mut font = hb::Font::new(&hb::Face::new(&blob));
         for q in 0..=4000 {
             // `q / 4` is exact in a C float, so the value HarfBuzz receives

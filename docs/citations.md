@@ -20,7 +20,7 @@ ab\_glyph\_rasterizer raster.rs -- accumulation rasteriser; the 'avx2' body is t
 - **URL:** <https://raw.githubusercontent.com/alexheretic/ab-glyph/main/rasterizer/src/raster.rs>
 - **sha256:** `17506f174ea9aceee016892e9603c59165fc0fc5de64e4395018e9aa4dd97012` (12378 bytes)
 - **Copy:** [docs/research/sources/ab-glyph-raster.rs](research/sources/ab-glyph-raster.rs)
-- **Cited in:** `baud-font/src/raster.rs`, `baud-font/tests/raster.rs`
+- **Cited in:** `crates/baud-font/src/raster.rs`, `crates/baud-font/tests/raster.rs`
 
 <a id="adobe-5176-cff"></a>
 ### adobe-5176-cff
@@ -30,7 +30,7 @@ The Compact Font Format Specification, Technical Note #5176, version 1.0. Adobe 
 - **URL:** <https://adobe-type-tools.github.io/font-tech-notes/pdfs/5176.CFF.pdf>
 - **sha256:** `60e0696c4fac326de597722af37bcdbbd688e0337a548709a287405ff3b3996a` (1062494 bytes)
 - **Copy:** [docs/research/sources/adobe-5176-cff.pdf](research/sources/adobe-5176-cff.pdf)
-- **Cited in:** `baud-font/build/standard_encoding.rs`, `baud-font/src/cff.rs`, `baud-font/src/lib.rs`
+- **Cited in:** `crates/baud-font/build/standard_encoding.rs`, `crates/baud-font/src/cff.rs`, `crates/baud-font/src/lib.rs`
 
 <a id="adobe-5176-cff-standard-encoding"></a>
 ### adobe-5176-cff-standard-encoding
@@ -40,7 +40,7 @@ The Compact Font Format Specification, Appendix B: the Standard Encoding's code 
 - **URL:** <https://adobe-type-tools.github.io/font-tech-notes/pdfs/5176.CFF.pdf>
 - **sha256:** `f49d4f86b87d57224f4fa86210726a87b633ec7cfe874bb795bc909e036d54fc` (3527 bytes)
 - **Copy:** [docs/research/sources/adobe-5176-cff-standard-encoding.txt](research/sources/adobe-5176-cff-standard-encoding.txt)
-- **Cited in:** `baud-font/build/standard_encoding.rs`
+- **Cited in:** `crates/baud-font/build/standard_encoding.rs`
 
 <a id="adobe-5177-type2"></a>
 ### adobe-5177-type2
@@ -50,7 +50,7 @@ The Type 2 Charstring Format, Technical Note #5177. Adobe Systems, 2000, Adobe F
 - **URL:** <https://adobe-type-tools.github.io/font-tech-notes/pdfs/5177.Type2.pdf>
 - **sha256:** `74e77442e63e38f03f2be5a41d2dafb3076260d2b6cd9b9d14f3990d6e17102b` (199112 bytes)
 - **Copy:** [docs/research/sources/adobe-5177-type2.pdf](research/sources/adobe-5177-type2.pdf)
-- **Cited in:** `baud-font/src/cff.rs`, `baud-font/src/outline.rs`, `baud-font/tests/flex.rs`, `baud-font/tests/raster.rs`
+- **Cited in:** `crates/baud-font/src/cff.rs`, `crates/baud-font/src/outline.rs`, `crates/baud-font/tests/flex.rs`, `crates/baud-font/tests/raster.rs`
 
 <a id="agg-rasterizer-cells-aa"></a>
 ### agg-rasterizer-cells-aa
@@ -66,10 +66,10 @@ agg\_rasterizer\_cells\_aa.h -- the cell-based exact-area rasteriser FreeType's 
 
 The least opacity at which each cursor colour over each ground makes a 2.3.1 transition, on the census's encoded byte-rounded blend, and how far out each effect term stays above it. baud research (note AL), 2026, local capture or measurement.
 
-- **URL:** printed by thresholds.py (git blob a11dc088); recomputed by baud-render/tests/al\_observed.rs, which asserts it equal to this file
+- **URL:** printed by thresholds.py (git blob a11dc088); recomputed by crates/baud-render/tests/al\_observed.rs, which asserts it equal to this file
 - **sha256:** `e2b5681c95650182cae7b15679c4e6a57ebacb2d6a7ad0f38869561dff4145a9` (3816 bytes)
 - **Copy:** [docs/research/sources/al-observed/thresholds-out.txt](research/sources/al-observed/thresholds-out.txt)
-- **Cited in:** `baud-render/src/flash.rs`, `baud-render/tests/al_observed.rs`
+- **Cited in:** `crates/baud-render/src/flash.rs`, `crates/baud-render/tests/al_observed.rs`
 
 <a id="alacritty-0-12-3-yml"></a>
 ### alacritty-0-12-3-yml
@@ -80,7 +80,7 @@ alacritty v0.12.3 (eb35f43), alacritty.yml -- the YAML config's colors section, 
 - **sha256:** `3110fbf1d8cbeaaa388670dc6a86493a052903610bbdaa4d17150da833029e2b` (31779 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/alacritty.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/alacritty.rs`
 
 <a id="alacritty-0-15-1-window-context"></a>
 ### alacritty-0-15-1-window-context
@@ -90,7 +90,7 @@ alacritty v0.15.1, alacritty/src/window\_context.rs -- update\_config: 'Do not u
 - **URL:** <https://raw.githubusercontent.com/alacritty/alacritty/v0.15.1/alacritty/src/window_context.rs>
 - **sha256:** `b180c29fe7d12359d3c1afbdfb7c4ec2051c73d5ccdf9c5129e534d24057181d` (20218 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/live.rs`
+- **Cited in:** `crates/baud-app/src/live.rs`
 
 <a id="alacritty-0151-input-mod"></a>
 ### alacritty-0151-input-mod
@@ -101,7 +101,7 @@ alacritty 0.15.1, alacritty/src/input/mod.rs -- scroll\_terminal: MOUSE\_WHEEL\_
 - **sha256:** `d4e062f1bf2b9c48a01446c4fc1856f8066140860199c626e986ba964add6440` (59559 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-app/src/wheel.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/wheel.rs`, `docs/vt-coverage.md`
 
 <a id="alacritty-0c405d5-man-5"></a>
 ### alacritty-0c405d5-man-5
@@ -112,7 +112,7 @@ alacritty 0.15.1 (0c405d5), extra/man/alacritty.5.scd -- dynamic\_title 'Allow t
 - **sha256:** `61ac5bad191ee18fdbe9c96d1fc9eca004410909ef26b412e26723b4d4bcde11` (28413 bytes)
 - **Copy:** [docs/research/sources/alacritty-0c405d5-alacritty.5.scd](research/sources/alacritty-0c405d5-alacritty.5.scd)
 - **Read:** 2026-10-22
-- **Cited in:** `baud-domain/src/themefile/alacritty.rs`, `baud-domain/src/themefile/detect.rs`, `baud-render/tests/theme_cells.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/alacritty.rs`, `crates/baud-domain/src/themefile/detect.rs`, `crates/baud-render/tests/theme_cells.rs`
 
 <a id="alacritty-bindings-5421470"></a>
 ### alacritty-bindings-5421470
@@ -123,7 +123,7 @@ alacritty 5421470, config/bindings.rs -- ctrl+shift+f and ctrl+shift+b searches,
 - **sha256:** `5005bff766e77ae275228d92592ac302209ee6a1f31a88a597f948c76fd45434` (61562 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-app/src/find.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/find.rs`, `docs/input-coverage.md`
 
 <a id="alacritty-config-color-0c405d5"></a>
 ### alacritty-config-color-0c405d5
@@ -134,7 +134,7 @@ alacritty 0c405d5, alacritty/src/config/color.rs -- Colors, InvertedCellColors' 
 - **sha256:** `41e223b67a315b6d7a26fe18fb83e65bb5cd2ee979d7c1e2f3c290bd767d2941` (7424 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/alacritty.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/alacritty.rs`
 
 <a id="alacritty-display-color-0c405d5"></a>
 ### alacritty-display-color-0c405d5
@@ -145,7 +145,7 @@ alacritty 0c405d5, alacritty/src/display/color.rs -- Rgb::from\_str (#rrggbb, 0x
 - **sha256:** `3570b2f1b05d45908c811af8aaadc0d1756510884a2209ccbacab8af5ae8084b` (10935 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/alacritty.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/alacritty.rs`
 
 <a id="alacritty-display-cursor"></a>
 ### alacritty-display-cursor
@@ -156,7 +156,7 @@ alacritty d692748, display/cursor.rs -- a cursor's thickness round(thickness x c
 - **sha256:** `2456a311ce2a858258d491d813d0bd0d9796ddce93944ed006cc33ed05dafb59` (3097 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-22
-- **Cited in:** `baud-render/src/renderer.rs`
+- **Cited in:** `crates/baud-render/src/renderer.rs`
 
 <a id="alacritty-grid-reset"></a>
 ### alacritty-grid-reset
@@ -166,7 +166,7 @@ alacritty 0.15.1, grid/mod.rs -- Grid::reset clears the history and the display 
 - **URL:** <https://raw.githubusercontent.com/alacritty/alacritty/v0.15.1/alacritty_terminal/src/grid/mod.rs>
 - **sha256:** `2e2a02d105a1b3e5b8d462824254b1d6c3b782c66271a465f95588db73017eaa` (19764 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/scrollback.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/scrollback.rs`, `docs/vt-coverage.md`
 
 <a id="alacritty-reset-state"></a>
 ### alacritty-reset-state
@@ -176,7 +176,7 @@ alacritty: term/mod.rs -- reset\_state resets both grids and drops the selection
 - **URL:** <https://raw.githubusercontent.com/alacritty/alacritty/d692748d3f61253ebe9f5094320120d22f6a046f/alacritty_terminal/src/term/mod.rs>
 - **sha256:** `94be91817bec509ddb229fc83093fcbc044bd0929fb8758b236c939cb21df647` (112720 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/scrollback.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/scrollback.rs`, `docs/vt-coverage.md`
 
 <a id="alacritty-row"></a>
 ### alacritty-row
@@ -186,7 +186,7 @@ alacritty 0.15.1, grid/row.rs -- Row::occ, the per-row occupied high-water mark.
 - **URL:** <https://raw.githubusercontent.com/alacritty/alacritty/v0.15.1/alacritty_terminal/src/grid/row.rs>
 - **sha256:** `672b6f424b77a5dc0dc59262647bee62169c2f215753ff3f22c1c5f90025cd12` (7212 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/grid.rs`
+- **Cited in:** `crates/baud-domain/src/grid.rs`
 
 <a id="alacritty-term-term-mod"></a>
 ### alacritty-term-term-mod
@@ -196,7 +196,7 @@ alacritty: term\_term\_mod.rs. Alacritty contributors (Apache-2.0/MIT), 2026, gi
 - **URL:** <https://raw.githubusercontent.com/alacritty/alacritty/d692748d3f61253ebe9f5094320120d22f6a046f/alacritty_terminal/src/term/mod.rs>
 - **sha256:** `94be91817bec509ddb229fc83093fcbc044bd0929fb8758b236c939cb21df647` (112720 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-difftest/tests/alacritty.rs`
+- **Cited in:** `crates/baud-difftest/tests/alacritty.rs`
 
 <a id="alacritty-vte-sgr"></a>
 ### alacritty-vte-sgr
@@ -206,7 +206,7 @@ vte 0.15.0, src/ansi.rs -- attrs\_from\_sgr\_parameters: &#91;21&#93; is CancelB
 - **URL:** <https://raw.githubusercontent.com/alacritty/vte/v0.15.0/src/ansi.rs>
 - **sha256:** `2ce81d9282575b0f79d7a127463c177d966d1da13eea32d5ecbc0dc35f392b13` (83726 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/sgr.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/sgr.rs`, `docs/vt-coverage.md`
 
 <a id="ansi-x3-18-1967"></a>
 ### ansi-x3-18-1967
@@ -216,7 +216,7 @@ ANSI X3.18-1967, One-Inch Perforated Paper Tape for Information Interchange (FIP
 - **URL:** <https://www.govinfo.gov/content/pkg/GOVPUB-C13-ca9eb746e25a5f1218b695f4e8e6e367/pdf/GOVPUB-C13-ca9eb746e25a5f1218b695f4e8e6e367.pdf>
 - **sha256:** `e6a4788cd2e3066a33a91c61c64935f200b48c5b609ff86b084ef0d22b18a257` (507111 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `assets/readme/README.md`, `tools/baud-pictures/src/brand.rs`
+- **Cited in:** `docs/assets/readme/README.md`, `tools/baud-pictures/src/brand.rs`
 
 <a id="apple-accessibility-animated-images"></a>
 ### apple-accessibility-animated-images
@@ -227,7 +227,7 @@ Animated images -- pause animations when people turn off the Animated Images set
 - **sha256:** `853da54b67f9e134fd9e2a97dbaa4288a13b9a525e4b9cddd2294ce979db01c9` (14323 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-23
-- **Cited in:** `baud-present-macos/src/settings.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-present-macos/src/settings.rs`, `docs/vt-coverage.md`
 
 <a id="apple-addcompletedhandler"></a>
 ### apple-addcompletedhandler
@@ -237,7 +237,7 @@ MTLCommandBuffer addCompletedHandler(\_:). Apple Inc., 2026, developer.apple.com
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/metal/mtlcommandbuffer/addcompletedhandler(_:).json>
 - **sha256:** `e54ac5c46233de51a0923d0f769d610b4d1da43d472a02e74a42ac79278ec798` (24513 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/journal.rs`
+- **Cited in:** `crates/baud-present-macos/src/journal.rs`
 
 <a id="apple-adopting-liquid-glass-2026-11-09"></a>
 ### apple-adopting-liquid-glass-2026-11-09
@@ -247,7 +247,7 @@ Adopting Liquid Glass -- standard controls adopt the new shapes and sizes on a r
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/technologyoverviews/adopting-liquid-glass.json>
 - **sha256:** `a41d1485f9815b51d040d2f723e7372e066eacbbda02b81493f21f6fee52ad47` (152124 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/mark.rs`, `baud-app/src/sdk_gates.rs`, `baud-present-macos/src/about.rs`
+- **Cited in:** `crates/baud-app/src/mark.rs`, `crates/baud-app/src/sdk_gates.rs`, `crates/baud-present-macos/src/about.rs`
 
 <a id="apple-asking-permission-notifications"></a>
 ### apple-asking-permission-notifications
@@ -258,7 +258,7 @@ Asking permission to use notifications -- explicit and provisional authorization
 - **sha256:** `2cd2a04b07f4bd8a554e387c5f7fdbc547d23e4911d9f18fbe6dd71a8c2abd83` (27654 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-present-macos/src/notify.rs`
+- **Cited in:** `crates/baud-present-macos/src/notify.rs`
 
 <a id="apple-audioservicesplaysystemsound"></a>
 ### apple-audioservicesplaysystemsound
@@ -269,7 +269,7 @@ AudioServicesPlaySystemSound -- plays a system sound object, at the current syst
 - **sha256:** `7fe1d9de36f52f415193e9a0b454862c22b8b6ed4d3897c877a200f0624a3964` (21067 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-app/src/bell.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/bell.rs`, `docs/vt-coverage.md`
 
 <a id="apple-axanimatedimagesenabled"></a>
 ### apple-axanimatedimagesenabled
@@ -280,7 +280,7 @@ AXAnimatedImagesEnabled() -- whether the system setting for Animated Images is o
 - **sha256:** `2646102399cbca88f2663cbb7fac1c39ea9ff3988ba9caa32f3f9209aed9eed6` (10118 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-23
-- **Cited in:** `baud-present-macos/src/settings.rs`
+- **Cited in:** `crates/baud-present-macos/src/settings.rs`
 
 <a id="apple-axanimatedimagesenableddidchangenotification"></a>
 ### apple-axanimatedimagesenableddidchangenotification
@@ -291,7 +291,7 @@ AXAnimatedImagesEnabledDidChangeNotification -- its declaration; macOS 14; the p
 - **sha256:** `ff3f0d38e2145217078b24ef9a182254927226a996af564950706fa4d6557984` (9483 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-23
-- **Cited in:** `baud-present-macos/src/settings.rs`
+- **Cited in:** `crates/baud-present-macos/src/settings.rs`
 
 <a id="apple-cfbundleshortversionstring"></a>
 ### apple-cfbundleshortversionstring
@@ -302,7 +302,7 @@ Bundle Resources, Information Property List: CFBundleShortVersionString -- "thre
 - **sha256:** `1574b97f4c4ab92accca00a6eacf5814530a52339dacf7022e6b379a71dd534f` (11670 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-16
-- **Cited in:** `baud-app/tests/version.rs`
+- **Cited in:** `crates/baud-app/tests/version.rs`
 
 <a id="apple-cfbundleversion"></a>
 ### apple-cfbundleversion
@@ -313,7 +313,7 @@ Bundle Resources, Information Property List: CFBundleVersion -- "one to three pe
 - **sha256:** `19a21e227db1deadc5eade728dea5f861544965278992ebb071223099bae844c` (12091 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-16
-- **Cited in:** `baud-app/tests/version.rs`
+- **Cited in:** `crates/baud-app/tests/version.rs`
 
 <a id="apple-cgcolorspace-displayp3"></a>
 ### apple-cgcolorspace-displayp3
@@ -324,7 +324,7 @@ Core Graphics, CGColorSpace displayP3 -- "uses the DCI P3 primaries, a D65 white
 - **sha256:** `cac0e57ff3d88fb2566a5323b8f024caa9ebb27a1b941de794004aded33803ec` (29247 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/gamut.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/gamut.rs`
 
 <a id="apple-cgmaindisplayid"></a>
 ### apple-cgmaindisplayid
@@ -335,7 +335,7 @@ CGMainDisplayID -- 'The main display is the display with its screen location at 
 - **sha256:** `9988d68166e2c6f098a1f69375c450ff9a6e801281476ce8e9dd63af28dfd6d9` (34290 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-04
-- **Cited in:** `baud-app/examples/demo.rs`
+- **Cited in:** `crates/baud-app/examples/demo.rs`
 
 <a id="apple-ct-stroke-width"></a>
 ### apple-ct-stroke-width
@@ -345,7 +345,7 @@ kCTStrokeWidthAttributeName (documentation JSON): a stroke width interpreted as 
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/coretext/kctstrokewidthattributename.json>
 - **sha256:** `3ed1132edc377cda9c805df713dbdc1d33e82ed49a1f32cef127610c1deaba34` (27872 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/stroke.rs`, `baud-render/src/badge.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-font/src/stroke.rs`, `crates/baud-render/src/badge.rs`, `docs/vt-coverage.md`
 
 <a id="apple-dateformatter-calendar"></a>
 ### apple-dateformatter-calendar
@@ -365,7 +365,7 @@ Change Font Book settings on Mac -- default install location: Current User ~/Lib
 - **URL:** <https://support.apple.com/guide/font-book/manage-fonts-fntbk1004/mac>
 - **sha256:** `434774aa5fbe8630fbce2ace5c690985f8bc7ea7541d322088477775624a677f` (562341 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/discover.rs`
+- **Cited in:** `crates/baud-app/src/discover.rs`
 
 <a id="apple-hig-accessibility"></a>
 ### apple-hig-accessibility
@@ -375,7 +375,7 @@ Human Interface Guidelines: Accessibility -- Reduce Motion: reduce automatic and
 - **URL:** <https://developer.apple.com/tutorials/data/design/human-interface-guidelines/accessibility.json>
 - **sha256:** `be49ec0b34397f356a1e3fd8c7ad323713198515523947097913cb9c57da699b` (85010 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/access.rs`, `baud-app/src/app.rs`, `baud-domain/src/image/frames.rs`, `baud-render/src/fireworks.rs`, `baud-render/src/lights.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/access.rs`, `crates/baud-app/src/app.rs`, `crates/baud-domain/src/image/frames.rs`, `crates/baud-render/src/fireworks.rs`, `crates/baud-render/src/lights.rs`, `docs/vt-coverage.md`
 
 <a id="apple-hig-color"></a>
 ### apple-hig-color
@@ -385,7 +385,7 @@ Human Interface Guidelines: Color -- 'Avoid relying solely on color to different
 - **URL:** <https://developer.apple.com/tutorials/data/design/human-interface-guidelines/color.json>
 - **sha256:** `262ce33cb88d41ac0238bf1e3f59b7957e8ddb030379c41b35a6cbdb9ab11a39` (182037 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/lights.rs`, `baud-render/src/status.rs`
+- **Cited in:** `crates/baud-render/src/lights.rs`, `crates/baud-render/src/status.rs`
 
 <a id="apple-hig-dark-mode"></a>
 ### apple-hig-dark-mode
@@ -395,7 +395,7 @@ Human Interface Guidelines: Dark Mode -- 'make sure the contrast ratio between c
 - **URL:** <https://developer.apple.com/tutorials/data/design/human-interface-guidelines/dark-mode.json>
 - **sha256:** `cf352a73655e616568441efefb295802ade3e7f34980f33c35f0ee778cf4f3e7` (38687 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/config.rs`
+- **Cited in:** `crates/baud-app/src/config.rs`
 
 <a id="apple-hig-keyboards"></a>
 ### apple-hig-keyboards
@@ -405,7 +405,7 @@ Human Interface Guidelines, Keyboards -- standard shortcuts: Command-F 'Open a F
 - **URL:** <https://developer.apple.com/tutorials/data/design/human-interface-guidelines/keyboards.json>
 - **sha256:** `ef81add8bc05d6f5d641814e936076fd44400b45334160841e83c16e12eb8dee` (66400 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/find.rs`, `baud-app/src/windows.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/find.rs`, `crates/baud-app/src/windows.rs`, `docs/input-coverage.md`
 
 <a id="apple-hig-launching"></a>
 ### apple-hig-launching
@@ -415,7 +415,7 @@ Human Interface Guidelines: Launching -- 'Launch instantly'; a splash screen at 
 - **URL:** <https://developer.apple.com/tutorials/data/design/human-interface-guidelines/launching.json>
 - **sha256:** `38291e5bc0ab9b623cdc831f1b495abdc8e39b4c3501a97a499099738901e2cf` (25518 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/splash.rs`
+- **Cited in:** `crates/baud-app/src/splash.rs`
 
 <a id="apple-hig-materials"></a>
 ### apple-hig-materials
@@ -425,7 +425,7 @@ Human Interface Guidelines: Materials -- Liquid Glass and standard materials; 'D
 - **URL:** <https://developer.apple.com/tutorials/data/design/human-interface-guidelines/materials.json>
 - **sha256:** `597da170985715de4bd8446df12e3604595e634a790b5da0ce6673d2b2327ed5` (76600 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/app.rs`, `baud-app/src/config.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`, `crates/baud-app/src/config.rs`
 
 <a id="apple-hig-pointing-devices-2026-10-29"></a>
 ### apple-hig-pointing-devices-2026-10-29
@@ -436,7 +436,7 @@ Human Interface Guidelines, Pointing devices, as fetched 2026-10-29 -- the macOS
 - **sha256:** `e11d24e1d40696f6054011c8d023821dc941ffcf662f57f744a46b68a1c774c9` (115573 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-29
-- **Cited in:** `baud-app/src/app.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `docs/input-coverage.md`
 
 <a id="apple-hig-the-menu-bar"></a>
 ### apple-hig-the-menu-bar
@@ -446,7 +446,7 @@ Human Interface Guidelines, The menu bar -- the Edit menu's Find submenu: Find, 
 - **URL:** <https://developer.apple.com/tutorials/data/design/human-interface-guidelines/the-menu-bar.json>
 - **sha256:** `49021cdabc50e3cd7a0d0daedfc7fe3175a1b3331ce5b836cdf759183d5c7f46` (84251 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/windows.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/windows.rs`, `docs/input-coverage.md`
 
 <a id="apple-kmadimflashinglightschangednotification"></a>
 ### apple-kmadimflashinglightschangednotification
@@ -456,7 +456,7 @@ kMADimFlashingLightsChangedNotification -- posts when a person changes the flash
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/mediaaccessibility/kmadimflashinglightschangednotification.json>
 - **sha256:** `94cad2093749e03a280e90f97047b1804df2905b0183394c822f251953a17614` (11900 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/settings.rs`
+- **Cited in:** `crates/baud-present-macos/src/settings.rs`
 
 <a id="apple-libc-grantpt-c"></a>
 ### apple-libc-grantpt-c
@@ -467,7 +467,7 @@ Apple Libc-1752.120.2 (4e34d05), stdlib/grantpt.c -- posix\_openpt is open("/dev
 - **sha256:** `2dfa27d03494014baced478c7803c3fbbda8e751d96105aa4f04d753c4ec5b9e` (3245 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-08
-- **Cited in:** `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/sys.rs`
 
 <a id="apple-libc-login-tty-c"></a>
 ### apple-libc-login-tty-c
@@ -478,7 +478,7 @@ Apple Libc-1752.120.2 (4e34d05), util/login\_tty.c -- setsid, TIOCSCTTY, dup2 on
 - **sha256:** `3644a7d7ed1ca08eac7ca46e21fac9821a3c61e57b188434366afe55687b2cdb` (2234 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-08
-- **Cited in:** `baud-app/src/pty.rs`, `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`, `crates/baud-app/src/sys.rs`
 
 <a id="apple-libc-pty-c"></a>
 ### apple-libc-pty-c
@@ -488,7 +488,7 @@ Apple Libc-1752.120.2 (4e34d05), util/pty.c -- openpty applies termp to the repl
 - **URL:** <https://raw.githubusercontent.com/apple-oss-distributions/Libc/4e34d0559e3a1b081afeb8604d9e204a1f31321d/util/pty.c>
 - **sha256:** `5159b60806242faf7f386e08fbf78b955024f8e1541a141e43f0b1bfbc82f361` (4727 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/pty.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`
 
 <a id="apple-libinfo-mdns-module-c"></a>
 ### apple-libinfo-mdns-module-c
@@ -499,7 +499,7 @@ Apple Libinfo-600 (39b70c5), lookup.subproj/mdns\_module.c -- \_mdns\_atfork\_pr
 - **sha256:** `403c92c27c27882c5bf262ced0ca09fb1123b02cd6213e1290a8809e2b12672a` (55404 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-30
-- **Cited in:** `baud-app/src/app.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`
 
 <a id="apple-libsystem-init-c"></a>
 ### apple-libsystem-init-c
@@ -510,7 +510,7 @@ Apple Libsystem-1356 (c23b511), init.c -- libSystem\_atfork\_prepare: the dlopen
 - **sha256:** `329d8f27565ebcc332336b15fecd86bcde7728237d5da14cdbed81d7c804f88a` (26334 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-30
-- **Cited in:** `baud-app/src/app.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`
 
 <a id="apple-ls-ls-c"></a>
 ### apple-ls-ls-c
@@ -538,7 +538,7 @@ macOS 27 Release Notes -- AppKit: titlebar accessories may draw outside their bo
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/macos-release-notes/macos-27-release-notes.json>
 - **sha256:** `71894d02d46dc40c9f3bda12ffa7072f223cc8460d3caff6130be33a8eec5a6f` (147581 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/sdk_gates.rs`, `baud-app/tests/event_rig.rs`
+- **Cited in:** `crates/baud-app/src/sdk_gates.rs`, `crates/baud-app/tests/event_rig.rs`
 
 <a id="apple-madimflashinglightsenabled"></a>
 ### apple-madimflashinglightsenabled
@@ -548,7 +548,7 @@ MADimFlashingLightsEnabled() -- whether the flashing lights setting is enabled; 
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/mediaaccessibility/madimflashinglightsenabled().json>
 - **sha256:** `576735a80174ab036347b656af38eaeb9b9b5a6b180b163c25747e06aec5e050` (10603 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/settings.rs`
+- **Cited in:** `crates/baud-present-macos/src/settings.rs`
 
 <a id="apple-mediaaccessibility-flashing-lights"></a>
 ### apple-mediaaccessibility-flashing-lights
@@ -558,7 +558,7 @@ MediaAccessibility, Flashing lights -- the Dim Flashing Lights setting; 'If you 
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/mediaaccessibility/flashing-lights.json>
 - **sha256:** `6f54be7de428b238ca39fdab8d55726f33126df3e515af1a6ef79ec692713b41` (11933 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/settings.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-present-macos/src/settings.rs`, `docs/vt-coverage.md`
 
 <a id="apple-metal-sample-positions"></a>
 ### apple-metal-sample-positions
@@ -568,7 +568,7 @@ Positioning samples programmatically (documentation JSON): the default one-sampl
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/metal/positioning-samples-programmatically.json>
 - **sha256:** `2a0871cc22ea58d3bc5defe3dc1b8403c1c32200dfb3d1524bda6c2d717c90d2` (17176 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/effect.rs`
+- **Cited in:** `crates/baud-render/src/effect.rs`
 
 <a id="apple-nsapplication-didchangescreenparametersnotification"></a>
 ### apple-nsapplication-didchangescreenparametersnotification
@@ -578,7 +578,7 @@ NSApplication didChangeScreenParametersNotification -- 'Posted when the configur
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nsapplication/didchangescreenparametersnotification.json>
 - **sha256:** `51d6ba1888cdf2018bc2a0e8a912bfa6b45a09aeef0d53305abdbb7dd22535c5` (41824 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/window_facts.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-present-macos/src/window_facts.rs`, `docs/vt-coverage.md`
 
 <a id="apple-nsapplication-didfinishlaunchingnotification"></a>
 ### apple-nsapplication-didfinishlaunchingnotification
@@ -589,7 +589,7 @@ NSApplication didFinishLaunchingNotification -- posted at the end of finishLaunc
 - **sha256:** `9a7d45abbad83eefc855754e6c2519f8ced8f270a866310e0224325fd468d5ee` (41545 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-29
-- **Cited in:** `baud-app/src/app.rs`, `baud-present-macos/src/launch.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`, `crates/baud-present-macos/src/launch.rs`
 
 <a id="apple-nsapplication-finishlaunching"></a>
 ### apple-nsapplication-finishlaunching
@@ -600,7 +600,7 @@ NSApplication finishLaunching() -- activates the app; the run() method calls thi
 - **sha256:** `739aa0835cd23987d4d05b5412c4f0d39f9909cf764f36343a5f79c2a62d96ea` (24487 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-29
-- **Cited in:** `baud-app/src/app.rs`, `baud-present-macos/src/launch.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`, `crates/baud-present-macos/src/launch.rs`
 
 <a id="apple-nsapplication-informationalrequest"></a>
 ### apple-nsapplication-informationalrequest
@@ -610,7 +610,7 @@ NSApplication.RequestUserAttentionType.informationalRequest -- the dock icon wil
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nsapplication/requestuserattentiontype/informationalrequest.json>
 - **sha256:** `05571a5b2c67c1fda765c81d5322911e21b8232123e842f10903085b9877fa17` (12058 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/bell.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/bell.rs`, `docs/vt-coverage.md`
 
 <a id="apple-nsapplication-requestuserattention"></a>
 ### apple-nsapplication-requestuserattention
@@ -620,7 +620,7 @@ NSApplication requestUserAttention(\_:) -- starts a user attention request; send
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nsapplication/requestuserattention(_:).json>
 - **sha256:** `15d09e764be44f26184a18452ce3067162e871a917a357c5baefdc2059e059c1` (17891 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/bell.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/bell.rs`, `docs/vt-coverage.md`
 
 <a id="apple-nsapplicationdelegate-should-handle-reopen"></a>
 ### apple-nsapplicationdelegate-should-handle-reopen
@@ -631,7 +631,7 @@ NSApplicationDelegate.applicationShouldHandleReopen(\_:hasVisibleWindows:) -- a 
 - **sha256:** `09e0ab5a87a314cccf12fe1b7fa544064b8979fe99cb3ca9313293da75f828b6` (22486 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-31
-- **Cited in:** `baud-app/src/app.rs`, `baud-app/src/windows.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `crates/baud-app/src/windows.rs`, `docs/input-coverage.md`
 
 <a id="apple-nsapplicationdelegate-terminate-after-last-window-closed"></a>
 ### apple-nsapplicationdelegate-terminate-after-last-window-closed
@@ -642,7 +642,7 @@ NSApplicationDelegate.applicationShouldTerminateAfterLastWindowClosed(\_:) -- 'I
 - **sha256:** `9ebb535b3556e688b03d2a139b2745c04a055a5304cc4bcaa195f54e4bdc57d8` (21047 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-31
-- **Cited in:** `baud-app/src/windows.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/windows.rs`, `docs/input-coverage.md`
 
 <a id="apple-nsbeep"></a>
 ### apple-nsbeep
@@ -652,7 +652,7 @@ NSBeep -- plays the system beep, the sound the user selects (documentation JSON)
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nsbeep.json>
 - **sha256:** `c78c4cc1e6cb06c507fc28ed61793fdbdb52a97889a3f9564682b1703e4e5ed8` (3929 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/bell.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/bell.rs`, `docs/vt-coverage.md`
 
 <a id="apple-nscharacterset-whitespaces"></a>
 ### apple-nscharacterset-whitespaces
@@ -683,7 +683,7 @@ AppKit, NSColor init(calibratedRed:green:blue:alpha:) -- "Values below 0.0 are i
 - **sha256:** `ab569ebfd7834adfe26cf8095241d2088e3b40093170ae440a6c88807bd50639` (26276 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/gamut.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/gamut.rs`
 
 <a id="apple-nscolorspace-genericrgb"></a>
 ### apple-nscolorspace-genericrgb
@@ -694,7 +694,7 @@ AppKit, NSColorSpace genericRGB -- "a device-independent RGB color space". Apple
 - **sha256:** `f1d32ba4ce5a9cc29c6e55d4fcacd1947914af1ad4b0ea12825f443fb8d59cd8` (21456 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/gamut.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/gamut.rs`
 
 <a id="apple-nscursor-pointinghand"></a>
 ### apple-nscursor-pointinghand
@@ -705,7 +705,7 @@ NSCursor.pointingHand -- 'Returns the pointing-hand system cursor'. Apple Inc., 
 - **sha256:** `378b893933d9adbc21f452382e9820ad8b977727c90bdeda3ae2a62967dd1b3e` (25110 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-29
-- **Cited in:** `baud-app/src/app.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `docs/input-coverage.md`
 
 <a id="apple-nscursor-sethiddenuntilmousemoves"></a>
 ### apple-nscursor-sethiddenuntilmousemoves
@@ -716,7 +716,7 @@ NSCursor.setHiddenUntilMouseMoves(\_:) -- 'hide the cursor until one of the foll
 - **sha256:** `cb7754dcb94938d9970fb3ed7dbff34e58ec73747e3006937fab8d06919f0656` (15742 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-app/src/app.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `docs/vt-coverage.md`
 
 <a id="apple-nsdocktile"></a>
 ### apple-nsdocktile
@@ -727,7 +727,7 @@ NSDockTile -- 'Draw the tile content yourself ... you must provide a custom cont
 - **sha256:** `a6a69768319152c6f0223ca5334bb66c47577178e82a9119938671883da8fa46` (24909 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-present-macos/src/notify.rs`
+- **Cited in:** `crates/baud-present-macos/src/notify.rs`
 
 <a id="apple-nsevent-modifierflags"></a>
 ### apple-nsevent-modifierflags
@@ -737,7 +737,7 @@ NSEvent.modifierFlags -- 'An integer bit field that indicates the pressed modifi
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nsevent/modifierflags-swift.property.json>
 - **sha256:** `e1fc4dc73f32c57dd08db9433b841c64e5a277dcda2fe471929c72dfaa633ea2` (10248 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/app.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `docs/input-coverage.md`
 
 <a id="apple-nsevent-modifierflags-capslock"></a>
 ### apple-nsevent-modifierflags-capslock
@@ -747,7 +747,7 @@ NSEvent.ModifierFlags.capsLock -- 'The Caps Lock key has been pressed' (document
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nsevent/modifierflags-swift.struct/capslock.json>
 - **sha256:** `1a34ac7c65c0f8bfd0379e12d18dd39f678f999fab8ec216a588f24de34d5230` (20296 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/app.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`
 
 <a id="apple-nsnumber-description-withlocale"></a>
 ### apple-nsnumber-description-withlocale
@@ -757,7 +757,7 @@ NSNumber description(withLocale:) (documentation JSON): the format a number is w
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/foundation/nsnumber/description(withlocale:).json>
 - **sha256:** `e63f5cf0854ab44ef56e9ae677161a80038b5899a91978822f8e69b483364498` (15758 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/expression.rs`
+- **Cited in:** `crates/baud-domain/src/expression.rs`
 
 <a id="apple-nsnumber-stringvalue"></a>
 ### apple-nsnumber-stringvalue
@@ -777,7 +777,7 @@ AppKit, NSPasteboard.changeCount -- the count starts at zero and moves each time
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nspasteboard/changecount.json>
 - **sha256:** `2b694e83175a73a3ed8d69f861faf5b214248a087d3520586ff5d727e9ca69eb` (12933 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/clipboard.rs`
+- **Cited in:** `crates/baud-present-macos/src/clipboard.rs`
 
 <a id="apple-nspasteboard-name-find"></a>
 ### apple-nspasteboard-name-find
@@ -788,7 +788,7 @@ AppKit, NSPasteboard.Name.find -- 'The pasteboard that holds information about t
 - **sha256:** `3140a8f4149a4153091557d0f361df3c12ac5f741149a28c6e067e3979f67f4c` (14296 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-app/src/find.rs`
+- **Cited in:** `crates/baud-app/src/find.rs`
 
 <a id="apple-nsprinter-printernames"></a>
 ### apple-nsprinter-printernames
@@ -799,7 +799,7 @@ NSPrinter printerNames -- the names of all available printers (documentation JSO
 - **sha256:** `68eb8d537982c1bbf31fcc6debb75eb9cc22d319993f05db269176a806664380` (11508 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-present-macos/src/print.rs`
+- **Cited in:** `crates/baud-present-macos/src/print.rs`
 
 <a id="apple-nsprintoperation-run"></a>
 ### apple-nsprintoperation-run
@@ -810,7 +810,7 @@ NSPrintOperation run() -- runs the print operation on the current thread (docume
 - **sha256:** `62ad007ece0a297177dbe5f98064e8c5ba169af632dbac5930b88253449c024f` (16276 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-present-macos/src/print.rs`
+- **Cited in:** `crates/baud-present-macos/src/print.rs`
 
 <a id="apple-nsprintoperation-runmodal"></a>
 ### apple-nsprintoperation-runmodal
@@ -821,7 +821,7 @@ NSPrintOperation runModal(for:delegate:didRun:contextInfo:) -- runs the print op
 - **sha256:** `9f5f8cde9dabf36080c905488cdb881c420193e3d2ffad10a9c78fda940599d8` (22038 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-present-macos/src/print.rs`
+- **Cited in:** `crates/baud-present-macos/src/print.rs`
 
 <a id="apple-nsscreen-frame"></a>
 ### apple-nsscreen-frame
@@ -832,7 +832,7 @@ NSScreen frame -- the full screen rectangle, menu bar and dock included (documen
 - **sha256:** `cdd59ee0bed68ec7f31084587973ebe007ac6204ade07e7f484d5cb3184ae99d` (20398 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-app/src/app.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `docs/vt-coverage.md`
 
 <a id="apple-nsscreen-screens"></a>
 ### apple-nsscreen-screens
@@ -843,7 +843,7 @@ NSScreen screens -- every screen; index 0 is the primary, whose origin is (0, 0)
 - **sha256:** `bdd7f75be3db942a1e27625b6a1852ffcc5ec250ed5af3b758edf874f3ca0311` (12205 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-app/examples/demo.rs`, `baud-app/src/app.rs`, `baud-app/src/windows.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/examples/demo.rs`, `crates/baud-app/src/app.rs`, `crates/baud-app/src/windows.rs`, `docs/vt-coverage.md`
 
 <a id="apple-nsscreen-visibleframe"></a>
 ### apple-nsscreen-visibleframe
@@ -854,7 +854,7 @@ NSScreen visibleFrame -- the screen less the menu bar and the Dock (documentatio
 - **sha256:** `ebdedc9e5e92104abdf26865fff94e2fd17b91c1d6a86165b67756884f31a664` (12492 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-app/src/app.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`
 
 <a id="apple-nsscroller-preferredscrollerstyle"></a>
 ### apple-nsscroller-preferredscrollerstyle
@@ -865,7 +865,7 @@ NSScroller.preferredScrollerStyle -- set by 'Show scroll bars' and the pointing 
 - **sha256:** `725865f625a30b2f4f1cbdc76f04179f8785bfa208e1afa137c9bef4d3620c96` (15895 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-22
-- **Cited in:** `baud-present-macos/src/settings.rs`
+- **Cited in:** `crates/baud-present-macos/src/settings.rs`
 
 <a id="apple-nsscroller-preferredscrollerstyledidchange"></a>
 ### apple-nsscroller-preferredscrollerstyledidchange
@@ -876,7 +876,7 @@ NSScroller.preferredScrollerStyleDidChangeNotification -- 'Posted if the preferr
 - **sha256:** `5a286ad3933d03646067e43de5c5690dfd16fecef39c36b7c1c6a3d77e2b553c` (12060 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-22
-- **Cited in:** `baud-present-macos/src/settings.rs`
+- **Cited in:** `crates/baud-present-macos/src/settings.rs`
 
 <a id="apple-nsscrollview-usespredominantaxisscrolling"></a>
 ### apple-nsscrollview-usespredominantaxisscrolling
@@ -887,7 +887,7 @@ NSScrollView.usesPredominantAxisScrolling -- 'predominantly scrolled one axis at
 - **sha256:** `bcb0a446eefcf8c3ffe4cb5545261511d1c63dbe317d6404a8501472ff232f15` (9663 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-app/src/wheel.rs`, `baud-present-wayland/src/pointer.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/wheel.rs`, `crates/baud-present-wayland/src/pointer.rs`, `docs/vt-coverage.md`
 
 <a id="apple-nssound"></a>
 ### apple-nssound
@@ -898,7 +898,7 @@ NSSound -- a simple interface for loading and playing audio files; for the syste
 - **sha256:** `e0005562c376de7f71aee6dce05f0d64b5c2791a12235a0bd7993c2b5a65e2cc` (58712 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-app/src/bell.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/bell.rs`, `docs/vt-coverage.md`
 
 <a id="apple-nstextinputclient"></a>
 ### apple-nstextinputclient
@@ -908,7 +908,7 @@ NSTextInputClient -- the protocol an IME-capable view implements. Apple Inc., 20
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nstextinputclient.json>
 - **sha256:** `5e1a152a57647c8f9c4d76816b9213b28f0ce0a6d2df4d0245a1ff50e26159cd` (53622 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/app.rs`, `baud-render/tests/composition.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`, `crates/baud-render/tests/composition.rs`
 
 <a id="apple-nstextinputclient-setmarkedtext"></a>
 ### apple-nstextinputclient-setmarkedtext
@@ -918,7 +918,7 @@ NSTextInputClient setMarkedText(\_:selectedRange:replacementRange:) -- 'sets the
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nstextinputclient/setmarkedtext(_:selectedrange:replacementrange:).json>
 - **sha256:** `a67f72b847be4659f43afe1d88cb4e19c7d9babb432ffec6557e834c6a315ce8` (19533 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/overlay.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-render/src/overlay.rs`, `docs/input-coverage.md`
 
 <a id="apple-nsview-acceptsfirstmouse"></a>
 ### apple-nsview-acceptsfirstmouse
@@ -929,7 +929,7 @@ NSView acceptsFirstMouse(for:) -- click-through; "Most view objects refuse a cli
 - **sha256:** `18647f30ff014faa913ac43e1da0f0bc85f4837d4a6699b10c4441b1d663627f` (24540 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-30
-- **Cited in:** `baud-app/src/app.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `docs/input-coverage.md`
 
 <a id="apple-nsview-displaylink"></a>
 ### apple-nsview-displaylink
@@ -939,7 +939,7 @@ NSView displayLink(target:selector:). Apple Inc., 2026, developer.apple.com docu
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nsview/displaylink(target:selector:).json>
 - **sha256:** `e3d2d76edb407064d072cadc96b8bb8a9352927a0f77d667415ea6f48dc9a4fb` (9949 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/display_link.rs`
+- **Cited in:** `crates/baud-present-macos/src/display_link.rs`
 
 <a id="apple-nsview-preferscompactcontrolsizemetrics"></a>
 ### apple-nsview-preferscompactcontrolsizemetrics
@@ -949,7 +949,7 @@ NSView.prefersCompactControlSizeMetrics -- YES sizes a view's controls with the 
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nsview/preferscompactcontrolsizemetrics.json>
 - **sha256:** `0f23a1cc3c28a8b567d816bf64b031066a64c700c558fcc692f19b590be35d1c` (8196 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/about.rs`
+- **Cited in:** `crates/baud-present-macos/src/about.rs`
 
 <a id="apple-nswindow"></a>
 ### apple-nswindow
@@ -960,7 +960,7 @@ NSWindow -- the class page, whose Notifications list names every notification th
 - **sha256:** `4a46820130ab378f212ed9b2af4ff0017a7b94ccd54fc0fc3f9eb4a4ceefbe5d` (495578 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-28
-- **Cited in:** `baud-app/src/app.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`
 
 <a id="apple-nswindow-animationbehavior"></a>
 ### apple-nswindow-animationbehavior
@@ -971,7 +971,7 @@ NSWindow animationBehavior -- the automatic animation used when the window is or
 - **sha256:** `ae99ebcd5dec1ed72a0cd1a1814fc0f7f990a4532bae9486df01409decc8357e` (14553 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-28
-- **Cited in:** `baud-app/src/app.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`
 
 <a id="apple-nswindow-animationbehavior-none"></a>
 ### apple-nswindow-animationbehavior-none
@@ -982,7 +982,7 @@ NSWindow.AnimationBehavior none -- no automatic animation used; may be useful wh
 - **sha256:** `dea3f40b4d6fda9c7b1e137edfebb2ced6fb6921a37e95c3c0021fd4446a79b6` (12632 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-29
-- **Cited in:** `baud-app/src/app.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`
 
 <a id="apple-nswindow-cascadetopleftfrompoint"></a>
 ### apple-nswindow-cascadetopleftfrompoint
@@ -993,7 +993,7 @@ NSWindow.cascadeTopLeft(from:) -- 'The returned point can be passed to a subsequ
 - **sha256:** `4467e782b7df09eb6f895c356b30381351a7e4aa82e7cf421bd4f6190e16f0b9` (30750 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-31
-- **Cited in:** `baud-app/src/app.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `docs/input-coverage.md`
 
 <a id="apple-nswindow-converttoscreen"></a>
 ### apple-nswindow-converttoscreen
@@ -1004,7 +1004,7 @@ NSWindow convertToScreen(\_:) -- converts a rectangle to the screen coordinate s
 - **sha256:** `f9498a6c1c4f602515f646063a7eab2d4d42534e35c7478ff8e239d75f17e79e` (22108 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-app/src/app.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `docs/vt-coverage.md`
 
 <a id="apple-nswindow-didbecomekeynotification"></a>
 ### apple-nswindow-didbecomekeynotification
@@ -1015,7 +1015,7 @@ NSWindow.didBecomeKeyNotification -- 'A notification that the window object beca
 - **sha256:** `7466e594b96d8ff615fafee1f02b8bc253d749f26734732a22d506e81b2ac819` (37509 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-09
-- **Cited in:** `baud-present-macos/src/closing.rs`
+- **Cited in:** `crates/baud-present-macos/src/closing.rs`
 
 <a id="apple-nswindow-didchangebackingpropertiesnotification"></a>
 ### apple-nswindow-didchangebackingpropertiesnotification
@@ -1025,7 +1025,7 @@ NSWindow didChangeBackingPropertiesNotification -- 'A notification that the wind
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/didchangebackingpropertiesnotification.json>
 - **sha256:** `4f5a509dfd43835eaf2819fc586c1fb3433079b2d4660cb7a38e6454f8f805c5` (39119 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/window_facts.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-present-macos/src/window_facts.rs`, `docs/vt-coverage.md`
 
 <a id="apple-nswindow-didchangescreennotification"></a>
 ### apple-nswindow-didchangescreennotification
@@ -1035,7 +1035,7 @@ NSWindow didChangeScreenNotification -- 'A notification that a portion of the wi
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/didchangescreennotification.json>
 - **sha256:** `dd863309bb1cd15b85e57e0500fc7058e5a811002e9447b9e6f4705aa2845195` (37564 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/window_facts.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-present-macos/src/window_facts.rs`, `docs/vt-coverage.md`
 
 <a id="apple-nswindow-diddeminiaturizenotification"></a>
 ### apple-nswindow-diddeminiaturizenotification
@@ -1045,7 +1045,7 @@ NSWindow didDeminiaturizeNotification -- 'A notification that the window is no l
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/diddeminiaturizenotification.json>
 - **sha256:** `8ee4e6703a300d8c6cbf52d0bdb7aa709ed5690474710e3d4a888c5b2680757d` (37541 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/window_facts.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-present-macos/src/window_facts.rs`, `docs/vt-coverage.md`
 
 <a id="apple-nswindow-didminiaturizenotification"></a>
 ### apple-nswindow-didminiaturizenotification
@@ -1055,7 +1055,7 @@ NSWindow didMiniaturizeNotification -- 'A notification that the window object mi
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/didminiaturizenotification.json>
 - **sha256:** `b9f314e2d0af269d01e45f0e9beb3b0c3837f18e6857ac798cf40f9691c9a799` (37515 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/window_facts.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-present-macos/src/window_facts.rs`, `docs/vt-coverage.md`
 
 <a id="apple-nswindow-didmovenotification"></a>
 ### apple-nswindow-didmovenotification
@@ -1065,7 +1065,7 @@ NSWindow didMoveNotification -- 'A notification that the window object moved'; '
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/didmovenotification.json>
 - **sha256:** `fd097aa9d0718a2abb3db846c0716da6ec20cf9be21a732b76138feffa8d6871` (37838 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/app/rig.rs`, `baud-present-macos/src/window_facts.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/app/rig.rs`, `crates/baud-present-macos/src/window_facts.rs`, `docs/vt-coverage.md`
 
 <a id="apple-nswindow-didresignkeynotification"></a>
 ### apple-nswindow-didresignkeynotification
@@ -1076,7 +1076,7 @@ NSWindow.didResignKeyNotification -- 'A notification that the window object resi
 - **sha256:** `a83c3f949c633bee4d940ad1fd858c4a489745d9da1d81766b9398613a94f4b4` (37550 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-09
-- **Cited in:** `baud-present-macos/src/closing.rs`
+- **Cited in:** `crates/baud-present-macos/src/closing.rs`
 
 <a id="apple-nswindow-didresizenotification"></a>
 ### apple-nswindow-didresizenotification
@@ -1086,7 +1086,7 @@ NSWindow didResizeNotification -- 'A notification that the window object size ch
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/didresizenotification.json>
 - **sha256:** `4203ff6bb43aa1cc27a63c44c8344aa66f44fb1393a9fbf98ec3f769428fb4d4` (37444 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/window_facts.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-present-macos/src/window_facts.rs`, `docs/vt-coverage.md`
 
 <a id="apple-nswindow-frame"></a>
 ### apple-nswindow-frame
@@ -1107,7 +1107,7 @@ NSWindow isKeyWindow -- whether the window is the key window for the application
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/iskeywindow.json>
 - **sha256:** `b4b57bf6aafadad9e2efef214e6c8a5137d6939a8c557b2b5f5b62420ecbe79d` (16123 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/app.rs`, `baud-app/src/bell.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`, `crates/baud-app/src/bell.rs`
 
 <a id="apple-nswindow-isminiaturized"></a>
 ### apple-nswindow-isminiaturized
@@ -1117,7 +1117,7 @@ NSWindow isMiniaturized -- whether the window is minimized, removed from the scr
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/isminiaturized.json>
 - **sha256:** `3e27607a713574a7c8d7a3913ced1b45198a0c6bbbac5314bae3b9fa742cc485` (15265 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/app.rs`, `baud-app/src/bell.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`, `crates/baud-app/src/bell.rs`
 
 <a id="apple-nswindow-isvisible"></a>
 ### apple-nswindow-isvisible
@@ -1128,7 +1128,7 @@ NSWindow isVisible -- whether the window is visible onscreen, even when obscured
 - **sha256:** `4c6070044a96e08c9350632b99d01705202def3859b8cff4589b90f0171e3e3f` (11813 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-28
-- **Cited in:** `baud-app/src/app.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`
 
 <a id="apple-nswindow-miniwindowtitle"></a>
 ### apple-nswindow-miniwindowtitle
@@ -1138,7 +1138,7 @@ NSWindow.miniwindowTitle (documentation JSON). Apple, 2026, developer.apple.com/
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/miniwindowtitle.json>
 - **sha256:** `602b1378c13e7abcd4d3ecdff0c457c3a2bf51c7fa11d74fccfc10819c04bf14` (17056 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/title.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/title.rs`, `docs/vt-coverage.md`
 
 <a id="apple-nswindow-occlusionstate"></a>
 ### apple-nswindow-occlusionstate
@@ -1149,7 +1149,7 @@ NSWindow occlusionState -- visible when at least part of the window is visible, 
 - **sha256:** `ad947ec0741427387d2856564c4626710d89c43f46396afe084c302ece38d6a5` (11507 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-28
-- **Cited in:** `baud-app/src/app.rs`, `baud-present-macos/src/closing.rs`, `baud-present-macos/src/display_link.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`, `crates/baud-present-macos/src/closing.rs`, `crates/baud-present-macos/src/display_link.rs`
 
 <a id="apple-nswindow-orderfrontregardless"></a>
 ### apple-nswindow-orderfrontregardless
@@ -1159,7 +1159,7 @@ NSWindow orderFrontRegardless() -- moves the window to the front of its level, e
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/orderfrontregardless().json>
 - **sha256:** `57cbf24d08b67677e6a0dd36106a964bde05d970bb979d3b08d32460cf7fb980` (14483 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/app.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `docs/vt-coverage.md`
 
 <a id="apple-nswindow-willclosenotification"></a>
 ### apple-nswindow-willclosenotification
@@ -1170,7 +1170,7 @@ NSWindow.willCloseNotification -- 'A notification that the window object is abou
 - **sha256:** `847229c3d7a7172de1e6178df87e6f6cbac6f54eedd071c43333e91e6609706b` (37455 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-31
-- **Cited in:** `baud-present-macos/src/closing.rs`
+- **Cited in:** `crates/baud-present-macos/src/closing.rs`
 
 <a id="apple-nswindow-zoom"></a>
 ### apple-nswindow-zoom
@@ -1180,7 +1180,7 @@ NSWindow.zoom(\_:) (documentation JSON) -- 'Invokes the windowWillUseStandardFra
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/zoom(_:).json>
 - **sha256:** `556f071b6fad91cf0af30f6e32b6411be687e2cea88b8631e71dd123eb53e4f4` (34947 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/sdk_gates.rs`, `baud-present-macos/src/container.rs`
+- **Cited in:** `crates/baud-app/src/sdk_gates.rs`, `crates/baud-present-macos/src/container.rs`
 
 <a id="apple-nswindowdelegate-windowwillusestandardframe"></a>
 ### apple-nswindowdelegate-windowwillusestandardframe
@@ -1190,7 +1190,7 @@ NSWindowDelegate.windowWillUseStandardFrame(\_:defaultFrame:) (documentation JSO
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nswindowdelegate/windowwillusestandardframe(_:defaultframe:).json>
 - **sha256:** `592f157a626d256ad36ec6a9935d26e9da66ed45349812ce7aea32c7002a4ec3` (17134 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/sdk_gates.rs`, `baud-present-macos/src/container.rs`
+- **Cited in:** `crates/baud-app/src/sdk_gates.rs`, `crates/baud-present-macos/src/container.rs`
 
 <a id="apple-nsworkspace-display-options-notification"></a>
 ### apple-nsworkspace-display-options-notification
@@ -1200,7 +1200,7 @@ NSWorkspace.accessibilityDisplayOptionsDidChangeNotification -- posted on the wo
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nsworkspace/accessibilitydisplayoptionsdidchangenotification.json>
 - **sha256:** `1ab19f029994cb3c52d0c6cd79d5931696fb8874375e038dd0a90e7d157635b5` (37242 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/settings.rs`
+- **Cited in:** `crates/baud-present-macos/src/settings.rs`
 
 <a id="apple-processinfo"></a>
 ### apple-processinfo
@@ -1211,7 +1211,7 @@ ProcessInfo (NSProcessInfo) -- a collection of information about the current pro
 - **sha256:** `6506c535e77720986f021ca4bf5e792517727903b5af425d26c7ea9c9e25458e` (99589 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-29
-- **Cited in:** `baud-app/src/app.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`
 
 <a id="apple-quartz2d-paths"></a>
 ### apple-quartz2d-paths
@@ -1221,7 +1221,7 @@ Quartz 2D Programming Guide, Paths: the line straddles the path, miter join by d
 - **URL:** <https://developer.apple.com/library/archive/documentation/GraphicsImaging/Conceptual/drawingwithquartz2d/dq_paths/dq_paths.html>
 - **sha256:** `3b0fc038e56cbe602e946ae9470caf12f206d8e5122d2dbbd771bf2e476d3f13` (80317 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/stroke.rs`, `baud-render/src/badge.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-font/src/stroke.rs`, `crates/baud-render/src/badge.rs`, `docs/vt-coverage.md`
 
 <a id="apple-responding-to-flashing-lights-setting"></a>
 ### apple-responding-to-flashing-lights-setting
@@ -1231,7 +1231,7 @@ Responding to changes in the flashing lights setting -- 'the device automaticall
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/mediaaccessibility/responding-to-changes-in-the-flashing-lights-setting.json>
 - **sha256:** `60242c8cad593bfbb6db992b37d3d024086da1777f20bbf6f034f6f4c3b3257c` (18143 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/settings.rs`
+- **Cited in:** `crates/baud-present-macos/src/settings.rs`
 
 <a id="apple-sdk27-mtlresource-h"></a>
 ### apple-sdk27-mtlresource-h
@@ -1241,7 +1241,7 @@ macOS 27.0 SDK, Metal.framework/Headers/MTLResource.h -- shared storage coherent
 - **URL:** file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework/Headers/MTLResource.h
 - **sha256:** `1c2fc6c7250205ef7089cbe7ffe004c7a774acb5e8bcb30791e942639e420a0d` (16922 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/journal.rs`
+- **Cited in:** `crates/baud-present-macos/src/journal.rs`
 
 <a id="apple-support-mac-desktop-dock-settings"></a>
 ### apple-support-mac-desktop-dock-settings
@@ -1251,7 +1251,7 @@ Mac User Guide (macOS 27), Change Desktop &amp; Dock settings on Mac -- Window t
 - **URL:** <https://support.apple.com/guide/mac-help/change-desktop-dock-settings-mchlp1119/mac>
 - **sha256:** `99bee6a4aa8785fcd9a34e95a9a4f45aba8dba2d94803fa29275d4ceca277201` (735358 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/container.rs`
+- **Cited in:** `crates/baud-present-macos/src/container.rs`
 
 <a id="apple-terminal-shortcuts"></a>
 ### apple-terminal-shortcuts
@@ -1262,7 +1262,7 @@ Terminal User Guide, Keyboard shortcuts in Terminal on Mac -- Jump to previous m
 - **sha256:** `bc028f27639657122796848cbd65d9e4fec3600d478bf71561d57170adfcb24b` (585199 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-app/src/app.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `docs/input-coverage.md`
 
 <a id="apple-thread-safety-summary"></a>
 ### apple-thread-safety-summary
@@ -1273,7 +1273,7 @@ Threading Programming Guide: Thread Safety Summary -- AppKit's thread-unsafe cla
 - **sha256:** `3912f521c0af479cc477feb9d36f643501320f514573b6475cc62416a656d413` (56112 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-app/src/app.rs`, `baud-app/src/probe.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`, `crates/baud-app/src/probe.rs`
 
 <a id="apple-ttrm-ch2"></a>
 ### apple-ttrm-ch2
@@ -1284,7 +1284,7 @@ TrueType Reference Manual, chapter 2: the font engine (the origin point and the 
 - **sha256:** `9cee2077f06fd92cec8ac355e936bfd14530a2c27e1e319780c924c60ad8cbd6` (203795 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-12
-- **Cited in:** `baud-font/src/glyf.rs`, `baud-font/tests/bearings.rs`, `tools/baud-oracle/src/cases/bearing.rs`
+- **Cited in:** `crates/baud-font/src/glyf.rs`, `crates/baud-font/tests/bearings.rs`, `tools/baud-oracle/src/cases/bearing.rs`
 
 <a id="apple-ttrm-glyf"></a>
 ### apple-ttrm-glyf
@@ -1294,7 +1294,7 @@ TrueType Reference Manual, chapter 6: the 'glyf' table. Apple, 2026, developer.a
 - **URL:** <https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6glyf.html>
 - **sha256:** `37a315c433e7a7673aee6637c66401440ca80a640dc0ae0a82475cad4b112ea4` (120080 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/glyf.rs`
+- **Cited in:** `crates/baud-font/src/glyf.rs`
 
 <a id="apple-ttrm-morx"></a>
 ### apple-ttrm-morx
@@ -1304,7 +1304,7 @@ TrueType Reference Manual, chapter 6: the 'morx' table. Apple, 2026, developer.a
 - **URL:** <https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6morx.html>
 - **sha256:** `de157d9c6f12eb39ddc7e98ed09af678983bdeb4ed891ce73cc374223f1821af` (165117 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/morx.rs`, `baud-font/tests/script.rs`, `baud-font/tests/shape.rs`
+- **Cited in:** `crates/baud-font/src/morx.rs`, `crates/baud-font/tests/script.rs`, `crates/baud-font/tests/shape.rs`
 
 <a id="apple-ttrm-sbix"></a>
 ### apple-ttrm-sbix
@@ -1314,7 +1314,7 @@ TrueType Reference Manual, chapter 6: the 'sbix' table. Apple, 2026, developer.a
 - **URL:** <https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6sbix.html>
 - **sha256:** `cf2e783ef0c29a41fab178801ffb0fb3b4f3e996a91339ff89871ca8eb7f74b6` (115442 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/bitmap.rs`, `baud-font/src/face.rs`, `baud-render/src/atlas.rs`
+- **Cited in:** `crates/baud-font/src/bitmap.rs`, `crates/baud-font/src/face.rs`, `crates/baud-render/src/atlas.rs`
 
 <a id="apple-uidesignrequirescompatibility"></a>
 ### apple-uidesignrequirescompatibility
@@ -1324,7 +1324,7 @@ UIDesignRequiresCompatibility -- the compatibility mode shows an app as built ag
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/bundleresources/information-property-list/uidesignrequirescompatibility.json>
 - **sha256:** `aac472ac005daa0ea5521e34d167aafb804ec68534d1490fa2ed66f30b9e3a12` (21898 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/sdk_gates.rs`
+- **Cited in:** `crates/baud-app/src/sdk_gates.rs`
 
 <a id="apple-unerror-code"></a>
 ### apple-unerror-code
@@ -1335,7 +1335,7 @@ UNError.Code -- the notification errors. Apple Inc., 2026, developer.apple.com d
 - **sha256:** `b7b61a3655f1220359936f2bea4c7c6fe99f7aebb8b70da4a828f588fcd7b231` (29688 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-present-macos/src/notify.rs`
+- **Cited in:** `crates/baud-present-macos/src/notify.rs`
 
 <a id="apple-unnotificationattachment"></a>
 ### apple-unnotificationattachment
@@ -1345,7 +1345,7 @@ UNNotificationAttachment -- 'The system validates attachments ... the system doe
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/usernotifications/unnotificationattachment.json>
 - **sha256:** `a14613618c386fa134616ca20e227fd9e60d4f65029e326fbbe625604cb0a4b1` (47113 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/notify.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/notify.rs`, `docs/vt-coverage.md`
 
 <a id="apple-unusernotificationcenter"></a>
 ### apple-unusernotificationcenter
@@ -1356,7 +1356,7 @@ UNUserNotificationCenter -- 'The central object for managing notification-relate
 - **sha256:** `90d975ee6e80fcc0d691c98e9added1f47dc2e64d6c7dd188ce4081cddf0f6ac` (57070 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-present-macos/src/notify.rs`
+- **Cited in:** `crates/baud-present-macos/src/notify.rs`
 
 <a id="apple-unusernotificationcenter-current"></a>
 ### apple-unusernotificationcenter-current
@@ -1367,7 +1367,7 @@ current() -- 'Returns your app's notification center'. Apple Inc., 2026, develop
 - **sha256:** `51496165ce47f17de8250f5c6450e2061e2b8e1f760b04cb40d3a5d4dc9051b8` (13840 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-present-macos/src/notify.rs`
+- **Cited in:** `crates/baud-present-macos/src/notify.rs`
 
 <a id="apple-updates-appkit"></a>
 ### apple-updates-appkit
@@ -1377,7 +1377,7 @@ AppKit updates -- the pasteboard privacy alert when an app reads the general pas
 - **URL:** <https://developer.apple.com/tutorials/data/documentation/updates/appkit.json>
 - **sha256:** `68435819c8a03509959669700f3da44f57ba27493af55f7599a5e12a017ab5a4` (66193 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/sdk_gates.rs`
+- **Cited in:** `crates/baud-app/src/sdk_gates.rs`
 
 <a id="arb-buffer-storage"></a>
 ### arb-buffer-storage
@@ -1396,7 +1396,7 @@ Porting x86 vector bitmask optimizations to Arm NEON -- shrn as a movemask. Dani
 - **URL:** <https://developer.arm.com/community/arm-community-blogs/b/servers-and-cloud-computing-blog/posts/porting-x86-vector-bitmask-optimizations-to-arm-neon>
 - **sha256:** `16813c7f7c34ede6177b71566e07739273f99a932d7232b0fcee9c760b843dc8` (301719 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/scan.rs`, `baud-isa-aarch64/src/lib.rs`
+- **Cited in:** `crates/baud-domain/src/scan.rs`, `crates/baud-isa-aarch64/src/lib.rs`
 
 <a id="base24-styling"></a>
 ### base24-styling
@@ -1406,7 +1406,7 @@ tinted-theming base24 fb96d3c, styling.md -- base24 slots onto ANSI 9-14. the Ti
 - **URL:** <https://raw.githubusercontent.com/tinted-theming/base24/fb96d3c6396eb27f94efadfa3c416abd9d54b488/styling.md>
 - **sha256:** `f38f3159d00a7a96266e20d94405bc7f92afecab75acea85557fc53179695d42` (8742 bytes)
 - **Copy:** [docs/research/sources/tinted-base24-styling.md](research/sources/tinted-base24-styling.md)
-- **Cited in:** `baud-domain/src/themefile.rs`
+- **Cited in:** `crates/baud-domain/src/themefile.rs`
 
 <a id="bash-5-3-man"></a>
 ### bash-5-3-man
@@ -1417,7 +1417,7 @@ bash 5.3, doc/bash.1 -- INVOCATION: a login shell's /etc/profile and the first o
 - **sha256:** `23f7bd155c57125864094d2cb4e1f6ec9f8c2ea002e18bebeb3ed4bcfaad1971` (392678 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-31
-- **Cited in:** `baud-app/src/shell.rs`
+- **Cited in:** `crates/baud-app/src/shell.rs`
 
 <a id="bat-terminal-rs"></a>
 ### bat-terminal-rs
@@ -1445,7 +1445,7 @@ btop v1.4.6, src/btop\_config.cpp -- every configuration key, its description an
 - **URL:** <https://raw.githubusercontent.com/aristocratos/btop/v1.4.6/src/btop_config.cpp>
 - **sha256:** `57dea7ed42826da41c6ebce48e36c76b007b73b18a2614afd3a9b6e849a632e3` (30600 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/scratch.rs`
+- **Cited in:** `crates/baud-app/examples/demo/scratch.rs`
 
 <a id="btop-config-147"></a>
 ### btop-config-147
@@ -1456,7 +1456,7 @@ btop v1.4.7, src/btop\_config.cpp -- every configuration key, its description an
 - **sha256:** `319938e142a7eac47213210fd0a9b1d4db689793d3c31ff0d270d5082f846918` (31623 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-03
-- **Cited in:** `baud-app/examples/demo/scratch.rs`
+- **Cited in:** `crates/baud-app/examples/demo/scratch.rs`
 
 <a id="btop-draw-147"></a>
 ### btop-draw-147
@@ -1467,7 +1467,7 @@ btop v1.4.7, src/btop\_draw.cpp -- what the cpu and mem boxes draw. Jakob P. Lil
 - **sha256:** `c5b8e02fbaae2e08eeae212d41118c0b90e30dfa167a02b9d56a83d0b70b4b9c` (109720 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-03
-- **Cited in:** `baud-app/examples/demo/scratch.rs`
+- **Cited in:** `crates/baud-app/examples/demo/scratch.rs`
 
 <a id="btop-readme-147"></a>
 ### btop-readme-147
@@ -1478,7 +1478,7 @@ btop v1.4.7, README.md -- the configuration file's shown\_boxes, disks\_filter a
 - **sha256:** `0cf73bc0d9770f743bf620977ddbeeac21b9819fd8220922fc165398cb510eee` (52812 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-28
-- **Cited in:** `tests/recordings/README.md`
+- **Cited in:** `tools/tests/recordings/README.md`
 
 <a id="cargo-1ef25ea-manifest-license"></a>
 ### cargo-1ef25ea-manifest-license
@@ -1489,7 +1489,7 @@ The Cargo Book, reference/manifest.md at 1ef25ea -- "The license and license-fil
 - **sha256:** `8058b127a263105c72d41338244cc63d0e6662397a9c9c3409f5e6605417d44c` (25664 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-03
-- **Cited in:** `xtask/src/publish.rs`
+- **Cited in:** `crates/xtask/src/publish.rs`
 
 <a id="cargo-eb94155-build-scripts-rustc-env"></a>
 ### cargo-eb94155-build-scripts-rustc-env
@@ -1522,7 +1522,7 @@ The Cargo Book, reference/config.md at eb94155 -- build.target-dir and build.bui
 - **sha256:** `e7e2a10de9b258306e612cf11261552ac1cfe8cb6f88e05c431b9c1b215caf21` (56585 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-03
-- **Cited in:** `xtask/src/publish.rs`
+- **Cited in:** `crates/xtask/src/publish.rs`
 
 <a id="cargo-eb94155-config-rustflags"></a>
 ### cargo-eb94155-config-rustflags
@@ -1544,7 +1544,7 @@ cargo eb94155, src/cargo/core/compiler/fingerprint/mod.rs -- the fingerprint mod
 - **sha256:** `ecb50403d0a63451005c384947e8629b7c92cb4860b77b1ef212a6739733eed7` (92970 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-03
-- **Cited in:** `xtask/src/publish.rs`
+- **Cited in:** `crates/xtask/src/publish.rs`
 
 <a id="cargo-eb94155-overlay-rs"></a>
 ### cargo-eb94155-overlay-rs
@@ -1555,7 +1555,7 @@ cargo eb94155, src/cargo/sources/overlay.rs -- DependencyConfusionThreatOverlayS
 - **sha256:** `2d7850dcdb41926dfe05417c9a3cbcec98d816b9da30b9954ee0b12a5ad3b015` (4588 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-03
-- **Cited in:** `xtask/src/publish.rs`
+- **Cited in:** `crates/xtask/src/publish.rs`
 
 <a id="cargo-eb94155-package-mod-rs"></a>
 ### cargo-eb94155-package-mod-rs
@@ -1566,7 +1566,7 @@ cargo eb94155, src/cargo/ops/cargo\_package/mod.rs -- do\_package and TmpRegistr
 - **sha256:** `5ba4d4c7030f89e6a985b3a45a74a52c6a89c87194bb70c152c5e690794bc62b` (45421 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-03
-- **Cited in:** `xtask/src/publish.rs`
+- **Cited in:** `crates/xtask/src/publish.rs`
 
 <a id="cargo-eb94155-package-verify-rs"></a>
 ### cargo-eb94155-package-verify-rs
@@ -1577,7 +1577,7 @@ cargo eb94155, src/cargo/ops/cargo\_package/verify.rs -- run\_verify: each .crat
 - **sha256:** `e96fd91c922f509e589947100a3544f3543ce4d5d46f3f9ae105272eb9a80083` (6851 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-03
-- **Cited in:** `MEASUREMENTS.md`, `xtask/src/publish.rs`
+- **Cited in:** `MEASUREMENTS.md`, `crates/xtask/src/publish.rs`
 
 <a id="cargo-eb94155-profiles"></a>
 ### cargo-eb94155-profiles
@@ -1599,7 +1599,7 @@ cargo eb94155, src/cargo/sources/registry/mod.rs -- short\_name and unpack\_pack
 - **sha256:** `2c8ab27cd91b4e951c5d13d6abdff757d29b1f75e6d746f5128b6b09d984965e` (45518 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-03
-- **Cited in:** `xtask/src/publish.rs`
+- **Cited in:** `crates/xtask/src/publish.rs`
 
 <a id="cargo-eb94155-source-id-rs"></a>
 ### cargo-eb94155-source-id-rs
@@ -1610,7 +1610,7 @@ cargo eb94155, src/cargo/core/source\_id.rs -- SourceId::for\_local\_registry: a
 - **sha256:** `fc2c38a770e91f66c45503a3824213c2b0881ffa0a83fef41bb474a1e412d294` (34459 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-03
-- **Cited in:** `xtask/src/publish.rs`
+- **Cited in:** `crates/xtask/src/publish.rs`
 
 <a id="cargo-eb94155-workspace-rs"></a>
 ### cargo-eb94155-workspace-rs
@@ -1621,7 +1621,7 @@ cargo eb94155, src/cargo/core/workspace.rs -- Workspace::ephemeral and local\_ov
 - **sha256:** `1d789143356bef2def5c107205041520956cab98d6867246c773ee0cc2bb055f` (98850 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-03
-- **Cited in:** `xtask/src/publish.rs`
+- **Cited in:** `crates/xtask/src/publish.rs`
 
 <a id="cargo-manifest-version"></a>
 ### cargo-manifest-version
@@ -1652,7 +1652,7 @@ Creative Commons, Policies -- 'Legal text (we call this legal code) and Commons 
 - **sha256:** `9dfa5bebe2795b42264b7b8bd52b4126393d033c01d1fa7a8157b573f86343fd` (59172 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-07
-- **Cited in:** `assets/demo/LICENSES.md`
+- **Cited in:** `docs/assets/demo/LICENSES.md`
 
 <a id="cc0-1-0-legalcode"></a>
 ### cc0-1-0-legalcode
@@ -1663,7 +1663,7 @@ Creative Commons CC0 1.0 Universal, legal code (plain text) -- section 2, the wa
 - **sha256:** `a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499` (7048 bytes)
 - **Copy:** [docs/research/sources/cc0-1.0-legalcode.txt](research/sources/cc0-1.0-legalcode.txt)
 - **Read:** 2026-11-07
-- **Cited in:** `assets/demo/LICENSES.md`
+- **Cited in:** `docs/assets/demo/LICENSES.md`
 
 <a id="chawan-0-4-4-config"></a>
 ### chawan-0-4-4-config
@@ -1674,7 +1674,7 @@ Chawan 0.4.4, doc/config.md (cha-config(5)) -- the config file search path and b
 - **sha256:** `1c67abd26de558c77d417d5d551f8cc6f726afe0d166d0455d32097e2a3273cc` (43350 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-08
-- **Cited in:** `baud-app/examples/demo/scratch.rs`
+- **Cited in:** `crates/baud-app/examples/demo/scratch.rs`
 
 <a id="chromium-fc2ff62-notification-bridge-linux"></a>
 ### chromium-fc2ff62-notification-bridge-linux
@@ -1694,7 +1694,7 @@ Chromium e44f559, components/remote\_cocoa/app\_shim/native\_widget\_mac\_nswind
 - **URL:** <https://raw.githubusercontent.com/chromium/chromium/e44f559958c6da2e2b0b127bdb6f4253d062933d/components/remote_cocoa/app_shim/native_widget_mac_nswindow.mm>
 - **sha256:** `efbeb6d3d6c9a49b913f7f057e758adfd4786566ec0e5e24419928357241cb95` (49594 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/container.rs`
+- **Cited in:** `crates/baud-present-macos/src/container.rs`
 
 <a id="chromium-status-bubble"></a>
 ### chromium-status-bubble
@@ -1704,7 +1704,7 @@ Chromium 1845772a, chrome/browser/ui/views/status\_bubble\_views.cc (gitiles TEX
 - **URL:** <https://chromium.googlesource.com/chromium/src/+/1845772a32ae00419ed0e7b6a589ea2a1b26fa87/chrome/browser/ui/views/status_bubble_views.cc?format=TEXT>
 - **sha256:** `cce1cf18e6acbc01437597ef1509ae7945ceba71455b49c66954761aa87815ea` (38691 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/link.rs`
+- **Cited in:** `crates/baud-app/src/link.rs`
 
 <a id="cie-015-2018"></a>
 ### cie-015-2018
@@ -1715,7 +1715,7 @@ CIE 015:2018 Colorimetry, 4th Edition -- 8.2.1 CIELAB, 8.2.2 CIELUV, Annex C's r
 - **sha256:** `6387f20cebfa9c2b4670513323a139d628b38cb616489d16e2641194d65cf8a0` (16096466 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-18
-- **Cited in:** `baud-domain/src/vt/xcms.rs`, `baud-domain/tests/x_parse_color.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/xcms.rs`, `crates/baud-domain/tests/x_parse_color.rs`, `docs/vt-coverage.md`
 
 <a id="conemu-ansi-escape-codes"></a>
 ### conemu-ansi-escape-codes
@@ -1725,7 +1725,7 @@ ConEmu, ANSI X3.64 and Xterm-256 Support -- ConEmu specific OSC (ESC &#93; 9 ; 1
 - **URL:** <https://raw.githubusercontent.com/ConEmu/ConEmu.github.io/64d7db1668b95924835c33ecc41e88a03da4861e/_includes/AnsiEscapeCodes.md>
 - **sha256:** `c4cd13b215f696648f3f90ee4749bca11e480c0a8eb308ddb4835972e6677555` (33936 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/dock_bars.rs`, `baud-domain/src/vt/notify.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/dock_bars.rs`, `crates/baud-domain/src/vt/notify.rs`, `docs/vt-coverage.md`
 
 <a id="contour-palette-notifications"></a>
 ### contour-palette-notifications
@@ -1735,7 +1735,7 @@ contour ea9b6c7, docs/vt-extensions/color-palette-update-notifications.md -- mod
 - **URL:** <https://raw.githubusercontent.com/contour-terminal/contour/ea9b6c73793ec5800dce11830e67b269007a9cf4/docs/vt-extensions/color-palette-update-notifications.md>
 - **sha256:** `6ba512529226511adcfee5a4d0f99a9689293e73b3e2d4d5c21afb67f45ba832` (4845 bytes)
 - **Copy:** [docs/research/sources/contour-color-palette-update-notifications.md](research/sources/contour-color-palette-update-notifications.md)
-- **Cited in:** `baud-core/tests/color_scheme.rs`, `baud-domain/src/vt/csi.rs`, `baud-domain/src/vt/mode.rs`, `baud-domain/src/vt/report.rs`, `baud-domain/src/vt/scheme.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/color_scheme.rs`, `crates/baud-domain/src/vt/csi.rs`, `crates/baud-domain/src/vt/mode.rs`, `crates/baud-domain/src/vt/report.rs`, `crates/baud-domain/src/vt/scheme.rs`, `docs/vt-coverage.md`
 
 <a id="contour-session-cpp"></a>
 ### contour-session-cpp
@@ -1754,7 +1754,7 @@ contour ea9b6c7, docs/vt-extensions/synchronized-output.md -- mode 2026, BSU and
 - **URL:** <https://raw.githubusercontent.com/contour-terminal/contour/ea9b6c73793ec5800dce11830e67b269007a9cf4/docs/vt-extensions/synchronized-output.md>
 - **sha256:** `df3cfb42f9e23694aa76c804a77d053d187f7dfdcd2e1ac98849f5dbbca4bbc1` (4235 bytes)
 - **Copy:** [docs/research/sources/contour-synchronized-output.md](research/sources/contour-synchronized-output.md)
-- **Cited in:** `baud-app/src/bell.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/bell.rs`, `docs/vt-coverage.md`
 
 <a id="contour-terminal-cpp"></a>
 ### contour-terminal-cpp
@@ -1773,7 +1773,7 @@ coreutils 9.10 (tag v9.10, commit 89b2cd5), src/ls.c -- file\_escape and the --h
 - **URL:** <https://raw.githubusercontent.com/coreutils/coreutils/v9.10/src/ls.c>
 - **sha256:** `18eae1f73cd97f42bd19ba589d96acc8ddef81feb1903277efdbe6c265ad6ff7` (166538 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/paths.rs`
+- **Cited in:** `crates/baud-app/src/paths.rs`
 
 <a id="crates-io-61edf7b-cargo-toml"></a>
 ### crates-io-61edf7b-cargo-toml
@@ -1784,7 +1784,7 @@ crates.io Cargo.toml at 61edf7b -- spdx = "=0.13.6". The crates.io developers, 2
 - **sha256:** `1b2b253f5cb2f9b3dde2127e1348d56645f521fb6c00e4cde2cb40d45954b721` (8824 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-03
-- **Cited in:** `xtask/src/publish.rs`
+- **Cited in:** `crates/xtask/src/publish.rs`
 
 <a id="crates-io-b676909-licenses-rs"></a>
 ### crates-io-b676909-licenses-rs
@@ -1794,7 +1794,7 @@ crates.io src/licenses.rs at b676909 -- parse\_license\_expr: spdx's parse\_mode
 - **URL:** <https://raw.githubusercontent.com/rust-lang/crates.io/b6769095658e30994c9320ce7438f0f4c1535275/src/licenses.rs>
 - **sha256:** `6169c5923b196a1a43ed08882cba814326f98b82af4d43680c6adb663b54cfcd` (931 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `xtask/src/publish.rs`
+- **Cited in:** `crates/xtask/src/publish.rs`
 
 <a id="crates-io-c7d5e23-publish-rs"></a>
 ### crates-io-c7d5e23-publish-rs
@@ -1805,7 +1805,7 @@ crates.io src/controllers/krate/publish.rs at c7d5e23 -- a &#96;license-file&#96
 - **sha256:** `79b4f1f24747a7d7aac7e5e8876d7c2edad103adf85e3039708ef262058ad2dc` (44410 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-03
-- **Cited in:** `xtask/src/publish.rs`
+- **Cited in:** `crates/xtask/src/publish.rs`
 
 <a id="crossfont-darwin-0-8-1"></a>
 ### crossfont-darwin-0-8-1
@@ -1815,7 +1815,7 @@ crossfont 0.8.1, src/darwin/mod.rs -- get\_matching\_face: the family's first de
 - **URL:** <https://raw.githubusercontent.com/alacritty/crossfont/v0.8.1/src/darwin/mod.rs>
 - **sha256:** `3688aaf3021162c8642517ad0cb2498cdf723ef9afe5a747b4c8d5fb1fe76e52` (18570 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fallback.rs`
+- **Cited in:** `crates/baud-app/src/fallback.rs`
 
 <a id="css-color-4-20261009"></a>
 ### css-color-4-20261009
@@ -1826,7 +1826,7 @@ CSS Color Module Level 4, W3C Candidate Recommendation Draft, 9 October 2026 -- 
 - **sha256:** `2174f6360440f9820b30934368308a68bd514160f86621476b83eb2004c2c63f` (1048849 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/gamut.rs`, `baud-domain/src/themefile/oklab.rs`, `baud-domain/src/vt/xcms.rs`, `baud-domain/tests/x_parse_color.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/gamut.rs`, `crates/baud-domain/src/themefile/oklab.rs`, `crates/baud-domain/src/vt/xcms.rs`, `crates/baud-domain/tests/x_parse_color.rs`
 
 <a id="css-color-4-hsl"></a>
 ### css-color-4-hsl
@@ -1837,7 +1837,7 @@ CSS Color Module Level 4, 7.1 Converting HSL Colors to sRGB -- the hslToRgb samp
 - **sha256:** `1a03279f29b7183fe820b339c8e79c2eb8af05099a4c87b1693ace7d8e93b11a` (547 bytes)
 - **Copy:** [docs/research/sources/css-color-4-hslToRgb.js](research/sources/css-color-4-hslToRgb.js)
 - **Read:** 2026-10-11
-- **Cited in:** `baud-domain/src/sixel.rs`, `baud-domain/tests/sixel_decode.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/sixel.rs`, `crates/baud-domain/tests/sixel_decode.rs`, `docs/vt-coverage.md`
 
 <a id="css-fonts-3"></a>
 ### css-fonts-3
@@ -1847,7 +1847,7 @@ CSS Fonts Module Level 3 (W3C Recommendation, 20 September 2018) -- 5.1 case sen
 - **URL:** <https://www.w3.org/TR/2018/REC-css-fonts-3-20180920/>
 - **sha256:** `e3982d57e3992dfa7c0e56c1ff39977bd71d807731247decc794c61d2eacd63b` (240662 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/config.rs`, `baud-app/src/discover.rs`, `baud-app/src/fonts.rs`, `baud-domain/build/caseless.rs`, `baud-domain/src/caseless.rs`, `baud-domain/src/lib.rs`, `baud-domain/tests/caseless.rs`, `baud-font/src/describe.rs`, `baud-font/src/name.rs`, `baud-font/tests/name.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/config.rs`, `crates/baud-app/src/discover.rs`, `crates/baud-app/src/fonts.rs`, `crates/baud-domain/build/caseless.rs`, `crates/baud-domain/src/caseless.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/tests/caseless.rs`, `crates/baud-font/src/describe.rs`, `crates/baud-font/src/name.rs`, `crates/baud-font/tests/name.rs`, `docs/vt-coverage.md`
 
 <a id="css-fonts-4-wd-2026-10-16"></a>
 ### css-fonts-4-wd-2026-10-16
@@ -1857,7 +1857,7 @@ CSS Fonts Module Level 4 (W3C Working Draft, 16 October 2026) -- 5.1 unchanged; 
 - **URL:** <https://www.w3.org/TR/2026/WD-css-fonts-4-20261016/>
 - **sha256:** `13f1d4394a071b5fc6e3e72b756d17e976ab5171998c4ef80f580cb6844a7538` (1392036 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/discover.rs`, `baud-render/src/stack.rs`
+- **Cited in:** `crates/baud-app/src/discover.rs`, `crates/baud-render/src/stack.rs`
 
 <a id="css-text-3"></a>
 ### css-text-3
@@ -1879,7 +1879,7 @@ CSS Text Decoration Module Level 3, W3C Candidate Recommendation Draft, 5 May 20
 - **sha256:** `feebf9327271a19fdffe0d6e70fb8d01e3f3c1fca78abd3b7f223646ac3b6b95` (179502 bytes)
 - **Copy:** [docs/research/sources/w3c-css-text-decor-3.html](research/sources/w3c-css-text-decor-3.html)
 - **Read:** 2026-10-18
-- **Cited in:** `baud-render/build/stress.rs`, `baud-render/src/cellmap.rs`, `baud-render/src/lib.rs`, `baud-render/src/renderer.rs`, `baud-render/tests/decorations.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/build/stress.rs`, `crates/baud-render/src/cellmap.rs`, `crates/baud-render/src/lib.rs`, `crates/baud-render/src/renderer.rs`, `crates/baud-render/tests/decorations.rs`, `docs/vt-coverage.md`
 
 <a id="css21-zindex"></a>
 ### css21-zindex
@@ -1890,7 +1890,7 @@ Cascading Style Sheets Level 2 Revision 1 (CSS 2.1), Appendix E: Elaborate descr
 - **sha256:** `b486aef70d4d44e7f9cbf4376da33b5f31e8d0dcb15d400aa496bf4cb2d04f13` (10645 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-18
-- **Cited in:** `baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`
 
 <a id="cstt-glossary-computer-science"></a>
 ### cstt-glossary-computer-science
@@ -1900,7 +1900,7 @@ Commission for Scientific and Technical Terminology, Glossary of Computer Scienc
 - **URL:** <https://archive.org/download/cstt-gloassaries/glossary-computer-science-eng-hin_djvu.txt>
 - **sha256:** `253d7e7b0c18a58d0b66f937919100571680196acd80ad60c8d018c4eaf8f03e` (554767 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/session.rs`
+- **Cited in:** `crates/baud-app/examples/demo/session.rs`
 
 <a id="ctlseqs"></a>
 ### ctlseqs
@@ -1910,7 +1910,7 @@ XTerm Control Sequences. Edward Moy, Stephen Gildea, Thomas Dickey, 2026, invisi
 - **URL:** <https://invisible-island.net/xterm/ctlseqs/ctlseqs.txt>
 - **sha256:** `364c1c1987c85b1c1135e57a93e9008054f46d09a338de8dcc66ea9a7c613709` (164037 bytes)
 - **Copy:** [docs/research/sources/xterm-ctlseqs.txt](research/sources/xterm-ctlseqs.txt)
-- **Cited in:** `SECURITY.md`, `baud-app/src/app.rs`, `baud-app/src/bell.rs`, `baud-app/src/clip.rs`, `baud-app/src/config.rs`, `baud-app/src/gesture.rs`, `baud-app/src/hide.rs`, `baud-app/src/hostlog.rs`, `baud-app/src/keep.rs`, `baud-app/src/pointer.rs`, `baud-app/src/readline.rs`, `baud-app/src/reveal.rs`, `baud-app/src/seat.rs`, `baud-app/src/undrawn.rs`, `baud-app/src/wheel.rs`, `baud-app/src/winops.rs`, `baud-core/src/clip.rs`, `baud-core/src/dcs.rs`, `baud-core/src/font.rs`, `baud-core/src/graph.rs`, `baud-core/src/logging.rs`, `baud-core/src/margin.rs`, `baud-core/src/ops.rs`, `baud-core/src/osc.rs`, `baud-core/src/page.rs`, `baud-core/src/sixel.rs`, `baud-core/src/stack.rs`, `baud-core/src/storage.rs`, `baud-core/src/term.rs`, `baud-core/src/vt52.rs`, `baud-core/src/window.rs`, `baud-core/src/write.rs`, `baud-core/tests/alt_buffer_modes.rs`, `baud-core/tests/bell_volume.rs`, `baud-core/tests/checksum_extension.rs`, `baud-core/tests/clipboard.rs`, `baud-core/tests/color_stack.rs`, `baud-core/tests/conformance/main.rs`, `baud-core/tests/conformance/spec_inventory.rs`, `baud-core/tests/control_strings.rs`, `baud-core/tests/coverage.rs`, `baud-core/tests/csi_decline.rs`, `baud-core/tests/decid.rs`, `baud-core/tests/encoding/latin1.rs`, `baud-core/tests/encoding/width.rs`, `baud-core/tests/host_logging.rs`, `baud-core/tests/image_geometry.rs`, `baud-core/tests/key_encode.rs`, `baud-core/tests/key_modifiers.rs`, `baud-core/tests/keyboard_lights.rs`, `baud-core/tests/keyboard_modes.rs`, `baud-core/tests/kitten_detects_the_da.rs`, `baud-core/tests/kitty_keyboard.rs`, `baud-core/tests/memory_lock.rs`, `baud-core/tests/more_fix.rs`, `baud-core/tests/other_keys.rs`, `baud-core/tests/reply_room.rs`, `baud-core/tests/saved_cursor_per_screen.rs`, `baud-core/tests/scrollbar_mode.rs`, `baud-core/tests/sgr/ideogram.rs`, `baud-core/tests/sgr/rep_align.rs`, `baud-core/tests/sgr/subparams.rs`, `baud-core/tests/sixel.rs`, `baud-core/tests/sixel_modes.rs`, `baud-core/tests/title_modes.rs`, `baud-core/tests/vt100/c0.rs`, `baud-core/tests/vt100/charsets.rs`, `baud-core/tests/vt100/cursor.rs`, `baud-core/tests/vt100/mode_lists.rs`, `baud-core/tests/vt100/modes.rs`, `baud-core/tests/vt100/private_modes.rs`, `baud-core/tests/vt100/save_params.rs`, `baud-core/tests/vt100/scrolling.rs`, `baud-core/tests/vt100/tabs.rs`, `baud-core/tests/vt220/dcs.rs`, `baud-core/tests/vt220/decrqm_cursor_style.rs`, `baud-core/tests/vt220/replies.rs`, `baud-core/tests/vt220/shifts.rs`, `baud-core/tests/vt420/origin.rs`, `baud-core/tests/vt420/reports.rs`, `baud-core/tests/window_ops.rs`, `baud-core/tests/window_reports.rs`, `baud-core/tests/x_property.rs`, `baud-core/tests/xterm/alt_screen.rs`, `baud-core/tests/xterm/bell_modes.rs`, `baud-core/tests/xterm/column_mode.rs`, `baud-core/tests/xterm/erase_saved_lines.rs`, `baud-core/tests/xterm/focus.rs`, `baud-core/tests/xterm/font.rs`, `baud-core/tests/xterm/highlight.rs`, `baud-core/tests/xterm/keypad_version.rs`, `baud-core/tests/xterm/mouse.rs`, `baud-core/tests/xterm/osc.rs`, `baud-core/tests/xterm/pointer_mode.rs`, `baud-core/tests/xterm/save_restore_modes.rs`, `baud-core/tests/xterm/soft_reset_scope.rs`, `baud-core/tests/xterm/tcap.rs`, `baud-core/tests/xterm/xres.rs`, `baud-core/tests/xterm_keyboards.rs`, `baud-core/tests/xterm_resources.rs`, `baud-domain/build/iso96.rs`, `baud-domain/src/base64.rs`, `baud-domain/src/decode.rs`, `baud-domain/src/input.rs`, `baud-domain/src/sixel.rs`, `baud-domain/src/sniff.rs`, `baud-domain/src/style.rs`, `baud-domain/src/vt/charset.rs`, `baud-domain/src/vt/clipboard.rs`, `baud-domain/src/vt/csi.rs`, `baud-domain/src/vt/dcs.rs`, `baud-domain/src/vt/esc.rs`, `baud-domain/src/vt/font_ops.rs`, `baud-domain/src/vt/key.rs`, `baud-domain/src/vt/key/keyboards.rs`, `baud-domain/src/vt/locator.rs`, `baud-domain/src/vt/mode.rs`, `baud-domain/src/vt/mouse.rs`, `baud-domain/src/vt/osc.rs`, `baud-domain/src/vt/print.rs`, `baud-domain/src/vt/rect.rs`, `baud-domain/src/vt/report.rs`, `baud-domain/src/vt/sgr.rs`, `baud-domain/src/vt/stack.rs`, `baud-domain/src/vt/tcap.rs`, `baud-domain/src/vt/window.rs`, `baud-domain/src/vt/xres.rs`, `baud-domain/tests/input.rs`, `baud-domain/tests/kitty.rs`, `baud-domain/tests/osc52.rs`, `baud-domain/tests/reports.rs`, `baud-domain/tests/xtwinops.rs`, `baud-present-macos/src/clipboard.rs`, `baud-render/tests/highlight_colours.rs`, `baud-sfte-difftest/patches/0001-bel-terminates-an-osc-only.md`, `baud-sfte-difftest/tests/sfte.rs`, `docs/README.md`, `docs/input-coverage.md`, `docs/protocols/vt100.md`, `docs/protocols/vt220.md`, `docs/protocols/vt52.md`, `docs/protocols/xterm.md`, `docs/vt-coverage.md`, `xtask/src/pdf_search.rs`
+- **Cited in:** `SECURITY.md`, `crates/baud-app/src/app.rs`, `crates/baud-app/src/bell.rs`, `crates/baud-app/src/clip.rs`, `crates/baud-app/src/config.rs`, `crates/baud-app/src/gesture.rs`, `crates/baud-app/src/hide.rs`, `crates/baud-app/src/hostlog.rs`, `crates/baud-app/src/keep.rs`, `crates/baud-app/src/pointer.rs`, `crates/baud-app/src/readline.rs`, `crates/baud-app/src/reveal.rs`, `crates/baud-app/src/seat.rs`, `crates/baud-app/src/undrawn.rs`, `crates/baud-app/src/wheel.rs`, `crates/baud-app/src/winops.rs`, `crates/baud-core/src/clip.rs`, `crates/baud-core/src/dcs.rs`, `crates/baud-core/src/font.rs`, `crates/baud-core/src/graph.rs`, `crates/baud-core/src/logging.rs`, `crates/baud-core/src/margin.rs`, `crates/baud-core/src/ops.rs`, `crates/baud-core/src/osc.rs`, `crates/baud-core/src/page.rs`, `crates/baud-core/src/sixel.rs`, `crates/baud-core/src/stack.rs`, `crates/baud-core/src/storage.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/src/vt52.rs`, `crates/baud-core/src/window.rs`, `crates/baud-core/src/write.rs`, `crates/baud-core/tests/alt_buffer_modes.rs`, `crates/baud-core/tests/bell_volume.rs`, `crates/baud-core/tests/checksum_extension.rs`, `crates/baud-core/tests/clipboard.rs`, `crates/baud-core/tests/color_stack.rs`, `crates/baud-core/tests/conformance/main.rs`, `crates/baud-core/tests/conformance/spec_inventory.rs`, `crates/baud-core/tests/control_strings.rs`, `crates/baud-core/tests/coverage.rs`, `crates/baud-core/tests/csi_decline.rs`, `crates/baud-core/tests/decid.rs`, `crates/baud-core/tests/encoding/latin1.rs`, `crates/baud-core/tests/encoding/width.rs`, `crates/baud-core/tests/host_logging.rs`, `crates/baud-core/tests/image_geometry.rs`, `crates/baud-core/tests/key_encode.rs`, `crates/baud-core/tests/key_modifiers.rs`, `crates/baud-core/tests/keyboard_lights.rs`, `crates/baud-core/tests/keyboard_modes.rs`, `crates/baud-core/tests/kitten_detects_the_da.rs`, `crates/baud-core/tests/kitty_keyboard.rs`, `crates/baud-core/tests/memory_lock.rs`, `crates/baud-core/tests/more_fix.rs`, `crates/baud-core/tests/other_keys.rs`, `crates/baud-core/tests/reply_room.rs`, `crates/baud-core/tests/saved_cursor_per_screen.rs`, `crates/baud-core/tests/scrollbar_mode.rs`, `crates/baud-core/tests/sgr/ideogram.rs`, `crates/baud-core/tests/sgr/rep_align.rs`, `crates/baud-core/tests/sgr/subparams.rs`, `crates/baud-core/tests/sixel.rs`, `crates/baud-core/tests/sixel_modes.rs`, `crates/baud-core/tests/title_modes.rs`, `crates/baud-core/tests/vt100/c0.rs`, `crates/baud-core/tests/vt100/charsets.rs`, `crates/baud-core/tests/vt100/cursor.rs`, `crates/baud-core/tests/vt100/mode_lists.rs`, `crates/baud-core/tests/vt100/modes.rs`, `crates/baud-core/tests/vt100/private_modes.rs`, `crates/baud-core/tests/vt100/save_params.rs`, `crates/baud-core/tests/vt100/scrolling.rs`, `crates/baud-core/tests/vt100/tabs.rs`, `crates/baud-core/tests/vt220/dcs.rs`, `crates/baud-core/tests/vt220/decrqm_cursor_style.rs`, `crates/baud-core/tests/vt220/replies.rs`, `crates/baud-core/tests/vt220/shifts.rs`, `crates/baud-core/tests/vt420/origin.rs`, `crates/baud-core/tests/vt420/reports.rs`, `crates/baud-core/tests/window_ops.rs`, `crates/baud-core/tests/window_reports.rs`, `crates/baud-core/tests/x_property.rs`, `crates/baud-core/tests/xterm/alt_screen.rs`, `crates/baud-core/tests/xterm/bell_modes.rs`, `crates/baud-core/tests/xterm/column_mode.rs`, `crates/baud-core/tests/xterm/erase_saved_lines.rs`, `crates/baud-core/tests/xterm/focus.rs`, `crates/baud-core/tests/xterm/font.rs`, `crates/baud-core/tests/xterm/highlight.rs`, `crates/baud-core/tests/xterm/keypad_version.rs`, `crates/baud-core/tests/xterm/mouse.rs`, `crates/baud-core/tests/xterm/osc.rs`, `crates/baud-core/tests/xterm/pointer_mode.rs`, `crates/baud-core/tests/xterm/save_restore_modes.rs`, `crates/baud-core/tests/xterm/soft_reset_scope.rs`, `crates/baud-core/tests/xterm/tcap.rs`, `crates/baud-core/tests/xterm/xres.rs`, `crates/baud-core/tests/xterm_keyboards.rs`, `crates/baud-core/tests/xterm_resources.rs`, `crates/baud-domain/build/iso96.rs`, `crates/baud-domain/src/base64.rs`, `crates/baud-domain/src/decode.rs`, `crates/baud-domain/src/input.rs`, `crates/baud-domain/src/sixel.rs`, `crates/baud-domain/src/sniff.rs`, `crates/baud-domain/src/style.rs`, `crates/baud-domain/src/vt/charset.rs`, `crates/baud-domain/src/vt/clipboard.rs`, `crates/baud-domain/src/vt/csi.rs`, `crates/baud-domain/src/vt/dcs.rs`, `crates/baud-domain/src/vt/esc.rs`, `crates/baud-domain/src/vt/font_ops.rs`, `crates/baud-domain/src/vt/key.rs`, `crates/baud-domain/src/vt/key/keyboards.rs`, `crates/baud-domain/src/vt/locator.rs`, `crates/baud-domain/src/vt/mode.rs`, `crates/baud-domain/src/vt/mouse.rs`, `crates/baud-domain/src/vt/osc.rs`, `crates/baud-domain/src/vt/print.rs`, `crates/baud-domain/src/vt/rect.rs`, `crates/baud-domain/src/vt/report.rs`, `crates/baud-domain/src/vt/sgr.rs`, `crates/baud-domain/src/vt/stack.rs`, `crates/baud-domain/src/vt/tcap.rs`, `crates/baud-domain/src/vt/window.rs`, `crates/baud-domain/src/vt/xres.rs`, `crates/baud-domain/tests/input.rs`, `crates/baud-domain/tests/kitty.rs`, `crates/baud-domain/tests/osc52.rs`, `crates/baud-domain/tests/reports.rs`, `crates/baud-domain/tests/xtwinops.rs`, `crates/baud-present-macos/src/clipboard.rs`, `crates/baud-render/tests/highlight_colours.rs`, `crates/baud-sfte-difftest/patches/0001-bel-terminates-an-osc-only.md`, `crates/baud-sfte-difftest/tests/sfte.rs`, `crates/xtask/src/pdf_search.rs`, `docs/README.md`, `docs/input-coverage.md`, `docs/protocols/vt100.md`, `docs/protocols/vt220.md`, `docs/protocols/vt52.md`, `docs/protocols/xterm.md`, `docs/vt-coverage.md`
 
 <a id="darwin-mmap-2"></a>
 ### darwin-mmap-2
@@ -1920,7 +1920,7 @@ XNU xnu-12377.121.6, bsd/man/man2/mmap.2 -- MAP\_FIXED, RETURN VALUES and ERRORS
 - **URL:** <https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/man/man2/mmap.2>
 - **sha256:** `ccc6064c76ad2b01d7e82b0079d3e8ed3d84878c086aa300f12fb3eeb5645659` (11710 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/heap.rs`, `baud-app/src/pages.rs`, `baud-domain/src/image.rs`
+- **Cited in:** `crates/baud-app/src/heap.rs`, `crates/baud-app/src/pages.rs`, `crates/baud-domain/src/image.rs`
 
 <a id="dbus-spec"></a>
 ### dbus-spec
@@ -1931,7 +1931,7 @@ D-Bus Specification 0.43 (dbus 1.16.2, doc/dbus-specification.xml) -- marshallin
 - **sha256:** `ea56234bc02a4a8080c8a07908d3af8f443ccb22b63fd575062ac3ec9bc2e7dc` (348639 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-app/src/bus.rs`, `baud-domain/src/dbus.rs`, `baud-domain/src/dbus/auth.rs`, `baud-domain/src/dbus/awaiting.rs`, `baud-domain/src/dbus/body.rs`, `baud-domain/src/dbus/bus.rs`, `baud-domain/src/dbus/decode.rs`, `baud-domain/src/dbus/header.rs`, `baud-domain/src/dbus/name.rs`, `baud-domain/src/dbus/notify.rs`, `baud-domain/src/dbus/sig.rs`, `baud-domain/src/dbus/value.rs`, `baud-domain/tests/dbus_auth.rs`, `baud-domain/tests/dbus_awaiting.rs`, `baud-domain/tests/dbus_decode.rs`, `baud-domain/tests/dbus_encode.rs`, `baud-domain/tests/dbus_name.rs`, `baud-domain/tests/dbus_oracle.rs`, `baud-domain/tests/dbus_owner.rs`, `baud-domain/tests/dbus_sig.rs`, `baud-domain/tests/dbus_variant.rs`
+- **Cited in:** `crates/baud-app/src/bus.rs`, `crates/baud-domain/src/dbus.rs`, `crates/baud-domain/src/dbus/auth.rs`, `crates/baud-domain/src/dbus/awaiting.rs`, `crates/baud-domain/src/dbus/body.rs`, `crates/baud-domain/src/dbus/bus.rs`, `crates/baud-domain/src/dbus/decode.rs`, `crates/baud-domain/src/dbus/header.rs`, `crates/baud-domain/src/dbus/name.rs`, `crates/baud-domain/src/dbus/notify.rs`, `crates/baud-domain/src/dbus/sig.rs`, `crates/baud-domain/src/dbus/value.rs`, `crates/baud-domain/tests/dbus_auth.rs`, `crates/baud-domain/tests/dbus_awaiting.rs`, `crates/baud-domain/tests/dbus_decode.rs`, `crates/baud-domain/tests/dbus_encode.rs`, `crates/baud-domain/tests/dbus_name.rs`, `crates/baud-domain/tests/dbus_oracle.rs`, `crates/baud-domain/tests/dbus_owner.rs`, `crates/baud-domain/tests/dbus_sig.rs`, `crates/baud-domain/tests/dbus_variant.rs`
 
 <a id="dcp-data"></a>
 ### dcp-data
@@ -1941,7 +1941,7 @@ DerivedCoreProperties.txt, Unicode Character Database 17.0.0. The Unicode Consor
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/DerivedCoreProperties.txt>
 - **sha256:** `24c7fed1195c482faaefd5c1e7eb821c5ee1fb6de07ecdbaa64b56a99da22c08` (1134783 bytes)
 - **Copy:** [docs/research/sources/unicode-derivedcoreproperties.txt](research/sources/unicode-derivedcoreproperties.txt)
-- **Cited in:** `baud-domain/build/grapheme.rs`, `baud-domain/build/ignorable.rs`, `baud-domain/src/lib.rs`, `baud-domain/src/width.rs`, `baud-domain/tests/default_ignorable.rs`, `baud-font/build/ignorable.rs`, `baud-font/src/lib.rs`, `baud-font/tests/default_ignorable.rs`, `baud-tablegen/src/ranges.rs`
+- **Cited in:** `crates/baud-domain/build/grapheme.rs`, `crates/baud-domain/build/ignorable.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/src/width.rs`, `crates/baud-domain/tests/default_ignorable.rs`, `crates/baud-font/build/ignorable.rs`, `crates/baud-font/src/lib.rs`, `crates/baud-font/tests/default_ignorable.rs`, `crates/baud-tablegen/src/ranges.rs`
 
 <a id="debian-bug-243288"></a>
 ### debian-bug-243288
@@ -1952,7 +1952,7 @@ Debian bug 243288 -- the request for DebianRed in rgb.txt (2004-04-12) and its v
 - **sha256:** `a695e5abf0805110498e8793789a5b1929b5de0bce064e1964177fd97ecdaa57` (61596 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/build/colour_names.rs`
+- **Cited in:** `crates/baud-domain/build/colour_names.rs`
 
 <a id="debian-xorg-rgb-7-7-26"></a>
 ### debian-xorg-rgb-7-7-26
@@ -1963,7 +1963,7 @@ Debian xorg 1:7.7+26, debian/local/rgb.txt -- X.Org's rgb.txt with one line adde
 - **sha256:** `2c8ab5acc9eb072f4cc88696834188100d05e50af5d1425501d993700aaa3164` (17394 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/build/colour_names.rs`, `baud-domain/src/themefile.rs`
+- **Cited in:** `crates/baud-domain/build/colour_names.rs`, `crates/baud-domain/src/themefile.rs`
 
 <a id="dec-pplv2-pm"></a>
 ### dec-pplv2-pm
@@ -1974,7 +1974,7 @@ Digital ANSI-Compliant Printing Protocol Level 2 Programming Reference Manual, E
 - **sha256:** `0d47bb9b30100ab2b24bdf05cf565775970442736a42c7cbb9f98ca55a4cf13f` (803693 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-08
-- **Cited in:** `baud-core/tests/vt100/charsets.rs`, `baud-domain/build/dec_sets.rs`, `baud-domain/build/nrcs.rs`, `baud-domain/src/nrcs_data.rs`, `baud-domain/src/vt/charset.rs`, `baud-domain/tests/dec_sets.rs`, `baud-domain/tests/nrcs_dec.rs`, `baud-domain/tests/nrcs_source.rs`, `baud-domain/tests/sixel_decode.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/vt100/charsets.rs`, `crates/baud-domain/build/dec_sets.rs`, `crates/baud-domain/build/nrcs.rs`, `crates/baud-domain/src/nrcs_data.rs`, `crates/baud-domain/src/vt/charset.rs`, `crates/baud-domain/tests/dec_sets.rs`, `crates/baud-domain/tests/nrcs_dec.rs`, `crates/baud-domain/tests/nrcs_source.rs`, `crates/baud-domain/tests/sixel_decode.rs`, `docs/vt-coverage.md`
 
 <a id="dec-special-graphics"></a>
 ### dec-special-graphics
@@ -1985,7 +1985,7 @@ VT220 Programmer Reference Manual, EK-VT220-RM-002, chapter 2: Character Encodin
 - **sha256:** `5ab34ac9fa4ae517a420b4ee738d329e53a274ce34a9f6d13c1d2cb8657cf6a8` (847119 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-08-27
-- **Cited in:** `baud-core/tests/vt100/charsets.rs`, `baud-domain/build/dec_graphics.rs`, `baud-domain/build/dec_sets.rs`, `baud-domain/tests/dec_sets.rs`, `baud-domain/tests/nrcs_dec.rs`, `baud-domain/tests/nrcs_source.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/vt100/charsets.rs`, `crates/baud-domain/build/dec_graphics.rs`, `crates/baud-domain/build/dec_sets.rs`, `crates/baud-domain/tests/dec_sets.rs`, `crates/baud-domain/tests/nrcs_dec.rs`, `crates/baud-domain/tests/nrcs_source.rs`, `docs/vt-coverage.md`
 
 <a id="dec-std-070"></a>
 ### dec-std-070
@@ -1996,7 +1996,7 @@ DEC STD 070, Video Systems Reference Manual, EL-SM070-00. Digital Equipment Corp
 - **sha256:** `d30c2ace1cebdd5a28454177d4d9610d9661110bbeb4b97773259313042962f2` (74264381 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-15
-- **Cited in:** `baud-app/src/bell.rs`, `baud-app/src/gesture.rs`, `baud-app/src/host.rs`, `baud-app/src/line_lamps.rs`, `baud-app/src/print.rs`, `baud-app/src/reads.rs`, `baud-app/src/regis_font.rs`, `baud-app/src/title.rs`, `baud-app/src/winops.rs`, `baud-app/tests/event_rig.rs`, `baud-core/src/aligned.rs`, `baud-core/src/bounds.rs`, `baud-core/src/component.rs`, `baud-core/src/dcs.rs`, `baud-core/src/editing.rs`, `baud-core/src/feed.rs`, `baud-core/src/fence_rows.rs`, `baud-core/src/freeze.rs`, `baud-core/src/graph.rs`, `baud-core/src/hardcopy.rs`, `baud-core/src/leftward.rs`, `baud-core/src/locator.rs`, `baud-core/src/margin.rs`, `baud-core/src/ops.rs`, `baud-core/src/osc.rs`, `baud-core/src/page.rs`, `baud-core/src/paint.rs`, `baud-core/src/presentation.rs`, `baud-core/src/print.rs`, `baud-core/src/query.rs`, `baud-core/src/rect.rs`, `baud-core/src/regis.rs`, `baud-core/src/shift.rs`, `baud-core/src/sixel.rs`, `baud-core/src/status.rs`, `baud-core/src/term.rs`, `baud-core/src/tsr.rs`, `baud-core/src/vt52.rs`, `baud-core/src/write.rs`, `baud-core/tests/backward_moves.rs`, `baud-core/tests/banded_churn.rs`, `baud-core/tests/bell_volume.rs`, `baud-core/tests/character_editing.rs`, `baud-core/tests/checksum_extension.rs`, `baud-core/tests/clipboard.rs`, `baud-core/tests/conformance/enumerated.rs`, `baud-core/tests/conformance_level.rs`, `baud-core/tests/control_strings.rs`, `baud-core/tests/csi_decline.rs`, `baud-core/tests/cursor_right_to_left.rs`, `baud-core/tests/decid.rs`, `baud-core/tests/decrc_unsaved.rs`, `baud-core/tests/device_component.rs`, `baud-core/tests/encoding/latin1.rs`, `baud-core/tests/encoding/utf8.rs`, `baud-core/tests/frozen.rs`, `baud-core/tests/frozen_properties.rs`, `baud-core/tests/graphics_clears.rs`, `baud-core/tests/graphics_erase.rs`, `baud-core/tests/graphics_margins.rs`, `baud-core/tests/hardcopy.rs`, `baud-core/tests/host_logging.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-core/tests/line_bounds.rs`, `baud-core/tests/line_rendition.rs`, `baud-core/tests/locator.rs`, `baud-core/tests/margin_pin.rs`, `baud-core/tests/outside_rows.rs`, `baud-core/tests/page_functions.rs`, `baud-core/tests/pending_wrap.rs`, `baud-core/tests/presentation_variants.rs`, `baud-core/tests/printing.rs`, `baud-core/tests/read_record.rs`, `baud-core/tests/region_line_state.rs`, `baud-core/tests/regis.rs`, `baud-core/tests/regis_input.rs`, `baud-core/tests/regis_screen.rs`, `baud-core/tests/reverse_osc.rs`, `baud-core/tests/set_up.rs`, `baud-core/tests/sixel.rs`, `baud-core/tests/sixel_fill.rs`, `baud-core/tests/sixel_modes.rs`, `baud-core/tests/sixel_reuse.rs`, `baud-core/tests/sixel_stream.rs`, `baud-core/tests/string_controls.rs`, `baud-core/tests/style_sweep.rs`, `baud-core/tests/style_table.rs`, `baud-core/tests/substitute_mark.rs`, `baud-core/tests/tab_waits.rs`, `baud-core/tests/text.rs`, `baud-core/tests/vt100/charsets.rs`, `baud-core/tests/vt100/cursor.rs`, `baud-core/tests/vt100/cuu_cud.rs`, `baud-core/tests/vt100/erase.rs`, `baud-core/tests/vt100/erase_qualified.rs`, `baud-core/tests/vt100/irm.rs`, `baud-core/tests/vt100/save_params.rs`, `baud-core/tests/vt100/scroll_columns.rs`, `baud-core/tests/vt100/scrolling.rs`, `baud-core/tests/vt220/dcs.rs`, `baud-core/tests/vt220/selective_erase.rs`, `baud-core/tests/vt220/shifts.rs`, `baud-core/tests/vt420/corner.rs`, `baud-core/tests/vt420/decaln.rs`, `baud-core/tests/vt420/erase_colour.rs`, `baud-core/tests/vt420/index_columns.rs`, `baud-core/tests/vt420/line_starts.rs`, `baud-core/tests/vt420/locator.rs`, `baud-core/tests/vt420/origin.rs`, `baud-core/tests/vt420/presentation.rs`, `baud-core/tests/vt420/rect_ops.rs`, `baud-core/tests/vt420/rect_scroll.rs`, `baud-core/tests/vt420/reports.rs`, `baud-core/tests/vt420/side_margins.rs`, `baud-core/tests/vt420/state_reports.rs`, `baud-core/tests/vt420/status_line.rs`, `baud-core/tests/vt420/tab_backspace.rs`, `baud-core/tests/vt420/upss.rs`, `baud-core/tests/vt52/sequences.rs`, `baud-core/tests/vttest_double_size.rs`, `baud-core/tests/wide_last_column.rs`, `baud-core/tests/working_directory.rs`, `baud-core/tests/xterm/column_mode.rs`, `baud-core/tests/xterm/erase_saved_lines.rs`, `baud-core/tests/xterm/hyperlinks.rs`, `baud-core/tests/xterm/soft_reset_scope.rs`, `baud-difftest/tests/alacritty.rs`, `baud-domain/build/dec_sets.rs`, `baud-domain/build/iso96.rs`, `baud-domain/src/cell.rs`, `baud-domain/src/decode.rs`, `baud-domain/src/frozen.rs`, `baud-domain/src/grid.rs`, `baud-domain/src/grid/reflow.rs`, `baud-domain/src/image.rs`, `baud-domain/src/lib.rs`, `baud-domain/src/nrcs_data.rs`, `baud-domain/src/quantity.rs`, `baud-domain/src/regis/cursor.rs`, `baud-domain/src/regis/mod.rs`, `baud-domain/src/regis/num.rs`, `baud-domain/src/sixel.rs`, `baud-domain/src/store.rs`, `baud-domain/src/style.rs`, `baud-domain/src/substitute.rs`, `baud-domain/src/vt/charset.rs`, `baud-domain/src/vt/crm.rs`, `baud-domain/src/vt/csi.rs`, `baud-domain/src/vt/dcs.rs`, `baud-domain/src/vt/esc.rs`, `baud-domain/src/vt/key.rs`, `baud-domain/src/vt/key/keyboards.rs`, `baud-domain/src/vt/level.rs`, `baud-domain/src/vt/locator.rs`, `baud-domain/src/vt/mode.rs`, `baud-domain/src/vt/osc.rs`, `baud-domain/src/vt/param.rs`, `baud-domain/src/vt/presentation.rs`, `baud-domain/src/vt/print.rs`, `baud-domain/src/vt/rect.rs`, `baud-domain/src/vt/report.rs`, `baud-domain/src/vt/tsr.rs`, `baud-domain/tests/conformance_levels.rs`, `baud-domain/tests/dec_sets.rs`, `baud-domain/tests/nrcs_dec.rs`, `baud-domain/tests/regis_walk.rs`, `baud-domain/tests/reports.rs`, `baud-domain/tests/sixel_decode.rs`, `baud-domain/tests/sixel_dump.rs`, `baud-domain/tests/video.rs`, `baud-font/src/raster.rs`, `baud-present-macos/tests/cells.rs`, `baud-present-vulkan/tests/scenes_bidi.rs`, `baud-render/src/atlas.rs`, `baud-render/src/bell.rs`, `baud-render/src/bidi.rs`, `baud-render/src/color.rs`, `baud-render/src/frozen.rs`, `baud-render/src/lights.rs`, `baud-render/src/overlay.rs`, `baud-render/src/print.rs`, `baud-render/src/renderer.rs`, `baud-render/src/select.rs`, `baud-render/tests/bidi_order.rs`, `baud-render/tests/composition.rs`, `baud-render/tests/frozen_cpu.rs`, `baud-render/tests/frozen_pictures.rs`, `baud-render/tests/frozen_rows.rs`, `baud-render/tests/frozen_words.rs`, `baud-render/tests/kitty_placeholder.rs`, `baud-render/tests/lent_ring.rs`, `baud-render/tests/line_rendition.rs`, `baud-render/tests/reverse_raise.rs`, `baud-render/tests/reverse_video.rs`, `baud-render/tests/status_line.rs`, `baud-render/tests/status_line_direction.rs`, `baud-sfte-difftest/tests/sfte.rs`, `bench-others/ghostty-oracle/src/main.rs`, `docs/input-coverage.md`, `docs/protocols/vt52.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/bell.rs`, `crates/baud-app/src/gesture.rs`, `crates/baud-app/src/host.rs`, `crates/baud-app/src/line_lamps.rs`, `crates/baud-app/src/print.rs`, `crates/baud-app/src/reads.rs`, `crates/baud-app/src/regis_font.rs`, `crates/baud-app/src/title.rs`, `crates/baud-app/src/winops.rs`, `crates/baud-app/tests/event_rig.rs`, `crates/baud-core/src/aligned.rs`, `crates/baud-core/src/bounds.rs`, `crates/baud-core/src/component.rs`, `crates/baud-core/src/dcs.rs`, `crates/baud-core/src/editing.rs`, `crates/baud-core/src/feed.rs`, `crates/baud-core/src/fence_rows.rs`, `crates/baud-core/src/freeze.rs`, `crates/baud-core/src/graph.rs`, `crates/baud-core/src/hardcopy.rs`, `crates/baud-core/src/leftward.rs`, `crates/baud-core/src/locator.rs`, `crates/baud-core/src/margin.rs`, `crates/baud-core/src/ops.rs`, `crates/baud-core/src/osc.rs`, `crates/baud-core/src/page.rs`, `crates/baud-core/src/paint.rs`, `crates/baud-core/src/presentation.rs`, `crates/baud-core/src/print.rs`, `crates/baud-core/src/query.rs`, `crates/baud-core/src/rect.rs`, `crates/baud-core/src/regis.rs`, `crates/baud-core/src/shift.rs`, `crates/baud-core/src/sixel.rs`, `crates/baud-core/src/status.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/src/tsr.rs`, `crates/baud-core/src/vt52.rs`, `crates/baud-core/src/write.rs`, `crates/baud-core/tests/backward_moves.rs`, `crates/baud-core/tests/banded_churn.rs`, `crates/baud-core/tests/bell_volume.rs`, `crates/baud-core/tests/character_editing.rs`, `crates/baud-core/tests/checksum_extension.rs`, `crates/baud-core/tests/clipboard.rs`, `crates/baud-core/tests/conformance/enumerated.rs`, `crates/baud-core/tests/conformance_level.rs`, `crates/baud-core/tests/control_strings.rs`, `crates/baud-core/tests/csi_decline.rs`, `crates/baud-core/tests/cursor_right_to_left.rs`, `crates/baud-core/tests/decid.rs`, `crates/baud-core/tests/decrc_unsaved.rs`, `crates/baud-core/tests/device_component.rs`, `crates/baud-core/tests/encoding/latin1.rs`, `crates/baud-core/tests/encoding/utf8.rs`, `crates/baud-core/tests/frozen.rs`, `crates/baud-core/tests/frozen_properties.rs`, `crates/baud-core/tests/graphics_clears.rs`, `crates/baud-core/tests/graphics_erase.rs`, `crates/baud-core/tests/graphics_margins.rs`, `crates/baud-core/tests/hardcopy.rs`, `crates/baud-core/tests/host_logging.rs`, `crates/baud-core/tests/kitty_graphics.rs`, `crates/baud-core/tests/line_bounds.rs`, `crates/baud-core/tests/line_rendition.rs`, `crates/baud-core/tests/locator.rs`, `crates/baud-core/tests/margin_pin.rs`, `crates/baud-core/tests/outside_rows.rs`, `crates/baud-core/tests/page_functions.rs`, `crates/baud-core/tests/pending_wrap.rs`, `crates/baud-core/tests/presentation_variants.rs`, `crates/baud-core/tests/printing.rs`, `crates/baud-core/tests/read_record.rs`, `crates/baud-core/tests/region_line_state.rs`, `crates/baud-core/tests/regis.rs`, `crates/baud-core/tests/regis_input.rs`, `crates/baud-core/tests/regis_screen.rs`, `crates/baud-core/tests/reverse_osc.rs`, `crates/baud-core/tests/set_up.rs`, `crates/baud-core/tests/sixel.rs`, `crates/baud-core/tests/sixel_fill.rs`, `crates/baud-core/tests/sixel_modes.rs`, `crates/baud-core/tests/sixel_reuse.rs`, `crates/baud-core/tests/sixel_stream.rs`, `crates/baud-core/tests/string_controls.rs`, `crates/baud-core/tests/style_sweep.rs`, `crates/baud-core/tests/style_table.rs`, `crates/baud-core/tests/substitute_mark.rs`, `crates/baud-core/tests/tab_waits.rs`, `crates/baud-core/tests/text.rs`, `crates/baud-core/tests/vt100/charsets.rs`, `crates/baud-core/tests/vt100/cursor.rs`, `crates/baud-core/tests/vt100/cuu_cud.rs`, `crates/baud-core/tests/vt100/erase.rs`, `crates/baud-core/tests/vt100/erase_qualified.rs`, `crates/baud-core/tests/vt100/irm.rs`, `crates/baud-core/tests/vt100/save_params.rs`, `crates/baud-core/tests/vt100/scroll_columns.rs`, `crates/baud-core/tests/vt100/scrolling.rs`, `crates/baud-core/tests/vt220/dcs.rs`, `crates/baud-core/tests/vt220/selective_erase.rs`, `crates/baud-core/tests/vt220/shifts.rs`, `crates/baud-core/tests/vt420/corner.rs`, `crates/baud-core/tests/vt420/decaln.rs`, `crates/baud-core/tests/vt420/erase_colour.rs`, `crates/baud-core/tests/vt420/index_columns.rs`, `crates/baud-core/tests/vt420/line_starts.rs`, `crates/baud-core/tests/vt420/locator.rs`, `crates/baud-core/tests/vt420/origin.rs`, `crates/baud-core/tests/vt420/presentation.rs`, `crates/baud-core/tests/vt420/rect_ops.rs`, `crates/baud-core/tests/vt420/rect_scroll.rs`, `crates/baud-core/tests/vt420/reports.rs`, `crates/baud-core/tests/vt420/side_margins.rs`, `crates/baud-core/tests/vt420/state_reports.rs`, `crates/baud-core/tests/vt420/status_line.rs`, `crates/baud-core/tests/vt420/tab_backspace.rs`, `crates/baud-core/tests/vt420/upss.rs`, `crates/baud-core/tests/vt52/sequences.rs`, `crates/baud-core/tests/vttest_double_size.rs`, `crates/baud-core/tests/wide_last_column.rs`, `crates/baud-core/tests/working_directory.rs`, `crates/baud-core/tests/xterm/column_mode.rs`, `crates/baud-core/tests/xterm/erase_saved_lines.rs`, `crates/baud-core/tests/xterm/hyperlinks.rs`, `crates/baud-core/tests/xterm/soft_reset_scope.rs`, `crates/baud-difftest/tests/alacritty.rs`, `crates/baud-domain/build/dec_sets.rs`, `crates/baud-domain/build/iso96.rs`, `crates/baud-domain/src/cell.rs`, `crates/baud-domain/src/decode.rs`, `crates/baud-domain/src/frozen.rs`, `crates/baud-domain/src/grid.rs`, `crates/baud-domain/src/grid/reflow.rs`, `crates/baud-domain/src/image.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/src/nrcs_data.rs`, `crates/baud-domain/src/quantity.rs`, `crates/baud-domain/src/regis/cursor.rs`, `crates/baud-domain/src/regis/mod.rs`, `crates/baud-domain/src/regis/num.rs`, `crates/baud-domain/src/sixel.rs`, `crates/baud-domain/src/store.rs`, `crates/baud-domain/src/style.rs`, `crates/baud-domain/src/substitute.rs`, `crates/baud-domain/src/vt/charset.rs`, `crates/baud-domain/src/vt/crm.rs`, `crates/baud-domain/src/vt/csi.rs`, `crates/baud-domain/src/vt/dcs.rs`, `crates/baud-domain/src/vt/esc.rs`, `crates/baud-domain/src/vt/key.rs`, `crates/baud-domain/src/vt/key/keyboards.rs`, `crates/baud-domain/src/vt/level.rs`, `crates/baud-domain/src/vt/locator.rs`, `crates/baud-domain/src/vt/mode.rs`, `crates/baud-domain/src/vt/osc.rs`, `crates/baud-domain/src/vt/param.rs`, `crates/baud-domain/src/vt/presentation.rs`, `crates/baud-domain/src/vt/print.rs`, `crates/baud-domain/src/vt/rect.rs`, `crates/baud-domain/src/vt/report.rs`, `crates/baud-domain/src/vt/tsr.rs`, `crates/baud-domain/tests/conformance_levels.rs`, `crates/baud-domain/tests/dec_sets.rs`, `crates/baud-domain/tests/nrcs_dec.rs`, `crates/baud-domain/tests/regis_walk.rs`, `crates/baud-domain/tests/reports.rs`, `crates/baud-domain/tests/sixel_decode.rs`, `crates/baud-domain/tests/sixel_dump.rs`, `crates/baud-domain/tests/video.rs`, `crates/baud-font/src/raster.rs`, `crates/baud-present-macos/tests/cells.rs`, `crates/baud-present-vulkan/tests/scenes_bidi.rs`, `crates/baud-render/src/atlas.rs`, `crates/baud-render/src/bell.rs`, `crates/baud-render/src/bidi.rs`, `crates/baud-render/src/color.rs`, `crates/baud-render/src/frozen.rs`, `crates/baud-render/src/lights.rs`, `crates/baud-render/src/overlay.rs`, `crates/baud-render/src/print.rs`, `crates/baud-render/src/renderer.rs`, `crates/baud-render/src/select.rs`, `crates/baud-render/tests/bidi_order.rs`, `crates/baud-render/tests/composition.rs`, `crates/baud-render/tests/frozen_cpu.rs`, `crates/baud-render/tests/frozen_pictures.rs`, `crates/baud-render/tests/frozen_rows.rs`, `crates/baud-render/tests/frozen_words.rs`, `crates/baud-render/tests/kitty_placeholder.rs`, `crates/baud-render/tests/lent_ring.rs`, `crates/baud-render/tests/line_rendition.rs`, `crates/baud-render/tests/reverse_raise.rs`, `crates/baud-render/tests/reverse_video.rs`, `crates/baud-render/tests/status_line.rs`, `crates/baud-render/tests/status_line_direction.rs`, `crates/baud-sfte-difftest/tests/sfte.rs`, `docs/input-coverage.md`, `docs/protocols/vt52.md`, `docs/vt-coverage.md`, `tools/bench-others/ghostty-oracle/src/main.rs`
 
 <a id="dyld-1042-1-loader"></a>
 ### dyld-1042-1-loader
@@ -2006,7 +2006,7 @@ dyld-1042.1 (macOS 13.0's dyld), dyld/Loader.cpp -- the same tooNewErrorAddendum
 - **URL:** <https://raw.githubusercontent.com/apple-oss-distributions/dyld/c8a445f88f9fc1713db34674e79b00e30723e79d/dyld/Loader.cpp>
 - **sha256:** `e634435679e944b586769912f2d0d1557de0f30bdbaf5a32a3059f021a75ff45` (140013 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/app.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`
 
 <a id="dyld-1066-10-loader"></a>
 ### dyld-1066-10-loader
@@ -2016,7 +2016,7 @@ dyld-1066.10 (macOS 13.5's dyld), dyld/Loader.cpp -- tooNewErrorAddendum: a bina
 - **URL:** <https://raw.githubusercontent.com/apple-oss-distributions/dyld/3e5ba1a2d04c3a221eab66b99e0e0dd90a470150/dyld/Loader.cpp>
 - **sha256:** `89f0c233b52e19577b6be56b9e4e302bf955ef6778761861a61db06d1f888a25` (141597 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/app.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`
 
 <a id="eaw-data"></a>
 ### eaw-data
@@ -2026,7 +2026,7 @@ EastAsianWidth.txt, Unicode Character Database 17.0.0. The Unicode Consortium, 2
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/EastAsianWidth.txt>
 - **sha256:** `ea7ce50f3444a050333448dffef1cadd9325af55cbb764b4a2280faf52170a33` (201595 bytes)
 - **Copy:** [docs/research/sources/unicode-eastasianwidth.txt](research/sources/unicode-eastasianwidth.txt)
-- **Cited in:** `baud-domain/build/linebreak.rs`, `baud-domain/build/ucd.rs`, `baud-domain/build/width.rs`, `baud-domain/src/decode.rs`, `baud-domain/src/lib.rs`
+- **Cited in:** `crates/baud-domain/build/linebreak.rs`, `crates/baud-domain/build/ucd.rs`, `crates/baud-domain/build/width.rs`, `crates/baud-domain/src/decode.rs`, `crates/baud-domain/src/lib.rs`
 
 <a id="eaw-data-8"></a>
 ### eaw-data-8
@@ -2036,7 +2036,7 @@ EastAsianWidth.txt, Unicode Character Database 8.0.0 -- the widths iTerm2's Unic
 - **URL:** <https://www.unicode.org/Public/8.0.0/ucd/EastAsianWidth.txt>
 - **sha256:** `ccc571829b384b8a2c24b7a62f8aa6a891a6e8c48f08513ef84fd6da26dba4bb` (154620 bytes)
 - **Copy:** [docs/research/sources/unicode-eastasianwidth-8.0.0.txt](research/sources/unicode-eastasianwidth-8.0.0.txt)
-- **Cited in:** `baud-core/src/paint.rs`, `baud-domain/build/ucd.rs`, `baud-domain/build/width.rs`, `baud-domain/src/lib.rs`, `baud-domain/src/quantity.rs`, `baud-render/src/overlay.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/paint.rs`, `crates/baud-domain/build/ucd.rs`, `crates/baud-domain/build/width.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/src/quantity.rs`, `crates/baud-render/src/overlay.rs`, `docs/vt-coverage.md`
 
 <a id="ecfr-37-202-1"></a>
 ### ecfr-37-202-1
@@ -2056,7 +2056,7 @@ ECMA TR/53: Handling of Bi-Directional Texts, 2nd edition. Ecma International, 1
 - **sha256:** `912dfcdb813716bfa8ca5f2886896cbd4a3c1e4fc31ac3b21dae1b064f920e99` (96531 bytes)
 - **Copy:** [docs/research/sources/ecma-tr53-2nd-1992.pdf](research/sources/ecma-tr53-2nd-1992.pdf)
 - **Read:** 2026-10-26
-- **Cited in:** `baud-domain/src/bidi/strings.rs`, `baud-render/tests/strings.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/bidi/strings.rs`, `crates/baud-render/tests/strings.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
 
 <a id="ecma35"></a>
 ### ecma35
@@ -2066,7 +2066,7 @@ ECMA-35: Character Code Structure and Extension Techniques, 6th edition. Ecma In
 - **URL:** <https://ecma-international.org/wp-content/uploads/ECMA-35_6th_edition_december_1994.pdf>
 - **sha256:** `cd812a506f93bf44e0e6058fe423144c4dea8a64fbc96589cf99bcbe32fc1bf4` (303826 bytes)
 - **Copy:** [docs/research/sources/ecma-35-6th-1994.pdf](research/sources/ecma-35-6th-1994.pdf)
-- **Cited in:** `baud-core/src/graph.rs`, `baud-core/src/shift.rs`, `baud-core/src/term.rs`, `baud-core/src/write.rs`, `baud-core/tests/vt220/shifts.rs`, `baud-domain/src/cell.rs`, `baud-domain/src/lib.rs`, `baud-domain/src/vt/charset.rs`, `baud-domain/src/vt/esc.rs`, `baud-domain/src/vt/presentation.rs`, `baud-domain/src/vt/tsr.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/graph.rs`, `crates/baud-core/src/shift.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/src/write.rs`, `crates/baud-core/tests/vt220/shifts.rs`, `crates/baud-domain/src/cell.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/src/vt/charset.rs`, `crates/baud-domain/src/vt/esc.rs`, `crates/baud-domain/src/vt/presentation.rs`, `crates/baud-domain/src/vt/tsr.rs`, `docs/vt-coverage.md`
 
 <a id="ecma48"></a>
 ### ecma48
@@ -2077,7 +2077,7 @@ ECMA-48: Control Functions for Coded Character Sets, 5th edition. Ecma Internati
 - **sha256:** `9577ad2514c411584b274ef7a4b3238c80aa93defbb349b18b8c78f78873f450` (1607865 bytes)
 - **Copy:** [docs/research/sources/ecma-48-5th-1991.pdf](research/sources/ecma-48-5th-1991.pdf)
 - **Read:** 2026-10-19
-- **Cited in:** `baud-app/src/app.rs`, `baud-app/src/carried.rs`, `baud-app/src/effects.rs`, `baud-app/src/film/mpv.rs`, `baud-app/src/paste.rs`, `baud-core/src/aligned.rs`, `baud-core/src/bounds.rs`, `baud-core/src/component.rs`, `baud-core/src/cwd.rs`, `baud-core/src/editing.rs`, `baud-core/src/extent.rs`, `baud-core/src/freeze.rs`, `baud-core/src/graph.rs`, `baud-core/src/margin.rs`, `baud-core/src/ops.rs`, `baud-core/src/osc.rs`, `baud-core/src/page.rs`, `baud-core/src/paint.rs`, `baud-core/src/path.rs`, `baud-core/src/print.rs`, `baud-core/src/strings.rs`, `baud-core/src/term.rs`, `baud-core/src/variants.rs`, `baud-core/src/write.rs`, `baud-core/tests/aligned_stops.rs`, `baud-core/tests/backward_moves.rs`, `baud-core/tests/bidi_mode.rs`, `baud-core/tests/character_editing.rs`, `baud-core/tests/character_path.rs`, `baud-core/tests/clipboard.rs`, `baud-core/tests/control_string_end.rs`, `baud-core/tests/control_strings.rs`, `baud-core/tests/csi_decline.rs`, `baud-core/tests/cursor_right_to_left.rs`, `baud-core/tests/device_component.rs`, `baud-core/tests/directed_strings.rs`, `baud-core/tests/editing_extent.rs`, `baud-core/tests/encoding/graphemes.rs`, `baud-core/tests/encoding/latin1.rs`, `baud-core/tests/frozen.rs`, `baud-core/tests/graphics_erase.rs`, `baud-core/tests/guarded_area.rs`, `baud-core/tests/iterm_file.rs`, `baud-core/tests/keyboard_modes.rs`, `baud-core/tests/line_bounds.rs`, `baud-core/tests/line_editing.rs`, `baud-core/tests/page_functions.rs`, `baud-core/tests/palette_reset.rs`, `baud-core/tests/pending_wrap.rs`, `baud-core/tests/presentation_variants.rs`, `baud-core/tests/printing.rs`, `baud-core/tests/read_record.rs`, `baud-core/tests/reply_room.rs`, `baud-core/tests/ris_power_on.rs`, `baud-core/tests/scrollback.rs`, `baud-core/tests/scrollbar_mode.rs`, `baud-core/tests/selected_area.rs`, `baud-core/tests/sgr/blink.rs`, `baud-core/tests/sgr/combination.rs`, `baud-core/tests/sgr/fonts.rs`, `baud-core/tests/sgr/ideogram.rs`, `baud-core/tests/sgr/rep_align.rs`, `baud-core/tests/sgr/underline.rs`, `baud-core/tests/sixel.rs`, `baud-core/tests/string_controls.rs`, `baud-core/tests/tab_waits.rs`, `baud-core/tests/typesetting.rs`, `baud-core/tests/vt100/c0.rs`, `baud-core/tests/vt100/cursor.rs`, `baud-core/tests/vt100/erase.rs`, `baud-core/tests/vt100/erase_qualified.rs`, `baud-core/tests/vt100/irm.rs`, `baud-core/tests/vt100/line_tabs.rs`, `baud-core/tests/vt100/mode_lists.rs`, `baud-core/tests/vt100/scroll_columns.rs`, `baud-core/tests/vt100/scrolling.rs`, `baud-core/tests/vt100/tabs.rs`, `baud-core/tests/vt220/dcs.rs`, `baud-core/tests/vt220/replies.rs`, `baud-core/tests/vt420/presentation.rs`, `baud-core/tests/vt420/rect_scroll.rs`, `baud-core/tests/vt420/state_reports.rs`, `baud-core/tests/working_directory.rs`, `baud-core/tests/xterm/bell_modes.rs`, `baud-core/tests/xterm/mouse.rs`, `baud-core/tests/xterm/osc.rs`, `baud-core/tests/xterm/save_restore_modes.rs`, `baud-domain/src/bidi/strings.rs`, `baud-domain/src/cell.rs`, `baud-domain/src/decode.rs`, `baud-domain/src/grid.rs`, `baud-domain/src/readings.rs`, `baud-domain/src/sixel.rs`, `baud-domain/src/store.rs`, `baud-domain/src/style.rs`, `baud-domain/src/variants.rs`, `baud-domain/src/vt/crm.rs`, `baud-domain/src/vt/csi.rs`, `baud-domain/src/vt/esc.rs`, `baud-domain/src/vt/mode.rs`, `baud-domain/src/vt/mouse.rs`, `baud-domain/src/vt/print.rs`, `baud-domain/src/vt/report.rs`, `baud-domain/src/vt/sgr.rs`, `baud-present-macos/tests/cells.rs`, `baud-present-vulkan/tests/scenes_bidi.rs`, `baud-present-vulkan/tests/scenes_fonts.rs`, `baud-render/src/bidi.rs`, `baud-render/src/boxes.rs`, `baud-render/src/cellmap.rs`, `baud-render/src/lights.rs`, `baud-render/src/print.rs`, `baud-render/src/renderer.rs`, `baud-render/src/stack.rs`, `baud-render/src/word.rs`, `baud-render/tests/alternative_fonts.rs`, `baud-render/tests/bidi_order.rs`, `baud-render/tests/composition.rs`, `baud-render/tests/decorations.rs`, `baud-render/tests/devanagari_words.rs`, `baud-render/tests/fraktur.rs`, `baud-render/tests/frozen_words.rs`, `baud-render/tests/line_direction.rs`, `baud-render/tests/presentation_variants.rs`, `baud-render/tests/stale_bidi.rs`, `baud-render/tests/status_line_direction.rs`, `baud-render/tests/strings.rs`, `baud-render/tests/underline_styles.rs`, `baud-render/tests/word_wrap.rs`, `docs/bidi.md`, `docs/protocols/vt100.md`, `docs/vt-coverage.md`, `xtask/src/pdf_search.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`, `crates/baud-app/src/carried.rs`, `crates/baud-app/src/effects.rs`, `crates/baud-app/src/film/mpv.rs`, `crates/baud-app/src/paste.rs`, `crates/baud-core/src/aligned.rs`, `crates/baud-core/src/bounds.rs`, `crates/baud-core/src/component.rs`, `crates/baud-core/src/cwd.rs`, `crates/baud-core/src/editing.rs`, `crates/baud-core/src/extent.rs`, `crates/baud-core/src/freeze.rs`, `crates/baud-core/src/graph.rs`, `crates/baud-core/src/margin.rs`, `crates/baud-core/src/ops.rs`, `crates/baud-core/src/osc.rs`, `crates/baud-core/src/page.rs`, `crates/baud-core/src/paint.rs`, `crates/baud-core/src/path.rs`, `crates/baud-core/src/print.rs`, `crates/baud-core/src/strings.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/src/variants.rs`, `crates/baud-core/src/write.rs`, `crates/baud-core/tests/aligned_stops.rs`, `crates/baud-core/tests/backward_moves.rs`, `crates/baud-core/tests/bidi_mode.rs`, `crates/baud-core/tests/character_editing.rs`, `crates/baud-core/tests/character_path.rs`, `crates/baud-core/tests/clipboard.rs`, `crates/baud-core/tests/control_string_end.rs`, `crates/baud-core/tests/control_strings.rs`, `crates/baud-core/tests/csi_decline.rs`, `crates/baud-core/tests/cursor_right_to_left.rs`, `crates/baud-core/tests/device_component.rs`, `crates/baud-core/tests/directed_strings.rs`, `crates/baud-core/tests/editing_extent.rs`, `crates/baud-core/tests/encoding/graphemes.rs`, `crates/baud-core/tests/encoding/latin1.rs`, `crates/baud-core/tests/frozen.rs`, `crates/baud-core/tests/graphics_erase.rs`, `crates/baud-core/tests/guarded_area.rs`, `crates/baud-core/tests/iterm_file.rs`, `crates/baud-core/tests/keyboard_modes.rs`, `crates/baud-core/tests/line_bounds.rs`, `crates/baud-core/tests/line_editing.rs`, `crates/baud-core/tests/page_functions.rs`, `crates/baud-core/tests/palette_reset.rs`, `crates/baud-core/tests/pending_wrap.rs`, `crates/baud-core/tests/presentation_variants.rs`, `crates/baud-core/tests/printing.rs`, `crates/baud-core/tests/read_record.rs`, `crates/baud-core/tests/reply_room.rs`, `crates/baud-core/tests/ris_power_on.rs`, `crates/baud-core/tests/scrollback.rs`, `crates/baud-core/tests/scrollbar_mode.rs`, `crates/baud-core/tests/selected_area.rs`, `crates/baud-core/tests/sgr/blink.rs`, `crates/baud-core/tests/sgr/combination.rs`, `crates/baud-core/tests/sgr/fonts.rs`, `crates/baud-core/tests/sgr/ideogram.rs`, `crates/baud-core/tests/sgr/rep_align.rs`, `crates/baud-core/tests/sgr/underline.rs`, `crates/baud-core/tests/sixel.rs`, `crates/baud-core/tests/string_controls.rs`, `crates/baud-core/tests/tab_waits.rs`, `crates/baud-core/tests/typesetting.rs`, `crates/baud-core/tests/vt100/c0.rs`, `crates/baud-core/tests/vt100/cursor.rs`, `crates/baud-core/tests/vt100/erase.rs`, `crates/baud-core/tests/vt100/erase_qualified.rs`, `crates/baud-core/tests/vt100/irm.rs`, `crates/baud-core/tests/vt100/line_tabs.rs`, `crates/baud-core/tests/vt100/mode_lists.rs`, `crates/baud-core/tests/vt100/scroll_columns.rs`, `crates/baud-core/tests/vt100/scrolling.rs`, `crates/baud-core/tests/vt100/tabs.rs`, `crates/baud-core/tests/vt220/dcs.rs`, `crates/baud-core/tests/vt220/replies.rs`, `crates/baud-core/tests/vt420/presentation.rs`, `crates/baud-core/tests/vt420/rect_scroll.rs`, `crates/baud-core/tests/vt420/state_reports.rs`, `crates/baud-core/tests/working_directory.rs`, `crates/baud-core/tests/xterm/bell_modes.rs`, `crates/baud-core/tests/xterm/mouse.rs`, `crates/baud-core/tests/xterm/osc.rs`, `crates/baud-core/tests/xterm/save_restore_modes.rs`, `crates/baud-domain/src/bidi/strings.rs`, `crates/baud-domain/src/cell.rs`, `crates/baud-domain/src/decode.rs`, `crates/baud-domain/src/grid.rs`, `crates/baud-domain/src/readings.rs`, `crates/baud-domain/src/sixel.rs`, `crates/baud-domain/src/store.rs`, `crates/baud-domain/src/style.rs`, `crates/baud-domain/src/variants.rs`, `crates/baud-domain/src/vt/crm.rs`, `crates/baud-domain/src/vt/csi.rs`, `crates/baud-domain/src/vt/esc.rs`, `crates/baud-domain/src/vt/mode.rs`, `crates/baud-domain/src/vt/mouse.rs`, `crates/baud-domain/src/vt/print.rs`, `crates/baud-domain/src/vt/report.rs`, `crates/baud-domain/src/vt/sgr.rs`, `crates/baud-present-macos/tests/cells.rs`, `crates/baud-present-vulkan/tests/scenes_bidi.rs`, `crates/baud-present-vulkan/tests/scenes_fonts.rs`, `crates/baud-render/src/bidi.rs`, `crates/baud-render/src/boxes.rs`, `crates/baud-render/src/cellmap.rs`, `crates/baud-render/src/lights.rs`, `crates/baud-render/src/print.rs`, `crates/baud-render/src/renderer.rs`, `crates/baud-render/src/stack.rs`, `crates/baud-render/src/word.rs`, `crates/baud-render/tests/alternative_fonts.rs`, `crates/baud-render/tests/bidi_order.rs`, `crates/baud-render/tests/composition.rs`, `crates/baud-render/tests/decorations.rs`, `crates/baud-render/tests/devanagari_words.rs`, `crates/baud-render/tests/fraktur.rs`, `crates/baud-render/tests/frozen_words.rs`, `crates/baud-render/tests/line_direction.rs`, `crates/baud-render/tests/presentation_variants.rs`, `crates/baud-render/tests/stale_bidi.rs`, `crates/baud-render/tests/status_line_direction.rs`, `crates/baud-render/tests/strings.rs`, `crates/baud-render/tests/underline_styles.rs`, `crates/baud-render/tests/word_wrap.rs`, `crates/xtask/src/pdf_search.rs`, `docs/bidi.md`, `docs/protocols/vt100.md`, `docs/vt-coverage.md`
 
 <a id="elementary-wallpapers-debian-copyright"></a>
 ### elementary-wallpapers-debian-copyright
@@ -2088,7 +2088,7 @@ elementary/wallpapers debian/copyright -- 'Unsplash photos published before June
 - **sha256:** `93e1c301cb1885f4dec7322f88e525a87668870233cbc9390b8ce5dac56b0cbf` (1599 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-07
-- **Cited in:** `assets/demo/LICENSES.md`
+- **Cited in:** `docs/assets/demo/LICENSES.md`
 
 <a id="elementary-wallpapers-license-md"></a>
 ### elementary-wallpapers-license-md
@@ -2099,7 +2099,7 @@ elementary/wallpapers LICENSE.md at tag 8.0.0 -- a pointer to debian/copyright. 
 - **sha256:** `6395c64956fb1d0beea899c3af2425bd9b5cc0d7f5f6076f05a651379ae1efff` (130 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-07
-- **Cited in:** `assets/demo/LICENSES.md`
+- **Cited in:** `docs/assets/demo/LICENSES.md`
 
 <a id="emoji-data"></a>
 ### emoji-data
@@ -2109,7 +2109,7 @@ emoji-data.txt, Unicode Character Database 17.0.0. The Unicode Consortium, 2025,
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/emoji/emoji-data.txt>
 - **sha256:** `2cb2bb9455cda83e8481541ecf5b6dfda66a3bb89efa3fa7c5297eccf607b72b` (107324 bytes)
 - **Copy:** [docs/research/sources/unicode-emoji-data.txt](research/sources/unicode-emoji-data.txt)
-- **Cited in:** `baud-domain/build/grapheme.rs`, `baud-domain/build/linebreak.rs`, `baud-domain/build/ucd.rs`, `baud-domain/build/width.rs`, `baud-domain/src/lib.rs`, `baud-domain/src/vs16.rs`
+- **Cited in:** `crates/baud-domain/build/grapheme.rs`, `crates/baud-domain/build/linebreak.rs`, `crates/baud-domain/build/ucd.rs`, `crates/baud-domain/build/width.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/src/vs16.rs`
 
 <a id="emoji-variation-sequences"></a>
 ### emoji-variation-sequences
@@ -2119,7 +2119,7 @@ emoji-variation-sequences.txt, Unicode Character Database 17.0.0. The Unicode Co
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/emoji/emoji-variation-sequences.txt>
 - **sha256:** `bb3d09ef03f206012c7532dd52dc0a21c9efddba0135ea4cf0d9201b8b9bba7e` (38315 bytes)
 - **Copy:** [docs/research/sources/unicode-emoji-variation-sequences.txt](research/sources/unicode-emoji-variation-sequences.txt)
-- **Cited in:** `baud-core/src/term.rs`, `baud-core/tests/named_sequences.rs`, `baud-core/tests/vs16_width.rs`, `baud-domain/build/sequence.rs`, `baud-domain/src/lib.rs`, `baud-domain/src/sequence.rs`, `baud-domain/src/vs16.rs`, `baud-domain/tests/named_sequences.rs`, `baud-domain/tests/vs16.rs`, `docs/vt-coverage.md`, `tools/baud-oracle/src/cases/colour_refused.rs`
+- **Cited in:** `crates/baud-core/src/term.rs`, `crates/baud-core/tests/named_sequences.rs`, `crates/baud-core/tests/vs16_width.rs`, `crates/baud-domain/build/sequence.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/src/sequence.rs`, `crates/baud-domain/src/vs16.rs`, `crates/baud-domain/tests/named_sequences.rs`, `crates/baud-domain/tests/vs16.rs`, `docs/vt-coverage.md`, `tools/baud-oracle/src/cases/colour_refused.rs`
 
 <a id="emoji17-sequences"></a>
 ### emoji17-sequences
@@ -2129,7 +2129,7 @@ emoji-sequences.txt, Unicode Emoji 17.0 -- the RGI basic, keycap, flag, tag and 
 - **URL:** <https://www.unicode.org/Public/17.0.0/emoji/emoji-sequences.txt>
 - **sha256:** `12cc8267dc33cbd11ed32bcf6fc5dc2ad9c7a77bae1bdfba2f41b1b9b3ead8dd` (194868 bytes)
 - **Copy:** [docs/research/sources/emoji17-sequences.txt](research/sources/emoji17-sequences.txt)
-- **Cited in:** `baud-core/tests/named_sequences.rs`, `baud-domain/build/sequence.rs`, `baud-domain/src/lib.rs`, `baud-domain/src/sequence.rs`, `baud-domain/tests/named_sequences.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/named_sequences.rs`, `crates/baud-domain/build/sequence.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/src/sequence.rs`, `crates/baud-domain/tests/named_sequences.rs`, `docs/vt-coverage.md`
 
 <a id="emoji17-test"></a>
 ### emoji17-test
@@ -2148,7 +2148,7 @@ emoji-zwj-sequences.txt, Unicode Emoji 17.0 -- the RGI ZWJ sequences. The Unicod
 - **URL:** <https://www.unicode.org/Public/17.0.0/emoji/emoji-zwj-sequences.txt>
 - **sha256:** `5b25441daed2322b068c5e70cda522946a4f0274df864445a1965a92e5fc5cad` (277215 bytes)
 - **Copy:** [docs/research/sources/emoji17-zwj-sequences.txt](research/sources/emoji17-zwj-sequences.txt)
-- **Cited in:** `baud-core/tests/named_sequences.rs`, `baud-domain/build/sequence.rs`, `baud-domain/src/lib.rs`, `baud-domain/src/sequence.rs`, `baud-domain/tests/named_sequences.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/named_sequences.rs`, `crates/baud-domain/build/sequence.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/src/sequence.rs`, `crates/baud-domain/tests/named_sequences.rs`, `docs/vt-coverage.md`
 
 <a id="ewmh-1-5-app"></a>
 ### ewmh-1-5-app
@@ -2158,7 +2158,7 @@ Extended Window Manager Hints 1.5, section 5, Application Window Properties -- \
 - **URL:** <https://specifications.freedesktop.org/wm-spec/1.5/ar01s05.html>
 - **sha256:** `566eb714ca312acfc25302b6e413a11c4ea3d550095cdb6de52bda7711c54277` (46759 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/x_property.rs`, `baud-domain/src/vt/osc.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/x_property.rs`, `crates/baud-domain/src/vt/osc.rs`, `docs/vt-coverage.md`
 
 <a id="exif-232"></a>
 ### exif-232
@@ -2169,7 +2169,7 @@ CIPA DC-X008-Translation-2019, Exif Version 2.32 -- tag 274 Orientation, SHORT, 
 - **sha256:** `5f9b8261f479167df8799f3b871d7e9316b634f9f073cbb80a0a0b478de50954` (2456981 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-23
-- **Cited in:** `baud-domain/src/jpeg.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/jpeg.rs`, `docs/vt-coverage.md`
 
 <a id="fastfetch-2-60-0-image-c"></a>
 ### fastfetch-2-60-0-image-c
@@ -2179,7 +2179,7 @@ fastfetch 2.60.0, src/logo/image/image.c -- the iterm logo: the file sent whole 
 - **URL:** <https://raw.githubusercontent.com/fastfetch-cli/fastfetch/2.60.0/src/logo/image/image.c>
 - **sha256:** `910ba77746d8270f788ffb41e8cd8e44e834762cec644821de95adc6263a3993` (38569 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/container.rs`
+- **Cited in:** `crates/baud-app/examples/demo/container.rs`
 
 <a id="fastfetch-2-60-0-jsonconfig-c"></a>
 ### fastfetch-2-60-0-jsonconfig-c
@@ -2189,7 +2189,7 @@ fastfetch 2.60.0, src/common/impl/jsonconfig.c and src/fastfetch.c -- a config f
 - **URL:** <https://raw.githubusercontent.com/fastfetch-cli/fastfetch/2.60.0/src/common/impl/jsonconfig.c>
 - **sha256:** `f73564d5defe8c31607c00651a7fe3813e928e2189e1d6f0994830e34d7ae60d` (12321 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/container.rs`
+- **Cited in:** `crates/baud-app/examples/demo/container.rs`
 
 <a id="fastfetch-2-60-0-structure-txt"></a>
 ### fastfetch-2-60-0-structure-txt
@@ -2199,7 +2199,7 @@ fastfetch 2.60.0, src/data/structure.txt -- the default module list. Linus Dierh
 - **URL:** <https://raw.githubusercontent.com/fastfetch-cli/fastfetch/2.60.0/src/data/structure.txt>
 - **sha256:** `d3241cb8f0bba54f64739c8ebc638a1a539b068bed35b47fecb340d0c916f3bf` (195 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/container.rs`
+- **Cited in:** `crates/baud-app/examples/demo/container.rs`
 
 <a id="firefox-774fa0c-gif-decoder"></a>
 ### firefox-774fa0c-gif-decoder
@@ -2210,7 +2210,7 @@ Firefox 774fa0c, image/decoders/nsGIFDecoder2.cpp -- the background colour index
 - **sha256:** `1ce6b9178cde9f1c130e82a19df52202a22fe16e932ae833de2ca701cf2d9b10` (42427 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-23
-- **Cited in:** `baud-domain/src/gif.rs`
+- **Cited in:** `crates/baud-domain/src/gif.rs`
 
 <a id="firefox-774fa0c-swizzle"></a>
 ### firefox-774fa0c-swizzle
@@ -2231,7 +2231,7 @@ Firefox 293c306, widget/cocoa/nsCocoaUtils.mm -- the title bar's double-click: A
 - **URL:** <https://raw.githubusercontent.com/mozilla-firefox/firefox/293c306d006a8a236b34064f824c9e2b5b2a667a/widget/cocoa/nsCocoaUtils.mm>
 - **sha256:** `c61c6ff87afb23ca210ac04ed4478c6d913f3993749088c074e53f98cb53864b` (69808 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/container.rs`
+- **Cited in:** `crates/baud-present-macos/src/container.rs`
 
 <a id="fish-cmd-fish"></a>
 ### fish-cmd-fish
@@ -2242,7 +2242,7 @@ fish 47a8719, doc\_src/cmds/fish.rst -- '-C or --init-command=COMMANDS: Evaluate
 - **sha256:** `fb7a08bfb28cf1a4c1ebe39705adfcf50c64cfe9e9a5c0ead3df9d539c5bb30d` (4656 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-31
-- **Cited in:** `baud-app/src/shell.rs`
+- **Cited in:** `crates/baud-app/src/shell.rs`
 
 <a id="fish-language"></a>
 ### fish-language
@@ -2253,7 +2253,7 @@ fish 47a8719, doc\_src/language.rst -- the conf.d and vendor\_conf.d directories
 - **sha256:** `edfa2215a227f28f54e376fce453da45f964a395d041332dbc25aa2833ad52bb` (108671 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-31
-- **Cited in:** `baud-app/src/shell.rs`
+- **Cited in:** `crates/baud-app/src/shell.rs`
 
 <a id="fish-terminal-compat"></a>
 ### fish-terminal-compat
@@ -2264,7 +2264,7 @@ fish 47a8719, doc\_src/terminal-compatibility.rst -- 133;A;click\_events=1, 133;
 - **sha256:** `7e1208017a5606a89519c8ffeefbd6d78e7cd44dce84ccb5ff4b3568484c5f6f` (11688 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-app/src/shell.rs`, `baud-domain/src/vt/semantic.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/shell.rs`, `crates/baud-domain/src/vt/semantic.rs`, `docs/vt-coverage.md`
 
 <a id="fixterms"></a>
 ### fixterms
@@ -2275,7 +2275,7 @@ Fix Keyboard Input on Terminals - Please. Paul LeoNerd Evans, 2012, leonerd.org.
 - **sha256:** `9fd202d01bbf0c81c4cf46cc79c639fa3eeb22f52e935149666237be98ae7c6a` (14693 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-08-27
-- **Cited in:** `baud-core/tests/other_keys.rs`, `baud-domain/src/input.rs`, `baud-domain/src/vt/key.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/other_keys.rs`, `crates/baud-domain/src/input.rs`, `crates/baud-domain/src/vt/key.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="font-rs-accumulate"></a>
 ### font-rs-accumulate
@@ -2285,7 +2285,7 @@ font-rs accumulate.rs -- the SSE prefix-sum/quantise pass. Raph Levien, 2026, ra
 - **URL:** <https://raw.githubusercontent.com/raphlinus/font-rs/master/src/accumulate.rs>
 - **sha256:** `106a0e01ee0862c3e6bb637e3810bb01a54319c511a011dcb5851953122f450b` (5036 bytes)
 - **Copy:** [docs/research/sources/font-rs-accumulate.rs](research/sources/font-rs-accumulate.rs)
-- **Cited in:** `baud-font/src/raster.rs`
+- **Cited in:** `crates/baud-font/src/raster.rs`
 
 <a id="font-rs-geom"></a>
 ### font-rs-geom
@@ -2304,7 +2304,7 @@ font-rs raster.rs -- signed-area accumulation rasteriser, draw\_line and accumul
 - **URL:** <https://raw.githubusercontent.com/raphlinus/font-rs/master/src/raster.rs>
 - **sha256:** `59113f28d38ecf70eeb437822d5bf8367e182ad05e4b44f7e20e5ff363d1adf1` (5045 bytes)
 - **Copy:** [docs/research/sources/font-rs-raster.rs](research/sources/font-rs-raster.rs)
-- **Cited in:** `baud-font/src/raster.rs`
+- **Cited in:** `crates/baud-font/src/raster.rs`
 
 <a id="fontconfig-50-user-conf-2-15-0"></a>
 ### fontconfig-50-user-conf-2-15-0
@@ -2314,7 +2314,7 @@ fontconfig 2.15.0, conf.d/50-user.conf -- the user's configuration included from
 - **URL:** <https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/conf.d/50-user.conf>
 - **sha256:** `449137ccce57d60bca178d57519ba54e1942d757ad171f3a88cd78df2161c970` (751 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/fontconf.rs`
 
 <a id="fontconfig-configure-2-15-0"></a>
 ### fontconfig-configure-2-15-0
@@ -2324,7 +2324,7 @@ fontconfig 2.15.0, configure.ac -- --with-default-fonts: on Darwin /System/Libra
 - **URL:** <https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/configure.ac>
 - **sha256:** `279c05b83fbf64288c9ea0321ed85e771b7605b2271ade2bdadffe95aaebcf39` (24645 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/discover.rs`, `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/discover.rs`, `crates/baud-app/src/fontconf.rs`
 
 <a id="fontconfig-fc-lang-meson-2-15-0"></a>
 ### fontconfig-fc-lang-meson-2-15-0
@@ -2334,7 +2334,7 @@ fontconfig 2.15.0, fc-lang/meson.build -- orth\_files: the 279 .orth files the l
 - **URL:** <https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/fc-lang/meson.build>
 - **sha256:** `8bde9223916ec462aded017836be504228209978ae0561c2d45f0663ae7e2deb` (4104 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/fontconf.rs`
 
 <a id="fontconfig-fccfg-2-15-0"></a>
 ### fontconfig-fccfg-2-15-0
@@ -2344,7 +2344,7 @@ fontconfig 2.15.0, src/fccfg.c -- FcConfigGetFilename (FONTCONFIG\_FILE else fon
 - **URL:** <https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/src/fccfg.c>
 - **sha256:** `69ca99f0dc68d6f4851c389e467f24847c7d38966bdbdb7dc065ccb0e3ecc7e9` (71331 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/discover.rs`, `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/discover.rs`, `crates/baud-app/src/fontconf.rs`
 
 <a id="fontconfig-fcdefault-2-15-0"></a>
 ### fontconfig-fcdefault-2-15-0
@@ -2354,7 +2354,7 @@ fontconfig 2.15.0, src/fcdefault.c -- FcGetDefaultLangs (line 50): the first of 
 - **URL:** <https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/src/fcdefault.c>
 - **sha256:** `141c6b7694844b16b1204ec11003c0b58be8926e7732d4a5e6900cb42f575d32` (11221 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/fontconf.rs`
 
 <a id="fontconfig-fcdir-2-15-0"></a>
 ### fontconfig-fcdir-2-15-0
@@ -2364,7 +2364,7 @@ fontconfig 2.15.0, src/fcdir.c -- FcFileScanFontConfig: a face's pattern is edit
 - **URL:** <https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/src/fcdir.c>
 - **sha256:** `113258e0ea1496bf6ec4a419295e389964ddd4227ec24c9b6468683cda5c43b5` (10318 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/fontconf.rs`
 
 <a id="fontconfig-fcfreetype-2-15-0"></a>
 ### fontconfig-fcfreetype-2-15-0
@@ -2374,7 +2374,7 @@ fontconfig 2.15.0, src/fcfreetype.c -- FcFreeTypeQueryFaceInternal: outline is F
 - **URL:** <https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/src/fcfreetype.c>
 - **sha256:** `8e52e917c249d980873f70201c54f97705ad43d26a7606f0c2fae53c56299188` (91999 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/fontconf.rs`
 
 <a id="fontconfig-fcinit-2-15-0"></a>
 ### fontconfig-fcinit-2-15-0
@@ -2384,7 +2384,7 @@ fontconfig 2.15.0, src/fcinit.c -- FcInitLoadOwnConfig: when FcConfigParseAndLoa
 - **URL:** <https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/src/fcinit.c>
 - **sha256:** `293eed3228e08007c568a9bcc4e69d8072c2e59329d4161c83025a6cbad28933` (6391 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/fontconf.rs`
 
 <a id="fontconfig-fclang-2-15-0"></a>
 ### fontconfig-fclang-2-15-0
@@ -2394,7 +2394,7 @@ fontconfig 2.15.0, src/fclang.c -- FcLangNormalize (line 182): C, C.UTF-8, C.utf
 - **URL:** <https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/src/fclang.c>
 - **sha256:** `18e88ba893d0a5e6492938ab7fb025ec37cd805aa74013ba0e6619ed257317c9` (24521 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/fontconf.rs`
 
 <a id="fontconfig-fclist-2-15-0"></a>
 ### fontconfig-fclist-2-15-0
@@ -2404,7 +2404,7 @@ fontconfig 2.15.0, src/fclist.c -- FcListPatternMatchAny (every pattern object o
 - **URL:** <https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/src/fclist.c>
 - **sha256:** `2874e350b1098ba41855586ff179e7037d30370b59a446f35b64557d9a545953` (13988 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/fontconf.rs`
 
 <a id="fontconfig-fcmatch-2-15-0"></a>
 ### fontconfig-fcmatch-2-15-0
@@ -2414,7 +2414,7 @@ fontconfig 2.15.0, src/fcmatch.c -- FcCompareCharSet (the count of the pattern's
 - **URL:** <https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/src/fcmatch.c>
 - **sha256:** `f0b22cef0111f5226de7efa445887291cb74d63d681051c57af3deeff44d1764` (32778 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/discover.rs`, `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/discover.rs`, `crates/baud-app/src/fontconf.rs`
 
 <a id="fontconfig-fcname-2-15-0"></a>
 ### fontconfig-fcname-2-15-0
@@ -2424,7 +2424,7 @@ fontconfig 2.15.0, src/fcname.c -- FcObjectValidType (an integer or double objec
 - **URL:** <https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/src/fcname.c>
 - **sha256:** `e0130cd8eec487ee34514184aa97b99b9442cf5df63e597a5881bdfa88778711` (17894 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/fontconf.rs`
 
 <a id="fontconfig-fcobjs-2-15-0"></a>
 ### fontconfig-fcobjs-2-15-0
@@ -2434,7 +2434,7 @@ fontconfig 2.15.0, src/fcobjs.h -- every base pattern object and its type (famil
 - **URL:** <https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/src/fcobjs.h>
 - **sha256:** `0d199fa59295671d2fcdcf847e6c40f3f64cdf8b56c200a7d6646cf67092de8e` (3928 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/fontconf.rs`
 
 <a id="fontconfig-fcstr-2-15-0"></a>
 ### fontconfig-fcstr-2-15-0
@@ -2444,7 +2444,7 @@ fontconfig 2.15.0, src/fcstr.c -- FcStrCopyFilename (a leading '~' is HOME and t
 - **URL:** <https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/src/fcstr.c>
 - **sha256:** `fc20aca47ca819858a31ece9dd3501dfa8415d88d66389e8f47ef066346277b6` (29841 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/fontconf.rs`
 
 <a id="fontconfig-fcxml-2-15-0"></a>
 ### fontconfig-fcxml-2-15-0
@@ -2455,7 +2455,7 @@ fontconfig 2.15.0, src/fcxml.c -- FcParseDir and \_get\_real\_paths\_from\_prefi
 - **sha256:** `748e628c5b77bb5e3fff8435e166fd669e79b3c2e8069954d54997f6d5601bc7` (85576 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-22
-- **Cited in:** `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/fontconf.rs`
 
 <a id="fontconfig-fontconfig-h-2-15-0"></a>
 ### fontconfig-fontconfig-h-2-15-0
@@ -2465,7 +2465,7 @@ fontconfig 2.15.0, fontconfig/fontconfig.h -- the objects' names (FC\_FAMILY 'fa
 - **URL:** <https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/fontconfig/fontconfig.h>
 - **sha256:** `bfcaee5dd9ca67161f7cd02ba99cafd8ccd103e74674ac00ef7c3fb2b964228f` (28997 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/fontconf.rs`
 
 <a id="fontconfig-fonts-conf-2-15-0"></a>
 ### fontconfig-fonts-conf-2-15-0
@@ -2475,7 +2475,7 @@ fontconfig 2.15.0, fonts.conf.in -- the font directory list: the default fonts, 
 - **URL:** <https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/fonts.conf.in>
 - **sha256:** `1d9a9790ace86c6cc7c748f39ccb7251886bb7c64ce13dc625c22f43c4f3dbc5` (2664 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/discover.rs`
+- **Cited in:** `crates/baud-app/src/discover.rs`
 
 <a id="fontconfig-user"></a>
 ### fontconfig-user
@@ -2485,7 +2485,7 @@ fontconfig user documentation -- font names, font matching by distance, &lt;dir&
 - **URL:** <https://www.freedesktop.org/software/fontconfig/fontconfig-user.html>
 - **sha256:** `b645f91133a9d8522ec3079c9e40aa7d11cc4841c6d1fdc7a97c1d2c680f6854` (46117 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/fontconf.rs`
 
 <a id="fontdue-raster"></a>
 ### fontdue-raster
@@ -2504,7 +2504,7 @@ fontTools 4.63.0, misc/fixedTools.py -- floatToFixed and floatToFixedToFloat rou
 - **URL:** <https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/misc/fixedTools.py>
 - **sha256:** `5f2703e50a5a7a3244f8615a14c94b964bba446d22a49a30b9a98c5e316b3234` (7668 bytes)
 - **Copy:** [docs/research/sources/fonttools-4.63.0-misc-fixedTools.py.txt](research/sources/fonttools-4.63.0-misc-fixedTools.py.txt)
-- **Cited in:** `baud-font/src/bake.rs`
+- **Cited in:** `crates/baud-font/src/bake.rs`
 
 <a id="fonttools-4-63-0-glyf"></a>
 ### fonttools-4-63-0-glyf
@@ -2514,7 +2514,7 @@ fontTools 4.63.0, ttLib/tables/\_g\_l\_y\_f.py -- \_getPhantomPoints, \_setCoord
 - **URL:** <https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/_g_l_y_f.py>
 - **sha256:** `3bd4c04ea737d01fd9ee1f87c017c079168e334025f385697117807c5b18a1d5` (85308 bytes)
 - **Copy:** [docs/research/sources/fonttools-4.63.0-ttLib-tables-_g_l_y_f.py.txt](research/sources/fonttools-4.63.0-ttLib-tables-_g_l_y_f.py.txt)
-- **Cited in:** `baud-font/src/bake.rs`
+- **Cited in:** `crates/baud-font/src/bake.rs`
 
 <a id="fonttools-4-63-0-hhea"></a>
 ### fonttools-4-63-0-hhea
@@ -2524,7 +2524,7 @@ fontTools 4.63.0, ttLib/tables/\_h\_h\_e\_a.py -- recalc: advanceWidthMax over e
 - **URL:** <https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/_h_h_e_a.py>
 - **sha256:** `5f8b75685d4c64cbb3de984255217029c3537a865dc7ed38db016d1dcfa72bdc` (4767 bytes)
 - **Copy:** [docs/research/sources/fonttools-4.63.0-ttLib-tables-_h_h_e_a.py.txt](research/sources/fonttools-4.63.0-ttLib-tables-_h_h_e_a.py.txt)
-- **Cited in:** `baud-font/src/bake.rs`
+- **Cited in:** `crates/baud-font/src/bake.rs`
 
 <a id="fonttools-4-63-0-instancer"></a>
 ### fonttools-4-63-0-instancer
@@ -2534,7 +2534,7 @@ fontTools 4.63.0, varLib/instancer/\_\_init\_\_.py -- instantiateVariableFont's 
 - **URL:** <https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/instancer/__init__.py>
 - **sha256:** `e7d0f163dc19bb145b51f8f52a763d15e6260c8af60281efededb8e09f05977b` (75423 bytes)
 - **Copy:** [docs/research/sources/fonttools-4.63.0-varLib-instancer-__init__.py.txt](research/sources/fonttools-4.63.0-varLib-instancer-__init__.py.txt)
-- **Cited in:** `baud-font/src/bake.rs`, `baud-font/src/bake/partial.rs`, `baud-font/tests/bake.rs`, `tools/baud-fontbuild/src/instance.rs`, `tools/baud-fontbuild/tests/bake.rs`, `tools/baud-oracle/src/cases/bake.rs`
+- **Cited in:** `crates/baud-font/src/bake.rs`, `crates/baud-font/src/bake/partial.rs`, `crates/baud-font/tests/bake.rs`, `tools/baud-fontbuild/src/instance.rs`, `tools/baud-fontbuild/tests/bake.rs`, `tools/baud-oracle/src/cases/bake.rs`
 
 <a id="fonttools-4-63-0-instancer-names"></a>
 ### fonttools-4-63-0-instancer-names
@@ -2544,7 +2544,7 @@ fontTools 4.63.0, varLib/instancer/names.py -- getVariationNameIDs and pruningUn
 - **URL:** <https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/instancer/names.py>
 - **sha256:** `20f46a7a5fccf33554d23977d16b1f82e7f1526f4f0414034026375476a97877` (14950 bytes)
 - **Copy:** [docs/research/sources/fonttools-4.63.0-varLib-instancer-names.py.txt](research/sources/fonttools-4.63.0-varLib-instancer-names.py.txt)
-- **Cited in:** `baud-font/src/bake.rs`, `baud-font/src/bake/partial.rs`
+- **Cited in:** `crates/baud-font/src/bake.rs`, `crates/baud-font/src/bake/partial.rs`
 
 <a id="fonttools-4-63-0-iup"></a>
 ### fonttools-4-63-0-iup
@@ -2554,7 +2554,7 @@ fontTools 4.63.0, varLib/iup.py -- iup\_segment, iup\_contour and iup\_delta: th
 - **URL:** <https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/iup.py>
 - **sha256:** `98aabf1915ae520e324e6c36577da7bb4bf6afe4b3ccdef14bbac86d5d2662e7` (14984 bytes)
 - **Copy:** [docs/research/sources/fonttools-4.63.0-varLib-iup.py.txt](research/sources/fonttools-4.63.0-varLib-iup.py.txt)
-- **Cited in:** `baud-font/src/bake.rs`, `baud-font/src/bake/partial.rs`
+- **Cited in:** `crates/baud-font/src/bake.rs`, `crates/baud-font/src/bake/partial.rs`
 
 <a id="fonttools-4-63-0-maxcontextcalc"></a>
 ### fonttools-4-63-0-maxcontextcalc
@@ -2574,7 +2574,7 @@ fontTools 4.63.0, ttLib/tables/\_m\_a\_x\_p.py -- recalc: head's bounds over the
 - **URL:** <https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/_m_a_x_p.py>
 - **sha256:** `7080c8656b1ef5ccf0c2c9e5c48877ab08306976edecf4008d7280726303b296` (5264 bytes)
 - **Copy:** [docs/research/sources/fonttools-4.63.0-ttLib-tables-_m_a_x_p.py.txt](research/sources/fonttools-4.63.0-ttLib-tables-_m_a_x_p.py.txt)
-- **Cited in:** `baud-font/src/bake.rs`
+- **Cited in:** `crates/baud-font/src/bake.rs`
 
 <a id="fonttools-4-63-0-merger"></a>
 ### fonttools-4-63-0-merger
@@ -2584,7 +2584,7 @@ fontTools 4.63.0, varLib/merger.py -- MutatorMerger on Anchor, CaretValue and Va
 - **URL:** <https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/merger.py>
 - **sha256:** `139f68962e00c2a599f85827b92b4c481bec07e1477bee797ac5d3614a86789f` (60802 bytes)
 - **Copy:** [docs/research/sources/fonttools-4.63.0-varLib-merger.py.txt](research/sources/fonttools-4.63.0-varLib-merger.py.txt)
-- **Cited in:** `baud-font/src/bake.rs`, `baud-font/src/bake/partial.rs`
+- **Cited in:** `crates/baud-font/src/bake.rs`, `crates/baud-font/src/bake/partial.rs`
 
 <a id="fonttools-4-63-0-models"></a>
 ### fonttools-4-63-0-models
@@ -2594,7 +2594,7 @@ fontTools 4.63.0, varLib/models.py -- normalizeValue, supportScalar and piecewis
 - **URL:** <https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/models.py>
 - **sha256:** `d9caf7863c0a77a13ab9c88e5598b187467e4c04c4b546be2c41ac0cadf3bea9` (22910 bytes)
 - **Copy:** [docs/research/sources/fonttools-4.63.0-varLib-models.py.txt](research/sources/fonttools-4.63.0-varLib-models.py.txt)
-- **Cited in:** `baud-font/src/bake.rs`
+- **Cited in:** `crates/baud-font/src/bake.rs`
 
 <a id="fonttools-4-63-0-name"></a>
 ### fonttools-4-63-0-name
@@ -2614,7 +2614,7 @@ fontTools 4.63.0, ttLib/tables/O\_S\_2f\_2.py -- recalcAvgCharWidth over the non
 - **URL:** <https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/O_S_2f_2.py>
 - **sha256:** `0f080e2cda9c03420858b4bcfc6e4f832e35687f8708490e5e53f5a86bb68e59` (28030 bytes)
 - **Copy:** [docs/research/sources/fonttools-4.63.0-ttLib-tables-O_S_2f_2.py.txt](research/sources/fonttools-4.63.0-ttLib-tables-O_S_2f_2.py.txt)
-- **Cited in:** `baud-font/src/bake.rs`
+- **Cited in:** `crates/baud-font/src/bake.rs`
 
 <a id="fonttools-4-63-0-otllib-builder"></a>
 ### fonttools-4-63-0-otllib-builder
@@ -2634,7 +2634,7 @@ fontTools 4.63.0, varLib/instancer/solver.py -- rebaseTent and \_solve: a pinned
 - **URL:** <https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/instancer/solver.py>
 - **sha256:** `b8c78fc17d01553e45f78914bc3825b08e3f1749c41faec5ed116e27ab50c10d` (11002 bytes)
 - **Copy:** [docs/research/sources/fonttools-4.63.0-varLib-instancer-solver.py.txt](research/sources/fonttools-4.63.0-varLib-instancer-solver.py.txt)
-- **Cited in:** `baud-font/src/bake.rs`, `baud-font/src/bake/partial.rs`
+- **Cited in:** `crates/baud-font/src/bake.rs`, `crates/baud-font/src/bake/partial.rs`
 
 <a id="fonttools-4-63-0-tuplevariation"></a>
 ### fonttools-4-63-0-tuplevariation
@@ -2644,7 +2644,7 @@ fontTools 4.63.0, ttLib/tables/TupleVariation.py -- scaleDeltas, calcInferredDel
 - **URL:** <https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/TupleVariation.py>
 - **sha256:** `d42a2ddc4a23f8efc97c43d429ddb0261d63268aacf1e883d2c99a431bbd1653` (32196 bytes)
 - **Copy:** [docs/research/sources/fonttools-4.63.0-ttLib-tables-TupleVariation.py.txt](research/sources/fonttools-4.63.0-ttLib-tables-TupleVariation.py.txt)
-- **Cited in:** `baud-font/src/bake.rs`, `baud-font/src/bake/partial.rs`
+- **Cited in:** `crates/baud-font/src/bake.rs`, `crates/baud-font/src/bake/partial.rs`
 
 <a id="fonttools-4-63-0-varstore"></a>
 ### fonttools-4-63-0-varstore
@@ -2654,7 +2654,7 @@ fontTools 4.63.0, varLib/varStore.py -- VarRegion.get\_support, which keeps a re
 - **URL:** <https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/varStore.py>
 - **sha256:** `d9003d48323a8d0c90ff3abcd8e3b06b714191f97e92c692a352869951696bd4` (24069 bytes)
 - **Copy:** [docs/research/sources/fonttools-4.63.0-varLib-varStore.py.txt](research/sources/fonttools-4.63.0-varLib-varStore.py.txt)
-- **Cited in:** `baud-font/src/bake/partial.rs`
+- **Cited in:** `crates/baud-font/src/bake/partial.rs`
 
 <a id="foot-1280-sixel-c"></a>
 ### foot-1280-sixel-c
@@ -2665,7 +2665,7 @@ foot 1.28.0, sixel.c -- the image grows by realloc as data arrives, truncated at
 - **sha256:** `756a6fcae368e839e02b4987cdc067b9ae1aa41dd0cff8bb301724c2bbc80ea6` (72016 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-12
-- **Cited in:** `baud-domain/src/image.rs`
+- **Cited in:** `crates/baud-domain/src/image.rs`
 
 <a id="foot-152487e-input"></a>
 ### foot-152487e-input
@@ -2676,7 +2676,7 @@ foot 152487e, input.c -- keyboard\_leave sends the program no release (768-815);
 - **sha256:** `eb89aabd04678b57d21ae0e3fd331ba1e7817c9fc601cd896cde5d86bb5cd0cb` (126998 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-30
-- **Cited in:** `baud-app/src/pressed.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/pressed.rs`, `docs/input-coverage.md`
 
 <a id="foot-2705e36-foot-ini-5"></a>
 ### foot-2705e36-foot-ini-5
@@ -2686,7 +2686,7 @@ foot 2705e36, doc/foot.ini.5.scd -- title, locked-title. Daniel Eklöf, 2026, fo
 - **URL:** <https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/doc/foot.ini.5.scd>
 - **sha256:** `4611cce41d79d747166711b611f82549952112788a0e3f74b3c8ea855708a782` (76752 bytes)
 - **Copy:** [docs/research/sources/foot-2705e36-foot.ini.5.scd](research/sources/foot-2705e36-foot.ini.5.scd)
-- **Cited in:** `baud-app/src/windows.rs`, `baud-domain/src/themefile/detect.rs`, `baud-domain/src/themefile/terminals.rs`, `baud-domain/tests/themedetect.rs`, `baud-present-wayland/src/keys.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/windows.rs`, `crates/baud-domain/src/themefile/detect.rs`, `crates/baud-domain/src/themefile/terminals.rs`, `crates/baud-domain/tests/themedetect.rs`, `crates/baud-present-wayland/src/keys.rs`, `docs/input-coverage.md`
 
 <a id="foot-2705e36-grapheme"></a>
 ### foot-2705e36-grapheme
@@ -2706,7 +2706,7 @@ foot 2705e36, ime.c -- text-input-v3: enable on the object's enter with the term
 - **sha256:** `a12ccca5990c34d2ebff4a823b73fdf0e6fb5af95bc464172ca8fa1dd533546c` (15235 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-present-wayland/src/ime.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-present-wayland/src/ime.rs`, `docs/input-coverage.md`
 
 <a id="foot-2705e36-input"></a>
 ### foot-2705e36-input
@@ -2717,7 +2717,7 @@ foot 2705e36, input.c -- a key binding matched on the active layout's first-leve
 - **sha256:** `e7c46dd6f39be85b33214c2e0a5d6aab94eace9110fdd39e3a7ed1492850db42` (126975 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-present-wayland/src/keys.rs`, `baud-present-wayland/src/window.rs`, `baud-present-wayland/tests/shift.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-present-wayland/src/keys.rs`, `crates/baud-present-wayland/src/window.rs`, `crates/baud-present-wayland/tests/shift.rs`, `docs/input-coverage.md`
 
 <a id="foot-2705e36-key-binding"></a>
 ### foot-2705e36-key-binding
@@ -2728,7 +2728,7 @@ foot 2705e36, key-binding.c -- key\_codes\_for\_xkb\_sym: every key code whose k
 - **sha256:** `b9f3ae9bdbceee1129205f33e622fc77f60dc9a522a3e83cfb70e6a239c9e896` (19763 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-present-wayland/src/keys.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-present-wayland/src/keys.rs`, `docs/input-coverage.md`
 
 <a id="foot-2705e36-osc"></a>
 ### foot-2705e36-osc
@@ -2738,7 +2738,7 @@ foot 2705e36, osc.c -- OSC 0/1/2, osc\_set\_pwd (file scheme and hostname\_is\_l
 - **URL:** <https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/osc.c>
 - **sha256:** `1da9ac70169898b99ffaad8a0db32b577eda504c63d129a60fc447155fe8f315` (49852 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-wayland/src/window.rs`
+- **Cited in:** `crates/baud-present-wayland/src/window.rs`
 
 <a id="foot-2705e36-render"></a>
 ### foot-2705e36-render
@@ -2748,7 +2748,7 @@ foot 2705e36, render.c -- the preedit's cursor: hidden at -1, a beam where begin
 - **URL:** <https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/render.c>
 - **sha256:** `97280b358e859d2c4f40f7ddf0b55311d7d66f9a5d9fe6e2c221611c6e0187cb` (187364 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-wayland/src/damage.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-present-wayland/src/damage.rs`, `docs/input-coverage.md`
 
 <a id="foot-2705e36-selection"></a>
 ### foot-2705e36-selection
@@ -2759,7 +2759,7 @@ foot 2705e36, selection.c -- the five text types offered (2011-2015), UTF-8 pref
 - **sha256:** `47188658750e1b2888f9b021d26a49901211b4e684bc16fa193ac3afdfc7019b` (89408 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-present-wayland/src/clip.rs`
+- **Cited in:** `crates/baud-present-wayland/src/clip.rs`
 
 <a id="foot-2705e36-shm"></a>
 ### foot-2705e36-shm
@@ -2770,7 +2770,7 @@ foot 2705e36, shm.c -- a new buffer's age forces a full repaint (507), a busy bu
 - **sha256:** `5bf9f02a6a5a1d7205b3e719e003c5427c0fa98f5210977f685b62b1cb77aee8` (30394 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-present-wayland/src/damage.rs`
+- **Cited in:** `crates/baud-present-wayland/src/damage.rs`
 
 <a id="foot-2705e36-terminal"></a>
 ### foot-2705e36-terminal
@@ -2781,7 +2781,7 @@ foot 2705e36, terminal.c -- term\_fractional\_scaling: a fraction only with both
 - **sha256:** `27b3dfbf4cf953884632b1b798c876922fa2f11aaac68213ef1a42d4fb419544` (148115 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-01
-- **Cited in:** `baud-present-wayland/src/scale.rs`
+- **Cited in:** `crates/baud-present-wayland/src/scale.rs`
 
 <a id="foot-2705e36-wayland"></a>
 ### foot-2705e36-wayland
@@ -2792,7 +2792,7 @@ foot 2705e36, wayland.c -- xdg\_activation\_v1 bound (1506-1512); wp\_viewporter
 - **sha256:** `5dc49b28a7fc602a1014370f4807fe47c8e80167ecbe3c5fb8d0ecfeb9129c29` (92739 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-app/src/bell.rs`, `baud-app/src/linux.rs`, `baud-present-wayland/src/window.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/bell.rs`, `crates/baud-app/src/linux.rs`, `crates/baud-present-wayland/src/window.rs`, `docs/vt-coverage.md`
 
 <a id="foot-benchmark"></a>
 ### foot-benchmark
@@ -2811,7 +2811,7 @@ foot: config.c. Daniel Eklof (MIT), 2026, codeberg.org/dnkl/foot @ 2705e36f.
 - **URL:** <https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/config.c>
 - **sha256:** `bc8c134edc51e1225a583603888e3989d4f4a6acc794738bd03cd86418c3a0e1` (136321 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/themefile/detect.rs`, `baud-domain/src/themefile/terminals.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/detect.rs`, `crates/baud-domain/src/themefile/terminals.rs`
 
 <a id="foot-csi"></a>
 ### foot-csi
@@ -2822,7 +2822,7 @@ foot 1.21.0, csi.c -- the 47/1047/1049 switch between the normal and alternate g
 - **sha256:** `45e1a839714c7670bd6a1a924dd8e8d8e8e55916f10f9aaf17c8a558a542d969` (73284 bytes)
 - **Copy:** [docs/research/sources/foot-csi.c](research/sources/foot-csi.c)
 - **Read:** 2026-10-19
-- **Cited in:** `baud-domain/src/vt/charset.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/charset.rs`, `docs/vt-coverage.md`
 
 <a id="foot-csi-2027"></a>
 ### foot-csi-2027
@@ -2841,7 +2841,7 @@ foot 1.21.0, dcs.c -- xtgettcap: a sorted built-in table, one DCS per name, 0+r 
 - **URL:** <https://codeberg.org/dnkl/foot/raw/commit/68f5eab0b0fa08becebbed412947ba19246c2518/dcs.c>
 - **sha256:** `4110904e6a7bac8faa8db6d7b9bb76fcd927a6cf2490dd95ad66478b2ecc3ef2` (14179 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/vt220/dcs.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/vt220/dcs.rs`, `docs/vt-coverage.md`
 
 <a id="foot-erase"></a>
 ### foot-erase
@@ -2870,7 +2870,7 @@ foot 1.21.0, grid.c -- grid\_resize\_and\_reflow and its tracking points. Daniel
 - **URL:** <https://codeberg.org/dnkl/foot/raw/tag/1.21.0/grid.c>
 - **sha256:** `efa71eb8bf5905cb5b6dbbf12ff3e35465b2bdc09ce9a17b38bff7ad511bf2c9` (55267 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/grid/reflow.rs`
+- **Cited in:** `crates/baud-domain/src/grid/reflow.rs`
 
 <a id="foot-ini-cb27717"></a>
 ### foot-ini-cb27717
@@ -2881,7 +2881,7 @@ foot cb27717, doc/foot.ini.5.scd -- search-start Control+Shift+r, and the search
 - **sha256:** `4611cce41d79d747166711b611f82549952112788a0e3f74b3c8ea855708a782` (76752 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-app/src/find.rs`
+- **Cited in:** `crates/baud-app/src/find.rs`
 
 <a id="foot-input"></a>
 ### foot-input
@@ -2891,7 +2891,7 @@ foot 1.21.0, input.c -- a handled key resets the live grid's view. Daniel Eklof,
 - **URL:** <https://codeberg.org/dnkl/foot/raw/tag/1.21.0/input.c>
 - **sha256:** `f5b8b8955b09c93c34af9af02b2a336a81459b43c5bb70331270e6013b95b596` (121433 bytes)
 - **Copy:** [docs/research/sources/foot-input.c](research/sources/foot-input.c)
-- **Cited in:** `baud-app/src/wheel.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/wheel.rs`, `docs/vt-coverage.md`
 
 <a id="foot-keymap-h-1-21"></a>
 ### foot-keymap-h-1-21
@@ -2902,7 +2902,7 @@ foot 1.21.0, keymap.h -- DEFAULT\_MODS\_FOR\_KP: every keypad key in application
 - **sha256:** `c412edfa82bfc66ef93167bae768d6af5976a5444e926cb0406fcfaa6ffdd14a` (28207 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-core/tests/key_encode.rs`, `baud-domain/src/vt/key.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-core/tests/key_encode.rs`, `crates/baud-domain/src/vt/key.rs`, `docs/input-coverage.md`
 
 <a id="foot-linefeed"></a>
 ### foot-linefeed
@@ -2912,7 +2912,7 @@ foot 1.21.0, terminal.c -- term\_linefeed: scroll at the region's last row, else
 - **URL:** <https://codeberg.org/dnkl/foot/raw/tag/1.21.0/terminal.c>
 - **sha256:** `5f7aaa2e700cb2966cf7f4352713ffcd3dd1fc65c2fb781afad835e47f191501` (143121 bytes)
 - **Copy:** [docs/research/sources/foot-terminal.c](research/sources/foot-terminal.c)
-- **Cited in:** `baud-core/src/paint.rs`, `baud-core/tests/scrollback.rs`, `baud-core/tests/vt100/scrolling.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/paint.rs`, `crates/baud-core/tests/scrollback.rs`, `crates/baud-core/tests/vt100/scrolling.rs`, `docs/vt-coverage.md`
 
 <a id="foot-meta-defaults"></a>
 ### foot-meta-defaults
@@ -2922,7 +2922,7 @@ foot 1.21.0, terminal.c -- meta.esc\_prefix / meta.eight\_bit defaults. Daniel E
 - **URL:** <https://codeberg.org/dnkl/foot/raw/tag/1.21.0/terminal.c>
 - **sha256:** `5f7aaa2e700cb2966cf7f4352713ffcd3dd1fc65c2fb781afad835e47f191501` (143121 bytes)
 - **Copy:** [docs/research/sources/foot-terminal.c](research/sources/foot-terminal.c)
-- **Cited in:** `baud-core/tests/key_encode.rs`, `baud-domain/src/vt/mode.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-core/tests/key_encode.rs`, `crates/baud-domain/src/vt/mode.rs`, `docs/input-coverage.md`
 
 <a id="foot-readme"></a>
 ### foot-readme
@@ -2932,7 +2932,7 @@ foot README at 9f5c70e -- carries no latency measurement; points at doc/benchmar
 - **URL:** <https://codeberg.org/dnkl/foot/raw/branch/master/README.md>
 - **sha256:** `874e192a7f322421e6c762c18dadd47239f7a5366bc47b966d12b516fd6f626d` (24450 bytes)
 - **Copy:** [docs/research/sources/foot-readme.md](research/sources/foot-readme.md)
-- **Cited in:** `baud-core/tests/xterm/keypad_version.rs`
+- **Cited in:** `crates/baud-core/tests/xterm/keypad_version.rs`
 
 <a id="foot-render"></a>
 ### foot-render
@@ -2942,7 +2942,7 @@ foot: render.c. Daniel Eklof (MIT), 2026, codeberg.org/dnkl/foot @ 2705e36f.
 - **URL:** <https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/render.c>
 - **sha256:** `97280b358e859d2c4f40f7ddf0b55311d7d66f9a5d9fe6e2c221611c6e0187cb` (187364 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/color.rs`
+- **Cited in:** `crates/baud-render/src/color.rs`
 
 <a id="foot-search-cb27717"></a>
 ### foot-search-cb27717
@@ -2953,7 +2953,7 @@ foot cb27717, search.c -- matches\_cell: smart case on the base, a cell's combin
 - **sha256:** `1ef1ee5cfca3ccd438ede5e4a81a5c6626028e5f4323823e85e8b69c3c736feb` (44121 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-render/src/find.rs`
+- **Cited in:** `crates/baud-render/src/find.rs`
 
 <a id="foot-sixel-c"></a>
 ### foot-sixel-c
@@ -2964,7 +2964,7 @@ foot: sixel.c -- P2 1 is transparent, else the image fills with register 0 and i
 - **sha256:** `756a6fcae368e839e02b4987cdc067b9ae1aa41dd0cff8bb301724c2bbc80ea6` (72016 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-22
-- **Cited in:** `baud-render/src/color.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/src/color.rs`, `docs/vt-coverage.md`
 
 <a id="foot-term-reset"></a>
 ### foot-term-reset
@@ -2975,7 +2975,7 @@ foot 1.21.0, terminal.c -- term\_reset's hard path: offset and view to zero, eve
 - **sha256:** `5f7aaa2e700cb2966cf7f4352713ffcd3dd1fc65c2fb781afad835e47f191501` (143121 bytes)
 - **Copy:** [docs/research/sources/foot-terminal.c](research/sources/foot-terminal.c)
 - **Read:** 2026-10-19
-- **Cited in:** `baud-app/src/caret.rs`, `baud-core/src/ops.rs`, `baud-core/tests/scrollback.rs`, `baud-core/tests/semantic.rs`, `docs/cursor.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/caret.rs`, `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/scrollback.rs`, `crates/baud-core/tests/semantic.rs`, `docs/cursor.md`, `docs/vt-coverage.md`
 
 <a id="foot-terminal-cb27717"></a>
 ### foot-terminal-cb27717
@@ -2985,7 +2985,7 @@ foot cb27717, terminal.c -- term\_theme\_apply overwrites fg, bg and the colour 
 - **URL:** <https://codeberg.org/dnkl/foot/raw/commit/cb2771788998f6a6288e2de8273c55a8214551e0/terminal.c>
 - **sha256:** `27b3dfbf4cf953884632b1b798c876922fa2f11aaac68213ef1a42d4fb419544` (148115 bytes)
 - **Copy:** [docs/research/sources/foot-cb27717-terminal.c](research/sources/foot-cb27717-terminal.c)
-- **Cited in:** `baud-app/src/windows.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/windows.rs`, `docs/input-coverage.md`
 
 <a id="foot-vt-ris"></a>
 ### foot-vt-ris
@@ -2995,7 +2995,7 @@ foot 1.21.0, vt.c, the whole file -- among it ESC c dispatching term\_reset(term
 - **URL:** <https://codeberg.org/dnkl/foot/raw/tag/1.21.0/vt.c>
 - **sha256:** `175fb492205947ef0388471dbe4390ec05d71eb08e2e70aacd08b8c530c1ab66` (42549 bytes)
 - **Copy:** [docs/research/sources/foot-vt.c](research/sources/foot-vt.c)
-- **Cited in:** `baud-core/tests/scrollback.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/scrollback.rs`, `docs/vt-coverage.md`
 
 <a id="foot-vt100-0"></a>
 ### foot-vt100-0
@@ -3005,7 +3005,7 @@ foot 1.21.0, terminal.c -- vt100\_0&#91;&#93; DEC Special Graphics mapping. Dani
 - **URL:** <https://codeberg.org/dnkl/foot/raw/tag/1.21.0/terminal.c>
 - **sha256:** `5f7aaa2e700cb2966cf7f4352713ffcd3dd1fc65c2fb781afad835e47f191501` (143121 bytes)
 - **Copy:** [docs/research/sources/foot-terminal.c](research/sources/foot-terminal.c)
-- **Cited in:** `baud-core/tests/vt100/charsets.rs`, `baud-domain/build/dec_graphics.rs`, `baud-domain/src/cell.rs`, `baud-domain/src/vt/charset.rs`, `baud-domain/tests/dec_sets.rs`, `docs/protocols/vt100.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/vt100/charsets.rs`, `crates/baud-domain/build/dec_graphics.rs`, `crates/baud-domain/src/cell.rs`, `crates/baud-domain/src/vt/charset.rs`, `crates/baud-domain/tests/dec_sets.rs`, `docs/protocols/vt100.md`, `docs/vt-coverage.md`
 
 <a id="foot-wiki-performance"></a>
 ### foot-wiki-performance
@@ -3035,7 +3035,7 @@ Icon Naming Specification 0.8 -- dialog-error, dialog-warning, dialog-informatio
 - **URL:** <https://specifications.freedesktop.org/icon-naming/0.8/>
 - **sha256:** `a109a28636cdc137e8279d44918cbd1862df19647ec72adf69201806c389b369` (58083 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/fdo_notify.rs`
+- **Cited in:** `crates/baud-domain/src/vt/fdo_notify.rs`
 
 <a id="freedesktop-notification-spec"></a>
 ### freedesktop-notification-spec
@@ -3045,7 +3045,7 @@ Desktop Notifications Specification -- Notify, CloseNotification, GetCapabilitie
 - **URL:** <https://gitlab.freedesktop.org/xdg/xdg-specs/-/raw/f1ff18caaf8a047e3fa690a9454af304c4e714f1/notification/notification-spec.xml>
 - **sha256:** `16ae4115530a777d919fcc5346695abe1a5e4f7f2a65b1d02c658752a6920187` (46707 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/bus.rs`, `baud-domain/src/dbus/notify.rs`, `baud-domain/src/dbus/value.rs`, `baud-domain/src/vt/activation_token.rs`, `baud-domain/src/vt/fdo_notify.rs`, `baud-domain/src/vt/notice_plan.rs`, `baud-domain/src/vt/notice_slots.rs`, `baud-present-wayland/src/window.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/bus.rs`, `crates/baud-domain/src/dbus/notify.rs`, `crates/baud-domain/src/dbus/value.rs`, `crates/baud-domain/src/vt/activation_token.rs`, `crates/baud-domain/src/vt/fdo_notify.rs`, `crates/baud-domain/src/vt/notice_plan.rs`, `crates/baud-domain/src/vt/notice_slots.rs`, `crates/baud-present-wayland/src/window.rs`, `docs/vt-coverage.md`
 
 <a id="freetype-cffobjs-2-13-3"></a>
 ### freetype-cffobjs-2-13-3
@@ -3055,7 +3055,7 @@ FreeType 2.13.3, src/cff/cffobjs.c -- cff\_face\_init: an sfnt opened by the CFF
 - **URL:** <https://gitlab.freedesktop.org/freetype/freetype/-/raw/VER-2-13-3/src/cff/cffobjs.c>
 - **sha256:** `c3a85cafcf4e360cd170e0fbe5201ca98f8a0b9da3535ad44247b6ebe84bf3b0` (34874 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/fontconf.rs`
 
 <a id="freetype-ftgrays"></a>
 ### freetype-ftgrays
@@ -3065,7 +3065,7 @@ ftgrays.c -- FreeType's exact-area 'smooth' rasteriser (gray\_render\_line, cell
 - **URL:** <https://gitlab.freedesktop.org/freetype/freetype/-/raw/ee38c68245653b3b09e1afaa63fe2deb0d5ff3ee/src/smooth/ftgrays.c>
 - **sha256:** `404be11bb3d3eb0086bb38bda04388639d991b538e2b452b56ee51e29b2b5845` (60670 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/raster.rs`, `baud-font/tests/raster.rs`, `tools/baud-oracle/src/raster.rs`
+- **Cited in:** `crates/baud-font/src/raster.rs`, `crates/baud-font/tests/raster.rs`, `tools/baud-oracle/src/raster.rs`
 
 <a id="freetype-sfobjs-2-13-3"></a>
 ### freetype-sfobjs-2-13-3
@@ -3075,7 +3075,7 @@ FreeType 2.13.3, src/sfnt/sfobjs.c -- sfnt\_load\_face: has\_outline is glyf, CF
 - **URL:** <https://gitlab.freedesktop.org/freetype/freetype/-/raw/VER-2-13-3/src/sfnt/sfobjs.c>
 - **sha256:** `a76ae051006f23545ddf1bc3f18227055516f5606ddf3b9bfdac2a96ef0f55d6` (49270 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/fontconf.rs`
 
 <a id="freetype-ttobjs-2-13-3"></a>
 ### freetype-ttobjs-2-13-3
@@ -3085,7 +3085,7 @@ FreeType 2.13.3, src/truetype/ttobjs.c -- tt\_face\_init: the TrueType driver op
 - **URL:** <https://gitlab.freedesktop.org/freetype/freetype/-/raw/VER-2-13-3/src/truetype/ttobjs.c>
 - **sha256:** `4b705713d7d67b89d5cea0c55892f684437cd9df0a263e4a0a4d376bad5551fb` (43743 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/fontconf.rs`
 
 <a id="freetype-ttsbit-2-13-3"></a>
 ### freetype-ttsbit-2-13-3
@@ -3095,7 +3095,7 @@ FreeType 2.13.3, src/sfnt/ttsbit.c -- tt\_face\_load\_sbit: CBLC, else EBLC, els
 - **URL:** <https://gitlab.freedesktop.org/freetype/freetype/-/raw/VER-2-13-3/src/sfnt/ttsbit.c>
 - **sha256:** `9951bc88cac3c39644224a2588ab331a861fe281d3936fdec2412e7b2f06448c` (48308 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fontconf.rs`
+- **Cited in:** `crates/baud-app/src/fontconf.rs`
 
 <a id="fzf-light-unix"></a>
 ### fzf-light-unix
@@ -3114,7 +3114,7 @@ GraphemeBreakProperty.txt, Unicode Character Database 17.0.0. The Unicode Consor
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/auxiliary/GraphemeBreakProperty.txt>
 - **sha256:** `d6b51d1d2ae5c33b451b7ed994b48f1f4dc62b2272a5831e7fd418514a6bae89` (99377 bytes)
 - **Copy:** [docs/research/sources/unicode-graphemebreakproperty.txt](research/sources/unicode-graphemebreakproperty.txt)
-- **Cited in:** `baud-core/tests/encoding/replacement_clusters.rs`, `baud-domain/build/grapheme.rs`, `baud-domain/src/lib.rs`
+- **Cited in:** `crates/baud-core/tests/encoding/replacement_clusters.rs`, `crates/baud-domain/build/grapheme.rs`, `crates/baud-domain/src/lib.rs`
 
 <a id="gbtest"></a>
 ### gbtest
@@ -3124,7 +3124,7 @@ GraphemeBreakTest.txt, Unicode Character Database 17.0.0. The Unicode Consortium
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/auxiliary/GraphemeBreakTest.txt>
 - **sha256:** `e2d134d2c52919bace503ebb6a551c1855fe1a1faec18478c78fff254a1793ec` (126570 bytes)
 - **Copy:** [docs/research/sources/unicode-graphemebreaktest.txt](research/sources/unicode-graphemebreaktest.txt)
-- **Cited in:** `baud-core/tests/encoding/graphemes.rs`, `baud-domain/src/grapheme.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/encoding/graphemes.rs`, `crates/baud-domain/src/grapheme.rs`, `docs/vt-coverage.md`
 
 <a id="gc-data"></a>
 ### gc-data
@@ -3134,7 +3134,7 @@ DerivedGeneralCategory.txt, Unicode Character Database 17.0.0. The Unicode Conso
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/extracted/DerivedGeneralCategory.txt>
 - **sha256:** `d62e5bab70ca74f099343f71224fa051cb1fdd61a1ab45c0488c44cfc0b6102e` (277514 bytes)
 - **Copy:** [docs/research/sources/unicode-derivedgeneralcategory.txt](research/sources/unicode-derivedgeneralcategory.txt)
-- **Cited in:** `baud-domain/build/grapheme.rs`, `baud-domain/build/joining.rs`, `baud-domain/build/linebreak.rs`, `baud-domain/build/ucd.rs`, `baud-domain/build/width.rs`, `baud-domain/src/lib.rs`, `baud-font/build/script.rs`, `baud-render/build/stress.rs`, `baud-render/src/lib.rs`, `baud-render/tests/decorations.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/build/grapheme.rs`, `crates/baud-domain/build/joining.rs`, `crates/baud-domain/build/linebreak.rs`, `crates/baud-domain/build/ucd.rs`, `crates/baud-domain/build/width.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-font/build/script.rs`, `crates/baud-render/build/stress.rs`, `crates/baud-render/src/lib.rs`, `crates/baud-render/tests/decorations.rs`, `docs/vt-coverage.md`
 
 <a id="gh-ckwin-547-comments"></a>
 ### gh-ckwin-547-comments
@@ -3145,7 +3145,7 @@ davidrg/ckwin issue #547, comments (9) -- j4james on the VT525: bold xors the fo
 - **sha256:** `99fcc4925bf86e393e85d8fa89b1aef225290a2025de8a91aeb1352a5d806462` (27975 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-11
-- **Cited in:** `baud-render/src/color.rs`
+- **Cited in:** `crates/baud-render/src/color.rs`
 
 <a id="ghostty-332b2ae-modes"></a>
 ### ghostty-332b2ae-modes
@@ -3166,7 +3166,7 @@ ghostty d9840f3, cli/args.zig -- a config line is a comment only when its first 
 - **URL:** <https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/cli/args.zig>
 - **sha256:** `5d63752f1c424fc17b1cf69b63baf0cae71457665b328cddcb2cf40c4000714e` (54342 bytes)
 - **Copy:** [docs/research/sources/ghostty-d9840f3-args.zig](research/sources/ghostty-d9840f3-args.zig)
-- **Cited in:** `baud-app/src/palette.rs`, `baud-domain/src/themefile.rs`, `baud-domain/src/themefile/detect.rs`
+- **Cited in:** `crates/baud-app/src/palette.rs`, `crates/baud-domain/src/themefile.rs`, `crates/baud-domain/src/themefile/detect.rs`
 
 <a id="ghostty-b58ef1d-config"></a>
 ### ghostty-b58ef1d-config
@@ -3177,7 +3177,7 @@ Ghostty b58ef1d, src/config/Config.zig -- cursor-click-to-move; jump\_to\_prompt
 - **sha256:** `a651b4aa0edb744b35b028ae7fc9cf2887227471665a3665979e9a5515c4d19c` (431754 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-app/src/app.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`
 
 <a id="ghostty-b58ef1d-shell-integration-zig"></a>
 ### ghostty-b58ef1d-shell-integration-zig
@@ -3188,7 +3188,7 @@ Ghostty b58ef1d, src/termio/shell\_integration.zig -- detectShell skips /bin/bas
 - **sha256:** `a18e87896e0057ca68a0c8205c165274c837f028515b03da28c52807c8d28e4d` (35468 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-31
-- **Cited in:** `baud-app/src/shell.rs`
+- **Cited in:** `crates/baud-app/src/shell.rs`
 
 <a id="ghostty-cell-d9840f3"></a>
 ### ghostty-cell-d9840f3
@@ -3207,7 +3207,7 @@ ghostty d9840f3, terminal/color.zig -- the xterm cube fill and DynamicPalette.ch
 - **URL:** <https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/color.zig>
 - **sha256:** `9704dc19bb5916c11a90eee73d6332fb1a76dec1320f64186f6d95805544c665` (50511 bytes)
 - **Copy:** [docs/research/sources/ghostty-d9840f3-color.zig](research/sources/ghostty-d9840f3-color.zig)
-- **Cited in:** `baud-domain/src/themefile.rs`
+- **Cited in:** `crates/baud-domain/src/themefile.rs`
 
 <a id="ghostty-config-521cf2c"></a>
 ### ghostty-config-521cf2c
@@ -3218,7 +3218,7 @@ ghostty 521cf2c, config/Config.zig -- the search keybinds: ctrl+shift+f and supe
 - **sha256:** `9074944c1de5e06031cc6f099ee5f9a5ef7d9343727f768220e2dedb78cd12d4` (431718 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-app/src/find.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/find.rs`, `docs/input-coverage.md`
 
 <a id="ghostty-config-8f0dd37"></a>
 ### ghostty-config-8f0dd37
@@ -3229,7 +3229,7 @@ ghostty config/Config.zig -- font-family (repeatable) and its styled variants, f
 - **sha256:** `fba3f7596175a246ffa8fdab6213b6678d7e07ab551de3878cdd561f53a8881c` (431388 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-22
-- **Cited in:** `baud-domain/tests/themefile.rs`, `baud-render/tests/theme_cells.rs`
+- **Cited in:** `crates/baud-domain/tests/themefile.rs`, `crates/baud-render/tests/theme_cells.rs`
 
 <a id="ghostty-config-d9840f3"></a>
 ### ghostty-config-d9840f3
@@ -3239,7 +3239,7 @@ ghostty d9840f3, config/Config.zig -- minimum-contrast, light:X,dark:Y theme pai
 - **URL:** <https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/config/Config.zig>
 - **sha256:** `aa0d42cdab217728ef502ed7b36e681fca3c9ecd3232ae299cecdbefa27c0332` (425434 bytes)
 - **Copy:** [docs/research/sources/ghostty-d9840f3-Config.zig](research/sources/ghostty-d9840f3-Config.zig)
-- **Cited in:** `baud-app/src/windows.rs`, `baud-domain/src/themefile/detect.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/windows.rs`, `crates/baud-domain/src/themefile/detect.rs`, `docs/input-coverage.md`
 
 <a id="ghostty-d9840f3-command"></a>
 ### ghostty-d9840f3-command
@@ -3250,7 +3250,7 @@ ghostty: Command.zig -- the forked child changes to cwd before exec and ignores 
 - **sha256:** `4f3d9c2c8fcbe35d7fc8cec1b04f550b08b37e60265924b5d32677d4bc8536ae` (37939 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-12
-- **Cited in:** `baud-app/src/pty.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`
 
 <a id="ghostty-d9840f3-config"></a>
 ### ghostty-d9840f3-config
@@ -3271,7 +3271,7 @@ ghostty: os/desktop.zig -- launchedFromDesktop: on macOS getppid() == 1, or GHOS
 - **sha256:** `c06eb168944e0e8fe7fad0a3c12458bb7f56303e2f62156e8677fb16c757d282` (7065 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-12
-- **Cited in:** `baud-app/src/pty.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`
 
 <a id="ghostty-d9840f3-function-keys"></a>
 ### ghostty-d9840f3-function-keys
@@ -3282,7 +3282,7 @@ ghostty at d9840f3, src/input/function\_keys.zig -- numpad\_0..9 as kpKeys('p'..
 - **sha256:** `0ad480ceba7cf481bfe9897d0e95b82420916936f72bbb0716f79b2d58ceb401` (16793 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-core/tests/key_encode.rs`, `baud-domain/src/vt/key.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-core/tests/key_encode.rs`, `crates/baud-domain/src/vt/key.rs`, `docs/input-coverage.md`
 
 <a id="ghostty-d9840f3-graphics-storage"></a>
 ### ghostty-d9840f3-graphics-storage
@@ -3302,7 +3302,7 @@ ghostty d9840f3, config/path.zig -- a config path's leading '~/' expanded to the
 - **sha256:** `7b3138d29a4855745149c82c821885f256c31643fb31d78d69374e872b27a691` (18189 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-22
-- **Cited in:** `baud-app/src/config.rs`
+- **Cited in:** `crates/baud-app/src/config.rs`
 
 <a id="ghostty-d9840f3-surface"></a>
 ### ghostty-d9840f3-surface
@@ -3313,7 +3313,7 @@ Ghostty d9840f3, src/Surface.zig -- over a link the mouse shape is .pointer; lea
 - **sha256:** `2095e33bc2d4c914275076f031bd512d3d988e6036e9c5124bf3a08c62aaa136` (240643 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-29
-- **Cited in:** `baud-app/src/app.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="ghostty-d9840f3-surfaceview-appkit"></a>
 ### ghostty-d9840f3-surfaceview-appkit
@@ -3324,7 +3324,7 @@ Ghostty d9840f3, macos/Sources/Ghostty/Surface View/SurfaceView\_AppKit.swift --
 - **sha256:** `c27e4c536ca3c13a512ae743366b9a6a4313d8be2d56861c2182fe9d1fa3144c` (107434 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-30
-- **Cited in:** `baud-app/src/app.rs`, `baud-present-macos/src/keyup.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `crates/baud-present-macos/src/keyup.rs`, `docs/input-coverage.md`
 
 <a id="ghostty-d9840f3-terminal"></a>
 ### ghostty-d9840f3-terminal
@@ -3335,7 +3335,7 @@ ghostty at d9840f3, src/terminal/Terminal.zig -- saveCursor, restoreCursor and f
 - **sha256:** `7957a064b558d04ea3edf4881874963f914714d07c03745353bc24376a5c52b8` (576602 bytes)
 - **Copy:** [docs/research/sources/ghostty-d9840f3-Terminal.zig](research/sources/ghostty-d9840f3-Terminal.zig)
 - **Read:** 2026-10-11
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/src/paint.rs`, `baud-core/tests/vt100/cuu_cud.rs`, `baud-core/tests/vt420/rect_scroll.rs`, `baud-core/tests/vt420/side_margins.rs`, `baud-core/tests/wrapped_at.rs`, `bench-others/ghostty-oracle/src/main.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/src/paint.rs`, `crates/baud-core/tests/vt100/cuu_cud.rs`, `crates/baud-core/tests/vt420/rect_scroll.rs`, `crates/baud-core/tests/vt420/side_margins.rs`, `crates/baud-core/tests/wrapped_at.rs`, `docs/vt-coverage.md`, `tools/bench-others/ghostty-oracle/src/main.rs`
 
 <a id="ghostty-d9840f3-terminal-zig"></a>
 ### ghostty-d9840f3-terminal-zig
@@ -3345,7 +3345,7 @@ ghostty d9840f3, src/terminal/Terminal.zig -- printAttributes, its DECRQSS m: 38
 - **URL:** <https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/Terminal.zig>
 - **sha256:** `7957a064b558d04ea3edf4881874963f914714d07c03745353bc24376a5c52b8` (576602 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/vt220/dcs.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/vt220/dcs.rs`, `docs/vt-coverage.md`
 
 <a id="ghostty-discovery-8f0dd37"></a>
 ### ghostty-discovery-8f0dd37
@@ -3355,7 +3355,7 @@ ghostty font/discovery.zig -- macOS LastResort rejected in discovery. Mitchell H
 - **URL:** <https://raw.githubusercontent.com/ghostty-org/ghostty/8f0dd3709050b1026f6324368805033197d8b4a5/src/font/discovery.zig>
 - **sha256:** `5807232b731ed0eb9e2a43ab11974d08237eb2bc3e8f66b716aae1a7078dd8f0` (52001 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fallback.rs`
+- **Cited in:** `crates/baud-app/src/fallback.rs`
 
 <a id="ghostty-f54340a-color"></a>
 ### ghostty-f54340a-color
@@ -3385,7 +3385,7 @@ font/shaper/Cache.zig -- the shaped-run cache and why it exists (96% of frame ti
 - **URL:** <https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/font/shaper/Cache.zig>
 - **sha256:** `97125de15dc42dd9083c2c284ee6d4fc0d1c886db364570e84402ff3f9d2b5a0` (2925 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/cache.rs`
+- **Cited in:** `crates/baud-render/src/cache.rs`
 
 <a id="ghostty-fraction-d9840f3"></a>
 ### ghostty-fraction-d9840f3
@@ -3395,7 +3395,7 @@ ghostty d9840f3, terminal/fraction.zig -- the decimal fraction parser behind rgb
 - **URL:** <https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/fraction.zig>
 - **sha256:** `c9e62da197254fed131e0cb466d49c588248af14b1c421afc909bc966a911d1c` (5225 bytes)
 - **Copy:** [docs/research/sources/ghostty-d9840f3-fraction.zig](research/sources/ghostty-d9840f3-fraction.zig)
-- **Cited in:** `baud-domain/src/themefile.rs`
+- **Cited in:** `crates/baud-domain/src/themefile.rs`
 
 <a id="ghostty-generic-d9840f3"></a>
 ### ghostty-generic-d9840f3
@@ -3406,7 +3406,7 @@ ghostty d9840f3, renderer/generic.zig -- SGR 53's overline drawn in the foregrou
 - **sha256:** `2e01ea541c1e71f5751e06595f54e59f0f31b16d532b29f543269ccf57fc528a` (152936 bytes)
 - **Copy:** [docs/research/sources/ghostty-d9840f3-generic.zig](research/sources/ghostty-d9840f3-generic.zig)
 - **Read:** 2026-10-18
-- **Cited in:** `baud-render/tests/decorations.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/tests/decorations.rs`, `docs/vt-coverage.md`
 
 <a id="ghostty-metallib-step"></a>
 ### ghostty-metallib-step
@@ -3426,7 +3426,7 @@ ghostty d9840f3, font/Metrics.zig -- overline\_position = 0, the top of the cell
 - **sha256:** `ddbdfc6d1fd76f98e2cf5109e72320546dd8ccf9741f76b4298cd08a18e1a596` (31639 bytes)
 - **Copy:** [docs/research/sources/ghostty-d9840f3-Metrics.zig](research/sources/ghostty-d9840f3-Metrics.zig)
 - **Read:** 2026-10-18
-- **Cited in:** `baud-render/tests/decorations.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/tests/decorations.rs`, `docs/vt-coverage.md`
 
 <a id="ghostty-osc-rxvt-extension"></a>
 ### ghostty-osc-rxvt-extension
@@ -3454,7 +3454,7 @@ ghostty d9840f3, terminal/Screen.zig -- clearCells, which memsets the full range
 - **URL:** <https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/Screen.zig>
 - **sha256:** `ea1a21e931106a92fe187919f7b10fb4f41a3c33a9e5ac7e06697e8f8bafc77d` (427631 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/vt100/scrolling.rs`, `baud-domain/src/grid.rs`
+- **Cited in:** `crates/baud-core/tests/vt100/scrolling.rs`, `crates/baud-domain/src/grid.rs`
 
 <a id="ghostty-search-screen-521cf2c"></a>
 ### ghostty-search-screen-521cf2c
@@ -3465,7 +3465,7 @@ ghostty 521cf2c, terminal/search/screen.zig -- results newest to oldest; select 
 - **sha256:** `629e28fcbb9a1b8e3a543a7635ca875385cb2f7279e4f79c5487281481936996` (79152 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-render/src/find.rs`
+- **Cited in:** `crates/baud-render/src/find.rs`
 
 <a id="ghostty-shaders-d9840f3"></a>
 ### ghostty-shaders-d9840f3
@@ -3484,7 +3484,7 @@ ghostty v1.2.0, src/renderer/shaders/shaders.metal -- image\_fragment, how a kit
 - **URL:** <https://raw.githubusercontent.com/ghostty-org/ghostty/v1.2.0/src/renderer/shaders/shaders.metal>
 - **sha256:** `a9bc47f979f9afeff0d61c1f29765bcee648650f7fb93d9d28aeccceef6b9850` (25258 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/image.rs`
+- **Cited in:** `crates/baud-domain/src/image.rs`
 
 <a id="ghostty-terminal-9bbb9b2"></a>
 ### ghostty-terminal-9bbb9b2
@@ -3514,7 +3514,7 @@ ghostty themes release-20260810-152212-0173c3c -- the bundled theme files, 602 o
 - **URL:** <https://deps.files.ghostty.org/ghostty-themes-release-20260810-152212-0173c3c.tgz>
 - **sha256:** `ea9878471420ee5b12e7f2ff480099c954ea50e573a1bdf83f43e105c9be63f0` (78218 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/tests/themefile.rs`
+- **Cited in:** `crates/baud-domain/tests/themefile.rs`
 
 <a id="ghostty-urlhoverbanner"></a>
 ### ghostty-urlhoverbanner
@@ -3524,7 +3524,7 @@ Ghostty f54340a, macos/Sources/Helpers/URLHoverBanner.swift -- the hovered link'
 - **URL:** <https://raw.githubusercontent.com/ghostty-org/ghostty/f54340ad77814fe319d136e5e915d6a48de8dd23/macos/Sources/Helpers/URLHoverBanner.swift>
 - **sha256:** `69b78ad65340dc2f68213ac3343ae880067487f076c4280c5c642b5ff4543038` (1898 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/link.rs`
+- **Cited in:** `crates/baud-app/src/link.rs`
 
 <a id="gif89a"></a>
 ### gif89a
@@ -3535,7 +3535,7 @@ Graphics Interchange Format, Version 89a -- 8 the decoder, 9 compliance, 18 the 
 - **sha256:** `c0e48c12e3e91b1e78090caffb1d1ffe8e7d0face4350da675044a9a4be02aa3` (83003 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-23
-- **Cited in:** `baud-core/src/term.rs`, `baud-core/tests/iterm_file.rs`, `baud-core/tests/kitten_icat.rs`, `baud-core/tests/kitten_icat/gif.rs`, `baud-domain/src/gif.rs`, `baud-domain/src/image/frames.rs`, `baud-domain/src/regis/mod.rs`, `baud-domain/tests/gif.rs`, `baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`, `tools/baud-pictures/src/gif.rs`
+- **Cited in:** `crates/baud-core/src/term.rs`, `crates/baud-core/tests/iterm_file.rs`, `crates/baud-core/tests/kitten_icat.rs`, `crates/baud-core/tests/kitten_icat/gif.rs`, `crates/baud-domain/src/gif.rs`, `crates/baud-domain/src/image/frames.rs`, `crates/baud-domain/src/regis/mod.rs`, `crates/baud-domain/tests/gif.rs`, `crates/baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`, `tools/baud-pictures/src/gif.rs`
 
 <a id="github-docs-profile-picture"></a>
 ### github-docs-profile-picture
@@ -3545,7 +3545,7 @@ GitHub Docs, Profile reference -- "Profile picture requirements": "less than 1 M
 - **URL:** <https://raw.githubusercontent.com/github/docs/4a20c763a48bd4f5a34a84c002fd9858e9793f65/content/account-and-profile/reference/profile-reference.md>
 - **sha256:** `b1fcecf4200de2fcae65ddd00b4303c08bc7b6887f02dab9ad1a1a7753d9b591` (19123 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `assets/logo/README.md`, `tools/baud-pictures/src/brand.rs`
+- **Cited in:** `docs/assets/logo/README.md`, `tools/baud-pictures/src/brand.rs`
 
 <a id="github-docs-social-preview"></a>
 ### github-docs-social-preview
@@ -3555,7 +3555,7 @@ GitHub Docs, Customizing your repository's social media preview -- "under 1 MB .
 - **URL:** <https://raw.githubusercontent.com/github/docs/4a20c763a48bd4f5a34a84c002fd9858e9793f65/content/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/customizing-your-repositorys-social-media-preview.md>
 - **sha256:** `935ecaabc92f52a116a9e3d8eae58d44db5e84c5a35995fefbca85a48a7490b4` (2113 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `assets/logo/README.md`, `tools/baud-pictures/src/brand.rs`
+- **Cited in:** `docs/assets/logo/README.md`, `tools/baud-pictures/src/brand.rs`
 
 <a id="glibc-2-40-termios-c-cc"></a>
 ### glibc-2-40-termios-c-cc
@@ -3566,7 +3566,7 @@ glibc 2.40, sysdeps/unix/sysv/linux/bits/termios-c\_cc.h -- the c\_cc indices, V
 - **sha256:** `4414ed57966843e0114a112bc96fcca5e6109aa202cf98237e107dc05f8604ec` (1279 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/sys.rs`
 
 <a id="glibc-2-42-getpt-c"></a>
 ### glibc-2-42-getpt-c
@@ -3577,7 +3577,7 @@ glibc 2.42 (d209765), sysdeps/unix/sysv/linux/getpt.c -- posix\_openpt is \_\_op
 - **sha256:** `3d3e9dd4b26acf7a0a784bebf90b4485ab04b5e9c579d05110dc4c5a2c3a4420` (1266 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-08
-- **Cited in:** `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/sys.rs`
 
 <a id="glibc-2-42-login-tty-c"></a>
 ### glibc-2-42-login-tty-c
@@ -3588,7 +3588,7 @@ glibc 2.42 (d209765), login/login\_tty.c -- setsid, TIOCSCTTY, dup2 onto 0, 1 an
 - **sha256:** `ea3ea7aa7dad5752d17588a0b163cc232ee78d5554f75cfc589e8ccf45c5f239` (2716 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-08
-- **Cited in:** `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/sys.rs`
 
 <a id="glibc-2-42-openpty-c"></a>
 ### glibc-2-42-openpty-c
@@ -3598,7 +3598,7 @@ glibc 2.42 (d209765), login/openpty.c -- openpty applies termp to the terminal w
 - **URL:** <https://raw.githubusercontent.com/bminor/glibc/d2097651cc57834dbfcaa102ddfacae0d86cfb66/login/openpty.c>
 - **sha256:** `ee329de57784750e07e84d516580c3cd73352dfa064642f724efc6ec917b1e7f` (4124 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/pty.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`
 
 <a id="glibc-241-utf8-gen"></a>
 ### glibc-241-utf8-gen
@@ -3629,7 +3629,7 @@ gnome-terminal 8a51402, src/org.gnome.Terminal.gschema.xml -- the new-window sho
 - **sha256:** `9cfeddee7afd7b238c959ad3db3807d474567fa7b09b15449abea33eab394726` (31903 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-31
-- **Cited in:** `baud-present-wayland/src/keys.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-present-wayland/src/keys.rs`, `docs/input-coverage.md`
 
 <a id="gnome-terminal-screen"></a>
 ### gnome-terminal-screen
@@ -3640,7 +3640,7 @@ gnome-terminal 3.56.2, src/terminal-screen.cc -- terminal\_screen\_button\_press
 - **sha256:** `5d9a32b51fb212648954d46fa6604d23b59d0823344b6ef8288bf04d312a6a55` (86581 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-app/src/seat.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/seat.rs`, `docs/input-coverage.md`
 
 <a id="gnu-coding-standards-version"></a>
 ### gnu-coding-standards-version
@@ -3651,7 +3651,7 @@ GNU Coding Standards, 4.8.1 --version -- "The following line, after the version 
 - **sha256:** `3b6579633b5c79d1d0a9b7b0323c7f11a605a6323a2fd286968b36cfb798345f` (11056 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-07
-- **Cited in:** `baud-app/src/version.rs`
+- **Cited in:** `crates/baud-app/src/version.rs`
 
 <a id="grok-build-2bdd1d6-terminal-image"></a>
 ### grok-build-2bdd1d6-terminal-image
@@ -3673,7 +3673,7 @@ GTK 3b438f05, gtk/theme/Default/\_common.scss -- the preedit node's hint classes
 - **sha256:** `9a0088878d2b2d285d45e6c12c4040f3ded1685edd834066fd194b8872f86c88` (103522 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-render/src/overlay.rs`
+- **Cited in:** `crates/baud-render/src/overlay.rs`
 
 <a id="gtk-3b438f05-gtktext"></a>
 ### gtk-3b438f05-gtktext
@@ -3683,7 +3683,7 @@ GTK 3b438f05, gtk/gtktext.c -- the preedit's cursor\_pos clamped to the preedit 
 - **URL:** <https://gitlab.gnome.org/GNOME/gtk/-/raw/3b438f0576193689bf39835174a51aa747333281/gtk/gtktext.c>
 - **sha256:** `5c40deb98fff6ddf5d78c3d55f55f7817c864d21407475c066d949399ab9b976` (251481 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/overlay.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-render/src/overlay.rs`, `docs/input-coverage.md`
 
 <a id="gtk-3b438f05-imcontextwayland"></a>
 ### gtk-3b438f05-imcontextwayland
@@ -3694,7 +3694,7 @@ GTK 3b438f05, gtk/gtkimcontextwayland.c -- text-input-v3 at version 2: an empty 
 - **sha256:** `40f54a93200c436099cf511465ab9335a7e9e4f4dcbbb9c0a4597c862792f1d3` (46796 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-present-wayland/src/ime.rs`
+- **Cited in:** `crates/baud-present-wayland/src/ime.rs`
 
 <a id="harfbuzz-12-3-0-anchor-format3"></a>
 ### harfbuzz-12-3-0-anchor-format3
@@ -3704,7 +3704,7 @@ HarfBuzz 12.3.0, OT/Layout/GPOS/AnchorFormat3.hh -- get\_anchor: the coordinate 
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/OT/Layout/GPOS/AnchorFormat3.hh>
 - **sha256:** `8ecd88ea3508d3bc572191df61fd73a7bcd92f860ed93459dc05d7bb3157c4b5` (4747 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-OT-Layout-GPOS-AnchorFormat3.hh](research/sources/harfbuzz-12.3.0-OT-Layout-GPOS-AnchorFormat3.hh)
-- **Cited in:** `baud-font/src/gpos.rs`
+- **Cited in:** `crates/baud-font/src/gpos.rs`
 
 <a id="harfbuzz-12-3-0-avar"></a>
 ### harfbuzz-12-3-0-avar
@@ -3714,7 +3714,7 @@ HarfBuzz 12.3.0, src/hb-ot-var-avar-table.hh -- map\_coords\_16\_16 and map\_flo
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-var-avar-table.hh>
 - **sha256:** `bc711dfac70c7491a693df2799ff31d17c7be96938db09ca6d71f2a146539d56` (15095 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-hb-ot-var-avar-table.hh](research/sources/harfbuzz-12.3.0-hb-ot-var-avar-table.hh)
-- **Cited in:** `baud-font/src/var.rs`
+- **Cited in:** `crates/baud-font/src/var.rs`
 
 <a id="harfbuzz-12-3-0-cff-interp-common"></a>
 ### harfbuzz-12-3-0-cff-interp-common
@@ -3742,7 +3742,7 @@ HarfBuzz 12.3.0, hb-cff2-interp-cs.hh -- the CFF2 charstring environment: fetch\
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-cff2-interp-cs.hh>
 - **sha256:** `57b5446c791383fe2db50bdc1c35f531c528355fc0daad6d0e4cf1632ed99088` (8655 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-hb-cff2-interp-cs.hh](research/sources/harfbuzz-12.3.0-hb-cff2-interp-cs.hh)
-- **Cited in:** `baud-font/src/cff2.rs`
+- **Cited in:** `crates/baud-font/src/cff2.rs`
 
 <a id="harfbuzz-12-3-0-composite-glyph"></a>
 ### harfbuzz-12-3-0-composite-glyph
@@ -3761,7 +3761,7 @@ HarfBuzz 12.3.0, hb-draw.hh -- the draw session: a deferred move\_to, and close\
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-draw.hh>
 - **sha256:** `09cc062a868f72adc185131f1419834c9eeef32cf72ef61203ef2a6e0f58b529` (6274 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-hb-draw.hh](research/sources/harfbuzz-12.3.0-hb-draw.hh)
-- **Cited in:** `baud-font/tests/cff2.rs`
+- **Cited in:** `crates/baud-font/tests/cff2.rs`
 
 <a id="harfbuzz-12-3-0-font"></a>
 ### harfbuzz-12-3-0-font
@@ -3771,7 +3771,7 @@ HarfBuzz 12.3.0, hb-font.hh -- em\_scalef rounds with roundf, em\_fscale does no
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-font.hh>
 - **sha256:** `559ddf0d66f27016847563fa5d95d303a3747a06d393c1ab0deaba13ab6156b2` (33559 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-hb-font.hh](research/sources/harfbuzz-12.3.0-hb-font.hh)
-- **Cited in:** `baud-font/src/gpos.rs`
+- **Cited in:** `crates/baud-font/src/gpos.rs`
 
 <a id="harfbuzz-12-3-0-fvar"></a>
 ### harfbuzz-12-3-0-fvar
@@ -3781,7 +3781,7 @@ HarfBuzz 12.3.0, src/hb-ot-var-fvar-table.hh -- normalize\_axis\_value, the defa
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-var-fvar-table.hh>
 - **sha256:** `37e166fbbb134902afd3ef08d1351e3f59bdc6a22fbb24113f2fb0aa2570af0a` (15594 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-hb-ot-var-fvar-table.hh](research/sources/harfbuzz-12.3.0-hb-ot-var-fvar-table.hh)
-- **Cited in:** `baud-font/src/var.rs`
+- **Cited in:** `crates/baud-font/src/var.rs`
 
 <a id="harfbuzz-12-3-0-gdef"></a>
 ### harfbuzz-12-3-0-gdef
@@ -3800,7 +3800,7 @@ HarfBuzz 12.3.0, OT/glyf/glyf.hh -- get\_advance\_with\_var\_unscaled: the phant
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/OT/glyf/glyf.hh>
 - **sha256:** `2b8ac24257f236cec4a51f8dc68afdd54fa906f64a304864497566937e962326` (17527 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-glyf-glyf.hh](research/sources/harfbuzz-12.3.0-glyf-glyf.hh)
-- **Cited in:** `baud-font/src/glyf.rs`
+- **Cited in:** `crates/baud-font/src/glyf.rs`
 
 <a id="harfbuzz-12-3-0-glyph"></a>
 ### harfbuzz-12-3-0-glyph
@@ -3810,7 +3810,7 @@ HarfBuzz 12.3.0, OT/glyf/Glyph.hh -- get\_points: phantom points, composites, US
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/OT/glyf/Glyph.hh>
 - **sha256:** `c6135d03ceaefa20856162709653b27e1d6737b390a0bac57d5bc696495cbf43` (18279 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-glyf-Glyph.hh](research/sources/harfbuzz-12.3.0-glyf-Glyph.hh)
-- **Cited in:** `baud-font/src/glyf.rs`
+- **Cited in:** `crates/baud-font/src/glyf.rs`
 
 <a id="harfbuzz-12-3-0-gvar"></a>
 ### harfbuzz-12-3-0-gvar
@@ -3820,7 +3820,7 @@ HarfBuzz 12.3.0, hb-ot-var-gvar-table.hh -- apply\_deltas\_to\_points and infer\
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-var-gvar-table.hh>
 - **sha256:** `9a8bfee00dd97766e6b5602a9992b77d4309fa9e230c2f362e90f3e7382cd518` (31954 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-hb-ot-var-gvar-table.hh](research/sources/harfbuzz-12.3.0-hb-ot-var-gvar-table.hh)
-- **Cited in:** `baud-font/src/gvar.rs`, `tools/baud-fontbuild/src/glyphs.rs`
+- **Cited in:** `crates/baud-font/src/gvar.rs`, `tools/baud-fontbuild/src/glyphs.rs`
 
 <a id="harfbuzz-12-3-0-hb"></a>
 ### harfbuzz-12-3-0-hb
@@ -3830,7 +3830,7 @@ HarfBuzz 12.3.0, hb.hh -- #define roundf(x) \_hb\_roundf(x), which is floorf (x 
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb.hh>
 - **sha256:** `1a27c9ebfc36f3c6d59bf2e630285335af0957023564e322808d01e8898e8f28` (18542 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-hb.hh](research/sources/harfbuzz-12.3.0-hb.hh)
-- **Cited in:** `baud-font/src/face.rs`, `baud-font/src/gpos.rs`, `baud-font/src/var.rs`
+- **Cited in:** `crates/baud-font/src/face.rs`, `crates/baud-font/src/gpos.rs`, `crates/baud-font/src/var.rs`
 
 <a id="harfbuzz-12-3-0-hmtx"></a>
 ### harfbuzz-12-3-0-hmtx
@@ -3840,7 +3840,7 @@ HarfBuzz 12.3.0, hb-ot-hmtx-table.hh -- get\_advance\_with\_var\_unscaled: hmtx 
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-hmtx-table.hh>
 - **sha256:** `4364fc2190ca08577ffc3aa1642d9f2660c5414ccff24260065c38b39cd3787f` (15446 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-hb-ot-hmtx-table.hh](research/sources/harfbuzz-12.3.0-hb-ot-hmtx-table.hh)
-- **Cited in:** `baud-font/src/face.rs`
+- **Cited in:** `crates/baud-font/src/face.rs`
 
 <a id="harfbuzz-12-3-0-hvar"></a>
 ### harfbuzz-12-3-0-hvar
@@ -3850,7 +3850,7 @@ HarfBuzz 12.3.0, hb-ot-var-hvar-table.hh -- HVAR's sanitize and get\_advance\_de
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-var-hvar-table.hh>
 - **sha256:** `8a2d3b030ae520d3afdd7d74c8831a8555a7ccb93513b2f03a7ccb2de0ac24cb` (15347 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-hb-ot-var-hvar-table.hh](research/sources/harfbuzz-12.3.0-hb-ot-var-hvar-table.hh)
-- **Cited in:** `baud-font/src/hvar.rs`
+- **Cited in:** `crates/baud-font/src/hvar.rs`
 
 <a id="harfbuzz-12-3-0-layout-common"></a>
 ### harfbuzz-12-3-0-layout-common
@@ -3860,7 +3860,7 @@ HarfBuzz 12.3.0, hb-ot-layout-common.hh -- ItemVariationStore, VarData, VarRegio
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-layout-common.hh>
 - **sha256:** `bd1ab0ae252f17301efdf04d6719fe1bed3156019b600e64de315b221f7d7a23` (148478 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-hb-ot-layout-common.hh](research/sources/harfbuzz-12.3.0-hb-ot-layout-common.hh)
-- **Cited in:** `baud-font/src/gpos.rs`, `baud-font/src/ivs.rs`
+- **Cited in:** `crates/baud-font/src/gpos.rs`, `crates/baud-font/src/ivs.rs`
 
 <a id="harfbuzz-12-3-0-limits"></a>
 ### harfbuzz-12-3-0-limits
@@ -3870,7 +3870,7 @@ HarfBuzz 12.3.0, hb-limits.hh -- HB\_MAX\_GRAPH\_EDGE\_COUNT and the nesting and
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-limits.hh>
 - **sha256:** `cd02097f5a19b1372e2382fbd19d0295e8d14451ebde83210a83c100d4e58ccd` (2981 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-hb-limits.hh](research/sources/harfbuzz-12.3.0-hb-limits.hh)
-- **Cited in:** `baud-font/src/glyf.rs`, `baud-render/src/atlas.rs`
+- **Cited in:** `crates/baud-font/src/glyf.rs`, `crates/baud-render/src/atlas.rs`
 
 <a id="harfbuzz-12-3-0-mark-array"></a>
 ### harfbuzz-12-3-0-mark-array
@@ -3880,7 +3880,7 @@ HarfBuzz 12.3.0, OT/Layout/GPOS/MarkArray.hh -- a mark's offset is roundf of bas
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/OT/Layout/GPOS/MarkArray.hh>
 - **sha256:** `6c6841b1d0d6a4769e9fee18a87af6fcfa4c52284d4180c84850376c873fb89d` (4044 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-OT-Layout-GPOS-MarkArray.hh](research/sources/harfbuzz-12.3.0-OT-Layout-GPOS-MarkArray.hh)
-- **Cited in:** `baud-font/src/gpos.rs`
+- **Cited in:** `crates/baud-font/src/gpos.rs`
 
 <a id="harfbuzz-12-3-0-open-type"></a>
 ### harfbuzz-12-3-0-open-type
@@ -3890,7 +3890,7 @@ HarfBuzz 12.3.0, hb-open-type.hh -- TupleValues::decompile: zero, byte, word and
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-open-type.hh>
 - **sha256:** `e9be5163b334e99420f63a716ab03b45e3ba599aa12a847ca67207bde51d34d1` (61393 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-hb-open-type.hh](research/sources/harfbuzz-12.3.0-hb-open-type.hh)
-- **Cited in:** `baud-font/src/gvar.rs`, `baud-font/src/ivs.rs`
+- **Cited in:** `crates/baud-font/src/gvar.rs`, `crates/baud-font/src/ivs.rs`
 
 <a id="harfbuzz-12-3-0-ot-cff2-table-cc"></a>
 ### harfbuzz-12-3-0-ot-cff2-table-cc
@@ -3909,7 +3909,7 @@ HarfBuzz 12.3.0, hb-ot-cff2-table.hh -- the CFF2 accelerator: what makes a table
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-cff2-table.hh>
 - **sha256:** `e860d974e1cbd340e69650c7f4bc2c505d6e1ef7fec68386ebc69ec5ea63a85f` (16242 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-hb-ot-cff2-table.hh](research/sources/harfbuzz-12.3.0-hb-ot-cff2-table.hh)
-- **Cited in:** `baud-font/src/cff2.rs`
+- **Cited in:** `crates/baud-font/src/cff2.rs`
 
 <a id="harfbuzz-12-3-0-ot-font"></a>
 ### harfbuzz-12-3-0-ot-font
@@ -3919,7 +3919,7 @@ HarfBuzz 12.3.0, hb-ot-font.cc -- hb\_ot\_get\_glyph\_h\_advances: HVAR first, g
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-font.cc>
 - **sha256:** `b199b0f5121d6fd9ccf26e58596880b4f0fcecb1ea78192c6f21cec8f6b38bcc` (30620 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-hb-ot-font.cc](research/sources/harfbuzz-12.3.0-hb-ot-font.cc)
-- **Cited in:** `baud-font/src/face.rs`
+- **Cited in:** `crates/baud-font/src/face.rs`
 
 <a id="harfbuzz-12-3-0-ot-var"></a>
 ### harfbuzz-12-3-0-ot-var
@@ -3929,7 +3929,7 @@ HarfBuzz 12.3.0, src/hb-ot-var.cc -- hb\_ot\_var\_normalize\_variations: float, 
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-var.cc>
 - **sha256:** `6fdd2198ae86bedf12ccc4c5806de844bc403293b88a8c183d02c8934fd79b53` (10501 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-hb-ot-var.cc](research/sources/harfbuzz-12.3.0-hb-ot-var.cc)
-- **Cited in:** `baud-font/src/var.rs`
+- **Cited in:** `crates/baud-font/src/var.rs`
 
 <a id="harfbuzz-12-3-0-sanitize"></a>
 ### harfbuzz-12-3-0-sanitize
@@ -3939,7 +3939,7 @@ HarfBuzz 12.3.0, hb-sanitize.hh -- sanitize\_blob: a table that fails any check 
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-sanitize.hh>
 - **sha256:** `84bab23aa0035d9720fe0a7c384cb9d7898520967c4e91d34edcafb2363286df` (13759 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-hb-sanitize.hh](research/sources/harfbuzz-12.3.0-hb-sanitize.hh)
-- **Cited in:** `baud-font/src/ivs.rs`
+- **Cited in:** `crates/baud-font/src/ivs.rs`
 
 <a id="harfbuzz-12-3-0-simple-glyph"></a>
 ### harfbuzz-12-3-0-simple-glyph
@@ -3949,7 +3949,7 @@ HarfBuzz 12.3.0, OT/glyf/SimpleGlyph.hh -- get\_contour\_points: a phantom\_only
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/OT/glyf/SimpleGlyph.hh>
 - **sha256:** `05c42ce1da4a198aa8ef55c2ee6c753a6bd38aa22b23e80bc87b5ef4f95b7e27` (10406 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-glyf-SimpleGlyph.hh](research/sources/harfbuzz-12.3.0-glyf-SimpleGlyph.hh)
-- **Cited in:** `baud-font/src/glyf.rs`
+- **Cited in:** `crates/baud-font/src/glyf.rs`
 
 <a id="harfbuzz-12-3-0-var-common"></a>
 ### harfbuzz-12-3-0-var-common
@@ -3959,7 +3959,7 @@ HarfBuzz 12.3.0, hb-ot-var-common.hh -- calculate\_scalar, the tuple iterator an
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-var-common.hh>
 - **sha256:** `ffb9c893973466f6d2de3cdd57a3c63d494c6e049fce978afa178d1363a59cde` (72816 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-12.3.0-hb-ot-var-common.hh](research/sources/harfbuzz-12.3.0-hb-ot-var-common.hh)
-- **Cited in:** `baud-font/src/gvar.rs`
+- **Cited in:** `crates/baud-font/src/gvar.rs`
 
 <a id="harfbuzz-14-5-1-buffer-cc"></a>
 ### harfbuzz-14-5-1-buffer-cc
@@ -3969,7 +3969,7 @@ hb-buffer.cc -- delete\_glyph(), which passes a deleted glyph's cluster back to 
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-buffer.cc>
 - **sha256:** `58bd6aa7a3e93d21fe02041c53d9de7dea9e9cbc6d1826583ebff42952539245` (61952 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/buffer.rs`
+- **Cited in:** `crates/baud-font/src/buffer.rs`
 
 <a id="harfbuzz-14-5-1-buffer-h"></a>
 ### harfbuzz-14-5-1-buffer-h
@@ -3979,7 +3979,7 @@ hb-buffer.h -- the cluster levels: CHARACTERS, where no cluster value is merged.
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-buffer.h>
 - **sha256:** `c9d608ef2ab9fdcbe3b285418a3662fb075a579fb7fd3010e75cfb1ae8263566` (31931 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/buffer.rs`, `baud-font/tests/devanagari.rs`
+- **Cited in:** `crates/baud-font/src/buffer.rs`, `crates/baud-font/tests/devanagari.rs`
 
 <a id="harfbuzz-14-5-1-buffer-hh"></a>
 ### harfbuzz-14-5-1-buffer-hh
@@ -3989,7 +3989,7 @@ hb-buffer.hh -- merge\_clusters(), which at a level that is not monotone only ma
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-buffer.hh>
 - **sha256:** `0ec8f13b1b911c65657f7e1c9f05f724c888dbcd9a95397de369c540c7f71b00` (21677 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/indic.rs`, `baud-font/src/shape.rs`
+- **Cited in:** `crates/baud-font/src/indic.rs`, `crates/baud-font/src/shape.rs`
 
 <a id="harfbuzz-14-5-1-gen-indic-table"></a>
 ### harfbuzz-14-5-1-gen-indic-table
@@ -3999,7 +3999,7 @@ gen-indic-table.py -- the mapping from Unicode's Indic categories to the shaper'
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/gen-indic-table.py>
 - **sha256:** `641a4de0bfc725fa1106ce12e9692c34f4ec9bdcd5f130d9350dacdb532a7e53` (17834 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/build/indic.rs`, `baud-font/src/lib.rs`
+- **Cited in:** `crates/baud-font/build/indic.rs`, `crates/baud-font/src/lib.rs`
 
 <a id="harfbuzz-14-5-1-gsubgpos"></a>
 ### harfbuzz-14-5-1-gsubgpos
@@ -4009,7 +4009,7 @@ hb-ot-layout-gsubgpos.hh -- the matcher: masks, per-syllable matching, the joine
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-ot-layout-gsubgpos.hh>
 - **sha256:** `1b93c6524c3faad4ae8af9a9dc54e687f94a8a0c852501f6fbe08ec7b7ecd36c` (217393 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/gsub.rs`, `baud-font/src/layout.rs`
+- **Cited in:** `crates/baud-font/src/gsub.rs`, `crates/baud-font/src/layout.rs`
 
 <a id="harfbuzz-14-5-1-ot-map"></a>
 ### harfbuzz-14-5-1-ot-map
@@ -4019,7 +4019,7 @@ hb-ot-map.cc -- stages, and how a lookup named by two features is merged. HarfBu
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-ot-map.cc>
 - **sha256:** `6b4b92b7f6e7af908fe179e172bb09122eb1a6ad0fe5243f9402a0c96931d869` (12733 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/indic.rs`
+- **Cited in:** `crates/baud-font/src/indic.rs`
 
 <a id="harfbuzz-14-5-1-shape-normalize"></a>
 ### harfbuzz-14-5-1-shape-normalize
@@ -4029,7 +4029,7 @@ hb-ot-shape-normalize.cc -- the normaliser, and its mode that never short-circui
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-ot-shape-normalize.cc>
 - **sha256:** `5cf41f87b8717f36d0561bbf46f4a7412d971ada0dc365d9e17be7131221a6f6` (15660 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/tests/devanagari.rs`
+- **Cited in:** `crates/baud-font/tests/devanagari.rs`
 
 <a id="harfbuzz-14-5-1-shaper"></a>
 ### harfbuzz-14-5-1-shaper
@@ -4039,7 +4039,7 @@ hb-ot-shaper.hh -- which shaper a script and its chosen tag get. HarfBuzz contri
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-ot-shaper.hh>
 - **sha256:** `3eb84b0a89a8c4dbee0930e66bd071bb374d76e9f2748ac441d84e79dc34cce3` (12102 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/indic.rs`, `baud-font/src/shape.rs`
+- **Cited in:** `crates/baud-font/src/indic.rs`, `crates/baud-font/src/shape.rs`
 
 <a id="harfbuzz-14-5-1-shaper-arabic"></a>
 ### harfbuzz-14-5-1-shaper-arabic
@@ -4049,7 +4049,7 @@ hb-ot-shaper-arabic.cc -- the Arabic shaper: the joining state machine with alap
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-ot-shaper-arabic.cc>
 - **sha256:** `f58d84e3715daa1c1704d70be61e8a9464487f453f414c84a0e4530609eb0d72` (25779 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/gsub.rs`
+- **Cited in:** `crates/baud-font/src/gsub.rs`
 
 <a id="harfbuzz-14-5-1-shaper-indic"></a>
 ### harfbuzz-14-5-1-shaper-indic
@@ -4059,7 +4059,7 @@ hb-ot-shaper-indic.cc -- the Indic shaper: base consonant, initial and final reo
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-ot-shaper-indic.cc>
 - **sha256:** `0719571197291360e2e3d3facb8002bd3503ae2c1b585271af8f0f7f24536bf0` (51073 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/gpos.rs`, `baud-font/src/indic.rs`, `baud-font/src/shape.rs`, `baud-font/src/syllabic.rs`
+- **Cited in:** `crates/baud-font/src/gpos.rs`, `crates/baud-font/src/indic.rs`, `crates/baud-font/src/shape.rs`, `crates/baud-font/src/syllabic.rs`
 
 <a id="harfbuzz-14-5-1-shaper-indic-h"></a>
 ### harfbuzz-14-5-1-shaper-indic-h
@@ -4069,7 +4069,7 @@ hb-ot-shaper-indic.hh -- the Indic positions. HarfBuzz contributors, 2026, harfb
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-ot-shaper-indic.hh>
 - **sha256:** `3c6ddb7bc92ac5d641ba1b0206b091e40b0e8f41569f97704a7a6d8eac47d405` (1717 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/syllabic.rs`
+- **Cited in:** `crates/baud-font/src/syllabic.rs`
 
 <a id="harfbuzz-14-5-1-shaper-indic-machine"></a>
 ### harfbuzz-14-5-1-shaper-indic-machine
@@ -4079,7 +4079,7 @@ hb-ot-shaper-indic-machine.rl -- the Indic syllable grammar. HarfBuzz contributo
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-ot-shaper-indic-machine.rl>
 - **sha256:** `85330b07abacb3aee2243f5c1ace4bf4a257c2d32dd5863949e2f4869371e988` (4399 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/indic.rs`, `baud-font/src/syllabic.rs`
+- **Cited in:** `crates/baud-font/src/indic.rs`, `crates/baud-font/src/syllabic.rs`
 
 <a id="harfbuzz-14-5-1-shaper-syllabic"></a>
 ### harfbuzz-14-5-1-shaper-syllabic
@@ -4089,7 +4089,7 @@ hb-ot-shaper-syllabic.cc -- dotted circles for a broken syllable. HarfBuzz contr
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-ot-shaper-syllabic.cc>
 - **sha256:** `09f5b4e7655231428f8463d7be2462d5e1e0486e2cdfe6aeee9c512bcf83e4c1` (3533 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/indic.rs`
+- **Cited in:** `crates/baud-font/src/indic.rs`
 
 <a id="harfbuzz-14-5-1-vowel-constraints"></a>
 ### harfbuzz-14-5-1-vowel-constraints
@@ -4099,7 +4099,7 @@ hb-ot-shaper-vowel-constraints.cc -- a dotted circle in the vowel sequences that
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-ot-shaper-vowel-constraints.cc>
 - **sha256:** `a3c68bfd5379972163752350424dc11b966a6e080cb2a64f0a090eb9a7b20376` (11269 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/indic.rs`
+- **Cited in:** `crates/baud-font/src/indic.rs`
 
 <a id="harfbuzz-hb-aat-layout-common"></a>
 ### harfbuzz-hb-aat-layout-common
@@ -4109,7 +4109,7 @@ hb-aat-layout-common.hh -- AAT extended state tables (STX) and lookup formats. H
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-aat-layout-common.hh>
 - **sha256:** `1ebb7f0ab9910b2f42c4eacecd1b8e64e04888f511a1c140586218f49b005128` (42414 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/morx.rs`
+- **Cited in:** `crates/baud-font/src/morx.rs`
 
 <a id="harfbuzz-hb-aat-layout-morx-table"></a>
 ### harfbuzz-hb-aat-layout-morx-table
@@ -4119,7 +4119,7 @@ hb-aat-layout-morx-table.hh -- morx subtable types 0/1/2/4/5 as HarfBuzz impleme
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-aat-layout-morx-table.hh>
 - **sha256:** `18cb9589603676a49b54867d4a44fd610804331b2d493b9a255effba4350e496` (46308 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/morx.rs`
+- **Cited in:** `crates/baud-font/src/morx.rs`
 
 <a id="harfbuzz-hb-buffer"></a>
 ### harfbuzz-hb-buffer
@@ -4129,7 +4129,7 @@ hb-buffer.cc -- guess\_segment\_properties: a buffer takes the script of its fir
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-buffer.cc>
 - **sha256:** `58bd6aa7a3e93d21fe02041c53d9de7dea9e9cbc6d1826583ebff42952539245` (61952 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/tests/shape.rs`
+- **Cited in:** `crates/baud-font/tests/shape.rs`
 
 <a id="harfbuzz-hb-ot-layout"></a>
 ### harfbuzz-hb-ot-layout
@@ -4139,7 +4139,7 @@ hb-ot-layout.cc -- hb\_ot\_layout\_table\_select\_script: the requested tags, th
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-ot-layout.cc>
 - **sha256:** `0bce37312e8f21a93fab3cd56b4d8f54228bc0956745d40bcc9b23f3b43ea31f` (94099 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/layout.rs`
+- **Cited in:** `crates/baud-font/src/layout.rs`
 
 <a id="harfbuzz-hb-ot-shape"></a>
 ### harfbuzz-hb-ot-shape
@@ -4149,7 +4149,7 @@ hb-ot-shape.cc -- the OpenType shaping pipeline (normalize, substitute, position
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-ot-shape.cc>
 - **sha256:** `c50cabe89c03daf95c3b9e9b0994d92e44aa0dc3b1b57d30413c90a0a8429ef2` (39900 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/gpos.rs`, `baud-font/src/layout.rs`, `baud-font/src/script.rs`, `baud-font/src/shape.rs`, `baud-font/tests/script.rs`
+- **Cited in:** `crates/baud-font/src/gpos.rs`, `crates/baud-font/src/layout.rs`, `crates/baud-font/src/script.rs`, `crates/baud-font/src/shape.rs`, `crates/baud-font/tests/script.rs`
 
 <a id="harfbuzz-hb-ot-shape-fallback"></a>
 ### harfbuzz-hb-ot-shape-fallback
@@ -4159,7 +4159,7 @@ hb-ot-shape-fallback.cc -- mark positioning fallback when the font has no GPOS. 
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-ot-shape-fallback.cc>
 - **sha256:** `ba8af8e70c35b1dc64cb710d7b527af3464873a5ff0b04937efdcba678792550` (20947 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/shape.rs`, `baud-font/tests/shape.rs`
+- **Cited in:** `crates/baud-font/src/shape.rs`, `crates/baud-font/tests/shape.rs`
 
 <a id="harfbuzz-hb-ot-shape-normalize"></a>
 ### harfbuzz-hb-ot-shape-normalize
@@ -4169,7 +4169,7 @@ hb-ot-shape-normalize.cc -- canonical (de)composition before cmap lookup. HarfBu
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-ot-shape-normalize.cc>
 - **sha256:** `5cf41f87b8717f36d0561bbf46f4a7412d971ada0dc365d9e17be7131221a6f6` (15660 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/tests/canonical.rs`
+- **Cited in:** `crates/baud-font/tests/canonical.rs`
 
 <a id="harfbuzz-hb-ot-shaper-hebrew"></a>
 ### harfbuzz-hb-ot-shaper-hebrew
@@ -4179,7 +4179,7 @@ hb-ot-shaper-hebrew.cc -- the Hebrew shaper: gpos\_tag hebr, presentation-form c
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-ot-shaper-hebrew.cc>
 - **sha256:** `4dbb5128ec416028ae347ddac1047a13f5e43cc69df5c3101554577667862a01` (5816 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/layout.rs`, `baud-font/src/shape.rs`, `baud-font/tests/shape.rs`
+- **Cited in:** `crates/baud-font/src/layout.rs`, `crates/baud-font/src/shape.rs`, `crates/baud-font/tests/shape.rs`
 
 <a id="harfbuzz-hb-unicode"></a>
 ### harfbuzz-hb-unicode
@@ -4189,7 +4189,7 @@ hb-unicode.hh -- the modified combining classes: Hebrew points in SBL order. Har
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-unicode.hh>
 - **sha256:** `8c15f338fe6e3cb11315d2cf9368abac64525c6d84f391353f78e9d4518655a4` (16921 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-64e2b53-hb-unicode.hh](research/sources/harfbuzz-64e2b53-hb-unicode.hh)
-- **Cited in:** `baud-font/src/shape.rs`, `baud-font/tests/mark_order.rs`, `baud-font/tests/shape.rs`
+- **Cited in:** `crates/baud-font/src/shape.rs`, `crates/baud-font/tests/mark_order.rs`, `crates/baud-font/tests/shape.rs`
 
 <a id="harfbuzz-usermanual-clusters"></a>
 ### harfbuzz-usermanual-clusters
@@ -4199,7 +4199,7 @@ HarfBuzz user manual: Clusters -- cluster levels 0/1/2 and what a cluster value 
 - **URL:** <https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/docs/usermanual-clusters.xml>
 - **sha256:** `555c2f534616be8f000493106c617a762a2f7529f636e157c494f1dc8dcd12f9` (25759 bytes)
 - **Copy:** [docs/research/sources/harfbuzz-usermanual-clusters.xml](research/sources/harfbuzz-usermanual-clusters.xml)
-- **Cited in:** `baud-render/src/renderer.rs`
+- **Cited in:** `crates/baud-render/src/renderer.rs`
 
 <a id="hayes-smartmodem-owners-1981"></a>
 ### hayes-smartmodem-owners-1981
@@ -4209,7 +4209,7 @@ Hayes Stack Smartmodem Owner's Manual (Smartmodem 300), 3rd ed. -- "LED INDICATO
 - **URL:** <https://sysovl.info/pages/blobs/hayes/sm300.pdf>
 - **sha256:** `24f2564ad0241839507153c84224e90fe0dc8c6e4b198a90e5fa84f133cb567d` (4685286 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/lights.rs`
+- **Cited in:** `crates/baud-render/src/lights.rs`
 
 <a id="hebrew-academy-baud"></a>
 ### hebrew-academy-baud
@@ -4219,7 +4219,7 @@ Academy of the Hebrew Language, Dictionary of Communication and Electronics (197
 - **URL:** <https://terms.hebrew-academy.org.il/Ktaim/ShowKtaim?kodketa=13311>
 - **sha256:** `893ddb146603b9c4d82bfb56fdb8cf7d76c7f577affcf01fbd5d4b711261938b` (12743 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/session.rs`
+- **Cited in:** `crates/baud-app/examples/demo/session.rs`
 
 <a id="helix-editor"></a>
 ### helix-editor
@@ -4229,7 +4229,7 @@ helix 25.07.1, helix-term/src/ui/editor.rs -- every block cursor drawn by helix,
 - **URL:** <https://raw.githubusercontent.com/helix-editor/helix/a05c151bb6e8e9c65ec390b0ae2afe7a5efd619b/helix-term/src/ui/editor.rs>
 - **sha256:** `9019515fed59f910fac91ebb67996f0c634de0dc74dda84b14e7bf91124a8798` (63034 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/placed.rs`, `baud-core/tests/placed_cursor.rs`
+- **Cited in:** `crates/baud-core/src/placed.rs`, `crates/baud-core/tests/placed_cursor.rs`
 
 <a id="helix-tui-crossterm"></a>
 ### helix-tui-crossterm
@@ -4239,7 +4239,7 @@ helix 25.07.1, helix-tui/src/backend/crossterm.rs -- the cursor reset on exit: C
 - **URL:** <https://raw.githubusercontent.com/helix-editor/helix/a05c151bb6e8e9c65ec390b0ae2afe7a5efd619b/helix-tui/src/backend/crossterm.rs>
 - **sha256:** `eae2d4eebd20d22fd8cd95edd798557722e618fc74c3dd448bac6e996361a8a4` (16251 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `tests/cursor/README.md`
+- **Cited in:** `tools/tests/cursor/README.md`
 
 <a id="helix-tui-terminal"></a>
 ### helix-tui-terminal
@@ -4249,7 +4249,7 @@ helix 25.07.1, helix-tui/src/terminal.rs -- draw: set\_cursor to the selection, 
 - **URL:** <https://raw.githubusercontent.com/helix-editor/helix/a05c151bb6e8e9c65ec390b0ae2afe7a5efd619b/helix-tui/src/terminal.rs>
 - **sha256:** `978282129c7c01e8deb1c54ba201173f2d723d35a17a33102b50a515fc84dec4` (7026 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/placed.rs`, `baud-core/tests/placed_cursor.rs`, `docs/cursor.md`, `tests/trail/README.md`
+- **Cited in:** `crates/baud-core/src/placed.rs`, `crates/baud-core/tests/placed_cursor.rs`, `docs/cursor.md`, `tools/tests/trail/README.md`
 
 <a id="hi-bharat"></a>
 ### hi-bharat
@@ -4259,7 +4259,7 @@ Hindi Wikipedia, Bharat (wikitext), revid 6625247. Wikipedia contributors (CC-BY
 - **URL:** <https://hi.wikipedia.org/w/index.php?title=%E0%A4%AD%E0%A4%BE%E0%A4%B0%E0%A4%A4&action=raw&oldid=6625247>
 - **sha256:** `9dc96e9e5d429666adf6e499377c3e81c7bbf1ea888823ee6f05e84c2d6cba8e` (222084 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/cluster_superset.rs`
+- **Cited in:** `crates/baud-core/tests/cluster_superset.rs`
 
 <a id="highway-dispatch"></a>
 ### highway-dispatch
@@ -4279,7 +4279,7 @@ HP 2392A Display Terminal Reference Manual, 02390-90001. Hewlett-Packard, 1984, 
 - **sha256:** `532fcc1fbc8baea8e8feda6a220d310f5640af129997525952831319147a8376` (8014250 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-01
-- **Cited in:** `baud-domain/src/vt/key/keyboards.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/key/keyboards.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="hume-latency-tester"></a>
 ### hume-latency-tester
@@ -4289,7 +4289,7 @@ Measuring keyboard-to-photon latency with a light sensor -- a Teensy that presse
 - **URL:** <https://thume.ca/2020/05/20/making-a-latency-tester/>
 - **sha256:** `7a60a41a805e5ebbd6d3074bbd02ba339b81ec38563989281e5b5b5fd8eec86b` (25431 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-bench/src/key_latency/mod.rs`
+- **Cited in:** `crates/baud-bench/src/key_latency/mod.rs`
 
 <a id="hyperscan"></a>
 ### hyperscan
@@ -4300,7 +4300,7 @@ Hyperscan: A Fast Multi-pattern Regex Matcher for Modern CPUs. Xiang Wang, Yang 
 - **sha256:** `9e2f46b33ef313204abc091b78fb51870294905f4df04eeaa4a12b11eae1859b` (2272848 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-08-27
-- **Cited in:** `baud-core/src/write.rs`
+- **Cited in:** `crates/baud-core/src/write.rs`
 
 <a id="icccm-2-0"></a>
 ### icccm-2-0
@@ -4310,7 +4310,7 @@ Inter-Client Communication Conventions Manual, Version 2.0 -- WM\_NAME and WM\_I
 - **URL:** <https://www.x.org/releases/X11R7.7/doc/xorg-docs/icccm/icccm.html>
 - **sha256:** `24d80b93c02208bd613aad0da3b04b5cee58fd13716ed3a055ebc4e233d8bfc3` (301859 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/x_property.rs`, `baud-domain/src/vt/osc.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/x_property.rs`, `crates/baud-domain/src/vt/osc.rs`, `docs/vt-coverage.md`
 
 <a id="ijg-jpeg-6b"></a>
 ### ijg-jpeg-6b
@@ -4321,7 +4321,7 @@ Independent JPEG Group's software, release 6b (jpegsrc.v6b.tar.gz) -- jidctint.c
 - **sha256:** `75c3ec241e9996504fe02a9ed4d12f16b74ade713972f3db9e65ce95cd27e35d` (613261 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-23
-- **Cited in:** `baud-core/tests/iterm_file.rs`, `baud-domain/src/jpeg.rs`, `baud-domain/tests/jpeg.rs`, `baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/iterm_file.rs`, `crates/baud-domain/src/jpeg.rs`, `crates/baud-domain/tests/jpeg.rs`, `crates/baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`
 
 <a id="inband-resize"></a>
 ### inband-resize
@@ -4331,7 +4331,7 @@ Private Mode for In-Band Window Resize Notifications. Tim Culverhouse, 2024, Git
 - **URL:** <https://gist.githubusercontent.com/rockorager/e695fb2924d36b2bcf1fff4a3704bd83/raw/abca37a71844627772fb0b9528588fb768c48726/in-band-resize-notifications.md>
 - **sha256:** `30f0f454fb20bfc21b0d3ebeee989c02bffffcc9cf4cc19432ccefd2dfc7f1e8` (3095 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/app.rs`, `baud-app/src/pty.rs`, `baud-core/src/term.rs`, `baud-core/tests/image_geometry.rs`, `baud-core/tests/inband.rs`, `baud-domain/src/vt/report.rs`, `baud-domain/tests/xtwinops.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `crates/baud-app/src/pty.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/tests/image_geometry.rs`, `crates/baud-core/tests/inband.rs`, `crates/baud-domain/src/vt/report.rs`, `crates/baud-domain/tests/xtwinops.rs`, `docs/vt-coverage.md`
 
 <a id="iso10646-fcd"></a>
 ### iso10646-fcd
@@ -4352,7 +4352,7 @@ ISO/IEC 10646:2010 (E) Final Committee Draft. ISO/IEC JTC 1/SC 2/WG 2, 2010, ISO
 - **sha256:** `2a06a462bf74ae65a77b700f235ac05156ac20f4aaefe39f09cc20d50628bb5e` (9995 bytes)
 - **Copy:** [docs/research/sources/iso8859-1.txt](research/sources/iso8859-1.txt)
 - **Read:** 2026-10-19
-- **Cited in:** `baud-app/src/paste.rs`, `baud-domain/build/iso96.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/paste.rs`, `crates/baud-domain/build/iso96.rs`, `docs/vt-coverage.md`
 
 <a id="iso8859-2"></a>
 ### iso8859-2
@@ -4363,7 +4363,7 @@ ISO/IEC 10646:2010 (E) Final Committee Draft. ISO/IEC JTC 1/SC 2/WG 2, 2010, ISO
 - **sha256:** `020946e114335b17e7d29fe8a8449786cffed714cf409b11d0b3a375197188d1` (10219 bytes)
 - **Copy:** [docs/research/sources/iso8859-2.txt](research/sources/iso8859-2.txt)
 - **Read:** 2026-10-19
-- **Cited in:** `baud-domain/build/iso96.rs`
+- **Cited in:** `crates/baud-domain/build/iso96.rs`
 
 <a id="iso8859-5"></a>
 ### iso8859-5
@@ -4374,7 +4374,7 @@ ISO/IEC 10646:2010 (E) Final Committee Draft. ISO/IEC JTC 1/SC 2/WG 2, 2010, ISO
 - **sha256:** `9a2efea39673f95c5daa277c46ad09a41e95f27c225270424a604d033db9bd8f` (9830 bytes)
 - **Copy:** [docs/research/sources/iso8859-5.txt](research/sources/iso8859-5.txt)
 - **Read:** 2026-10-19
-- **Cited in:** `baud-domain/build/iso96.rs`
+- **Cited in:** `crates/baud-domain/build/iso96.rs`
 
 <a id="iso8859-7"></a>
 ### iso8859-7
@@ -4385,7 +4385,7 @@ ISO/IEC 10646:2010 (E) Final Committee Draft. ISO/IEC JTC 1/SC 2/WG 2, 2010, ISO
 - **sha256:** `94f4a1c89ba6b2e1c1f8b30676cb5d15f232dbac36ae4ad20018a65e0f3fb9a3` (10053 bytes)
 - **Copy:** [docs/research/sources/iso8859-7.txt](research/sources/iso8859-7.txt)
 - **Read:** 2026-10-19
-- **Cited in:** `baud-domain/build/iso96.rs`
+- **Cited in:** `crates/baud-domain/build/iso96.rs`
 
 <a id="iso8859-8"></a>
 ### iso8859-8
@@ -4396,7 +4396,7 @@ ISO/IEC 10646:2010 (E) Final Committee Draft. ISO/IEC JTC 1/SC 2/WG 2, 2010, ISO
 - **sha256:** `cbe3205c5c6f92589d6a8673d56c51d89659ae290185457e6e2f81fee7a1ad2d` (7943 bytes)
 - **Copy:** [docs/research/sources/iso8859-8.txt](research/sources/iso8859-8.txt)
 - **Read:** 2026-10-19
-- **Cited in:** `baud-domain/build/iso96.rs`
+- **Cited in:** `crates/baud-domain/build/iso96.rs`
 
 <a id="iso8859-9"></a>
 ### iso8859-9
@@ -4407,7 +4407,7 @@ ISO/IEC 10646:2010 (E) Final Committee Draft. ISO/IEC JTC 1/SC 2/WG 2, 2010, ISO
 - **sha256:** `4397082eb5cbbc299264b3b73405cc0946ec5c79328eb9de75f8a5da1ab8e712` (10030 bytes)
 - **Copy:** [docs/research/sources/iso8859-9.txt](research/sources/iso8859-9.txt)
 - **Read:** 2026-10-19
-- **Cited in:** `baud-domain/build/iso96.rs`
+- **Cited in:** `crates/baud-domain/build/iso96.rs`
 
 <a id="iterm2-269f725-application-delegate"></a>
 ### iterm2-269f725-application-delegate
@@ -4418,7 +4418,7 @@ iTerm2 269f725, sources/AppKit/iTermApplicationDelegate.m -- applicationShouldTe
 - **sha256:** `18ee4c099654312eb6c1f6475c7d203c77c54ed894b0571d37d6939c4a83797f` (220957 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-31
-- **Cited in:** `baud-app/src/windows.rs`
+- **Cited in:** `crates/baud-app/src/windows.rs`
 
 <a id="iterm2-269f725-preferences"></a>
 ### iterm2-269f725-preferences
@@ -4429,7 +4429,7 @@ iTerm2 269f725, sources/Settings/iTermPreferences.m -- kPreferenceKeyQuitWhenAll
 - **sha256:** `12d04b9ea19219a6dfd82f2abd7d48aace41a575c54b80256ca54c773bd12d95` (91069 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-31
-- **Cited in:** `baud-app/src/windows.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/windows.rs`, `docs/input-coverage.md`
 
 <a id="iterm2-7ce037e-advanced-settings"></a>
 ### iterm2-7ce037e-advanced-settings
@@ -4440,7 +4440,7 @@ iTerm2 7ce037e, sources/Settings/iTermAdvancedSettingsModel.m -- alwaysAcceptFir
 - **sha256:** `0b70eb318b8a2752148ad47d2803b03d13bfcec622f39967d84ea01d5c3747c4` (213642 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-30
-- **Cited in:** `baud-app/src/app.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `docs/input-coverage.md`
 
 <a id="iterm2-7ce037e-modern-key-mapper"></a>
 ### iterm2-7ce037e-modern-key-mapper
@@ -4462,7 +4462,7 @@ iTerm2 7ce037e, sources/Settings/iTermPreferences.m -- kPreferenceKeyFocusOnRigh
 - **sha256:** `07593ada9a05a33802fbfec28e7b9a250a9ba58857b2bdb558421185c104c8db` (90096 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-30
-- **Cited in:** `baud-app/src/app.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `docs/input-coverage.md`
 
 <a id="iterm2-7ce037e-pty-mouse-handler"></a>
 ### iterm2-7ce037e-pty-mouse-handler
@@ -4473,7 +4473,7 @@ iTerm2 7ce037e, sources/TerminalView/PTYMouseHandler.m -- acceptsFirstMouse: YES
 - **sha256:** `d91c04641762d1c48aac794bfe0aa816e6887fdf8dacf72176a4a1799b4959b3` (77094 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-30
-- **Cited in:** `baud-app/src/app.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `docs/input-coverage.md`
 
 <a id="iterm2-7ce037e-standard-key-mapper"></a>
 ### iterm2-7ce037e-standard-key-mapper
@@ -4495,7 +4495,7 @@ iTerm2 at 7ce037e, sources/Drawing/iTermTextDrawingHelper.m -- isFocused (4121-4
 - **sha256:** `64b0c67f735c3956c6d75cf72ec26d2781d086c3a36d82ba340cc44a21fc2d0b` (225914 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-22
-- **Cited in:** `baud-render/src/badge.rs`, `baud-render/src/renderer.rs`, `baud-render/tests/cursor_guide.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/src/badge.rs`, `crates/baud-render/src/renderer.rs`, `crates/baud-render/tests/cursor_guide.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-7ce037e-vt100output"></a>
 ### iterm2-7ce037e-vt100output
@@ -4506,7 +4506,7 @@ iTerm2 7ce037e, VT100Output.m -- keypadDataForString: DECKPAM sends a keypad dig
 - **sha256:** `0cdb20e69996ef61ba0928039db86e5131ff679ea94f76cd037ea6750fbde703` (61706 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-domain/src/vt/key.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/key.rs`, `docs/input-coverage.md`
 
 <a id="iterm2-964a75d-advanced-settings"></a>
 ### iterm2-964a75d-advanced-settings
@@ -4516,7 +4516,7 @@ iTerm2 964a75d, iTermAdvancedSettingsModel.m -- the badge's defaults: Helvetica 
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Settings/iTermAdvancedSettingsModel.m>
 - **sha256:** `0b70eb318b8a2752148ad47d2803b03d13bfcec622f39967d84ea01d5c3747c4` (213642 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/expression.rs`, `baud-render/src/badge.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/expression.rs`, `crates/baud-render/src/badge.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-964a75d-animated-image-info"></a>
 ### iterm2-964a75d-animated-image-info
@@ -4537,7 +4537,7 @@ iTerm2 964a75d, iTermBadgeLabel.m -- the badge's layout: word wrapped, right-ali
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Drawing/iTermBadgeLabel.m>
 - **sha256:** `06052ac51ca5cf5ffa9f9a1700c0c2c28fcf45052eec3cc1e2a21a6a22ebb44a` (5769 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/badge.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/src/badge.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-964a75d-character-width"></a>
 ### iterm2-964a75d-character-width
@@ -4567,7 +4567,7 @@ iTerm2 964a75d, CoreParse's CPIdentifierRecogniser.m -- a name: an ASCII letter 
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/ThirdParty/CoreParse/CoreParse/Tokenisation/Token%20Recognisers/CPIdentifierRecogniser.m>
 - **sha256:** `4ee397140f2ddd71f68f2ca280d17d0081974adae819acfccf30128c2184b905` (3977 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/expression.rs`
+- **Cited in:** `crates/baud-domain/src/expression.rs`
 
 <a id="iterm2-964a75d-cursor-guide-renderer"></a>
 ### iterm2-964a75d-cursor-guide-renderer
@@ -4577,7 +4577,7 @@ iTerm2 964a75d, iTermCursorGuideRenderer.m -- the Metal guide: the viewport's wi
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/MetalRenderer/Renderers/iTermCursorGuideRenderer.m>
 - **sha256:** `05f3777595cac7128d7dae7990f13af15b6312c73a8fd7374dd8fdf12df96daf` (6848 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/guide.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/src/guide.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-964a75d-expression-evaluator"></a>
 ### iterm2-964a75d-expression-evaluator
@@ -4608,7 +4608,7 @@ iTerm2 964a75d, sources/TerminalView/iTermFindCursorView.m -- the fireworks view
 - **sha256:** `b5a8fd8be965db2d28134b0d5d3fd9ccce55abc1305c856ca3aacb78e832224a` (10843 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-01
-- **Cited in:** `baud-render/src/fireworks.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/src/fireworks.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-964a75d-image"></a>
 ### iterm2-964a75d-image
@@ -4639,7 +4639,7 @@ iTerm2 964a75d, iTerm2SandboxedWorker/iTermImage+ImageWithData.m -- the file han
 - **sha256:** `b195b925a19112f1e0f37f1bd1ec1256adb65555cda2239d5f3d42ac45d45799` (9146 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-23
-- **Cited in:** `baud-core/tests/iterm_file.rs`, `baud-domain/src/gif.rs`, `baud-domain/src/jpeg.rs`, `baud-domain/src/vt/iterm_file.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/iterm_file.rs`, `crates/baud-domain/src/gif.rs`, `crates/baud-domain/src/jpeg.rs`, `crates/baud-domain/src/vt/iterm_file.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-964a75d-indicators-helper"></a>
 ### iterm2-964a75d-indicators-helper
@@ -4659,7 +4659,7 @@ iTerm2 964a75d, sources/InlineImages/VT100InlineImageHelper.m -- an inline image
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/InlineImages/VT100InlineImageHelper.m>
 - **sha256:** `a34f0b881741a665e29de81f9bc83d665e9a0beb3fc067a075aee727379b05c1` (23031 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/iterm_file.rs`, `baud-domain/src/vt/iterm_file.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/iterm_file.rs`, `crates/baud-domain/src/vt/iterm_file.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-964a75d-it2ul"></a>
 ### iterm2-964a75d-it2ul
@@ -4679,7 +4679,7 @@ iTerm2 964a75d, iTermMetalDriver.m -- the draw order: backgrounds, images under 
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/MetalRenderer/iTermMetalDriver.m>
 - **sha256:** `d9f91dd403e83424b87f0aac759a6296eceb79de3744315eaf5aecdc75e55681` (133702 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/guide.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/src/guide.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-964a75d-metal-per-frame-state"></a>
 ### iterm2-964a75d-metal-per-frame-state
@@ -4689,7 +4689,7 @@ iTerm2 964a75d, iTermMetalPerFrameState.m -- cursorGuideEnabled, shouldDrawCurso
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/MetalRenderer/Glue/iTermMetalPerFrameState.m>
 - **sha256:** `91a4d16d6e3247bcfceb72533f7f697724d70933392b2b69ba20a83978da2b70` (146926 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/guide.rs`, `baud-render/src/renderer.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/src/guide.rs`, `crates/baud-render/src/renderer.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-964a75d-nagging"></a>
 ### iterm2-964a75d-nagging
@@ -4709,7 +4709,7 @@ iTerm2 964a75d, iTermNotificationController.m -- notifyRich: title, subtitle and
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Notifications/iTermNotificationController.m>
 - **sha256:** `0853919b0e205b95d30e7fabcc93690060330ea678be0496b4c516184b5a8cbb` (17924 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/iterm.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/iterm.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-964a75d-nsstringiterm"></a>
 ### iterm2-964a75d-nsstringiterm
@@ -4719,7 +4719,7 @@ iTerm2 964a75d, NSStringITerm.m -- stringByCompactingFloatingPointString: traili
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Categories/NSStringITerm.m>
 - **sha256:** `10650c7876807cdb86886529b83dd0ab4d537f9a16da30749165253a417f5a9e` (129352 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/iterm.rs`, `baud-render/src/badge.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/iterm.rs`, `crates/baud-render/src/badge.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-964a75d-optional-path"></a>
 ### iterm2-964a75d-optional-path
@@ -4729,7 +4729,7 @@ iTerm2 964a75d, iTermOptionalPathRecognizer.swift -- a path with ? straight afte
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Language/iTermOptionalPathRecognizer.swift>
 - **sha256:** `1682891a439724cea33627fd2f4ba93f0847db8b39fe456e76e0752faaeae6b0` (3237 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/expression.rs`
+- **Cited in:** `crates/baud-domain/src/expression.rs`
 
 <a id="iterm2-964a75d-parsed-expression"></a>
 ### iterm2-964a75d-parsed-expression
@@ -4739,7 +4739,7 @@ iTerm2 964a75d, iTermParsedExpression.m -- an undefined variable is a Nil with a
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Language/iTermParsedExpression.m>
 - **sha256:** `7b2d5226d8e0fd2b3a1bd9918a44939e188dd4711923f821376e7489d21226cb` (15514 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/expression.rs`
+- **Cited in:** `crates/baud-domain/src/expression.rs`
 
 <a id="iterm2-964a75d-profile-preferences"></a>
 ### iterm2-964a75d-profile-preferences
@@ -4749,7 +4749,7 @@ iTerm2 964a75d, iTermProfilePreferences.m -- the profile defaults: the cursor gu
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Settings/iTermProfilePreferences.m>
 - **sha256:** `7f95eb911287e961f64d6ab0ef06d35f4e639e894806b8082bbcf20838cfce1a` (109289 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/config.rs`, `baud-render/src/badge.rs`, `baud-render/tests/badge.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/config.rs`, `crates/baud-render/src/badge.rs`, `crates/baud-render/tests/badge.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-964a75d-ptysession"></a>
 ### iterm2-964a75d-ptysession
@@ -4759,7 +4759,7 @@ iTerm2 964a75d, PTYSession.m -- screenReportVariableNamed, screenSetCursorType, 
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/PTYSession/PTYSession.m>
 - **sha256:** `3c83bf3b7ccb37ac4e76a156f38c84f690199e554830aa9529c15b5bf3898e00` (1178556 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/effects.rs`, `baud-app/src/sys.rs`, `baud-core/src/iterm.rs`, `baud-domain/src/expression.rs`, `baud-domain/src/variables.rs`, `baud-domain/src/vt/fdo_notify.rs`, `baud-domain/src/vt/iterm.rs`, `baud-domain/tests/interpolate.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/effects.rs`, `crates/baud-app/src/sys.rs`, `crates/baud-core/src/iterm.rs`, `crates/baud-domain/src/expression.rs`, `crates/baud-domain/src/variables.rs`, `crates/baud-domain/src/vt/fdo_notify.rs`, `crates/baud-domain/src/vt/iterm.rs`, `crates/baud-domain/tests/interpolate.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-964a75d-ptysession-isprocessing"></a>
 ### iterm2-964a75d-ptysession-isprocessing
@@ -4769,7 +4769,7 @@ iTerm2 PTYSession.m -- isProcessing: 'You're processing if data was read off the
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/PTYSession/PTYSession.m>
 - **sha256:** `3c83bf3b7ccb37ac4e76a156f38c84f690199e554830aa9529c15b5bf3898e00` (1178556 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/lights.rs`
+- **Cited in:** `crates/baud-render/src/lights.rs`
 
 <a id="iterm2-964a75d-ptytextview"></a>
 ### iterm2-964a75d-ptytextview
@@ -4779,7 +4779,7 @@ iTerm2 964a75d, PTYTextView.m -- isCursorVisible from DECTCEM, the badge label's
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/TerminalView/PTYTextView.m>
 - **sha256:** `d14d3cde272c73115da3f043bf90381ab049dd0504b6e1ec574af835585ae15d` (382024 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/renderer.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/src/renderer.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-964a75d-screen-mutable-state"></a>
 ### iterm2-964a75d-screen-mutable-state
@@ -4799,7 +4799,7 @@ iTerm2 964a75d, VT100ScreenMutableState+TerminalDelegate.m -- ClearScrollback's 
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/VT100Screen/VT100ScreenMutableState%2BTerminalDelegate.m>
 - **sha256:** `525f99710a06cff224906131bdb6d584eed4116b31c0503d1c828ce4fa271e99` (184460 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/iterm.rs`, `baud-domain/src/vt/iterm.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/iterm.rs`, `crates/baud-domain/src/vt/iterm.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-964a75d-screenchar"></a>
 ### iterm2-964a75d-screenchar
@@ -4809,7 +4809,7 @@ iTerm2 964a75d, sources/ScreenChar/ScreenChar.m -- a flag two columns under ever
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/ScreenChar/ScreenChar.m>
 - **sha256:** `c52de5b93b149b010c6cefb89ff6000d42598bc6cf2e0c8443f19530b382722f` (39647 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/paint.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/paint.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-964a75d-subexpression"></a>
 ### iterm2-964a75d-subexpression
@@ -4819,7 +4819,7 @@ iTerm2 964a75d, Subexpression.swift -- what the operators do with numbers, strin
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Language/Subexpression.swift>
 - **sha256:** `b5db5e2932d374f392de0ac82c02244018dda4d35c6bd0c9d36637c090b1d324` (39375 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/expression.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/expression.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-964a75d-user-variable"></a>
 ### iterm2-964a75d-user-variable
@@ -4829,7 +4829,7 @@ iTerm2 964a75d, UserVariableAssignment.swift -- SetUserVar: name=base64 sets use
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/VT100/UserVariableAssignment.swift>
 - **sha256:** `beadb3198ad8c22376d63b5da382da37585633d162d303ab2c0e5ec0ff083b3a` (1055 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/iterm.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/iterm.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-964a75d-vt100output"></a>
 ### iterm2-964a75d-vt100output
@@ -4839,7 +4839,7 @@ iTerm2 964a75d, VT100Output.m -- reportVariableNamed: ESC &#93; 1337 ; ReportVar
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/VT100/VT100Output.m>
 - **sha256:** `0cdb20e69996ef61ba0928039db86e5131ff679ea94f76cd037ea6750fbde703` (61706 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/iterm.rs`, `baud-domain/src/vt/iterm.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/iterm.rs`, `crates/baud-domain/src/vt/iterm.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-964a75d-vt100terminal"></a>
 ### iterm2-964a75d-vt100terminal
@@ -4849,7 +4849,7 @@ iTerm2 964a75d, sources/VT100/VT100Terminal.m -- executeXtermSetKvp: every OSC 1
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/VT100/VT100Terminal.m>
 - **sha256:** `37fd1636c907eb9350fe32297eb7386cccf9836be3d9a90510dd6fa6c1157abe` (268079 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/clip.rs`, `baud-core/src/term.rs`, `baud-domain/build/iterm_keys.rs`, `baud-domain/src/vt/iterm.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/clip.rs`, `crates/baud-core/src/term.rs`, `crates/baud-domain/build/iterm_keys.rs`, `crates/baud-domain/src/vt/iterm.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-badges"></a>
 ### iterm2-badges
@@ -4859,7 +4859,7 @@ iTerm2 3.7 Badges -- OSC 1337 SetBadgeFormat. George Nachman, 2026, iterm2-websi
 - **URL:** <https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-badges.md>
 - **sha256:** `fb56da7ab7a7f02e8e3b11d068cf2091a6b6d60a71f4ad005f33f3a86582129d` (1550 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/term.rs`, `baud-domain/build/iterm_keys.rs`, `baud-domain/src/interpolate.rs`, `baud-domain/src/vt/iterm.rs`, `baud-render/src/badge.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/term.rs`, `crates/baud-domain/build/iterm_keys.rs`, `crates/baud-domain/src/interpolate.rs`, `crates/baud-domain/src/vt/iterm.rs`, `crates/baud-render/src/badge.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-color-presets-9e29604"></a>
 ### iterm2-color-presets-9e29604
@@ -4870,7 +4870,7 @@ iTerm2 9e29604, sources/Settings/iTermColorPresets.m -- iTermColorPresetHasModes
 - **sha256:** `f820fdb6fe6934c2f810008098793be7ac2582e74e42c4d4e50008dd43a48798` (13993 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/iterm.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/iterm.rs`
 
 <a id="iterm2-doc-escape-codes"></a>
 ### iterm2-doc-escape-codes
@@ -4880,7 +4880,7 @@ iTerm2 documentation, Proprietary Escape Codes -- OSC 7 as a synonym for RemoteH
 - **URL:** <https://iterm2.com/documentation-escape-codes.html>
 - **sha256:** `c352db6de5823e1c0e612381dafe2d9795d698d90a3328a9e45cad0aeee3d6c4` (34720 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/prompt_marks.rs`, `baud-domain/src/vt/semantic.rs`
+- **Cited in:** `crates/baud-core/tests/prompt_marks.rs`, `crates/baud-domain/src/vt/semantic.rs`
 
 <a id="iterm2-doc-profiles-colors"></a>
 ### iterm2-doc-profiles-colors
@@ -4890,7 +4890,7 @@ iTerm2 3.7 Settings &gt; Profiles &gt; Colors -- the cursor guide, 'a horizontal
 - **URL:** <https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-preferences-profiles-colors.md>
 - **sha256:** `3d6c88bee8e515831f6ea9f64bbf975d48304dda5d99d10974607940f2b8f9d0` (3580 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/guide.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/src/guide.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-doc-profiles-general"></a>
 ### iterm2-doc-profiles-general
@@ -4900,7 +4900,7 @@ iTerm2 documentation, Profiles &gt; General -- the Title menu. George Nachman, 2
 - **URL:** <https://iterm2.com/documentation-preferences-profiles-general.html>
 - **sha256:** `1ef2ca57ce41a2a63e99075d4f243b8a9c333734b7db0080a7639b3b93c77a4b` (14311 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/badge.rs`
+- **Cited in:** `crates/baud-render/src/badge.rs`
 
 <a id="iterm2-doc-scripting-fundamentals"></a>
 ### iterm2-doc-scripting-fundamentals
@@ -4910,7 +4910,7 @@ iTerm2 3.7 Scripting Fundamentals -- interpolated strings, expressions, escaping
 - **URL:** <https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-scripting-fundamentals.md>
 - **sha256:** `bb179cf8fa965181eadd710d64b5b2e1cd6ceeb87ad61b1cd4f6afd244598484` (13019 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/tests/interpolate.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/tests/interpolate.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-doc-variables"></a>
 ### iterm2-doc-variables
@@ -4920,7 +4920,7 @@ iTerm2 3.7 Variables Reference -- the session, tab, window and global contexts' 
 - **URL:** <https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-variables.md>
 - **sha256:** `2b32867f5cb7eae596ffc4042eac1aa206b2314061af12c3878a3cf22bf87a70` (10985 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/effects.rs`, `baud-app/src/pty.rs`, `baud-domain/src/variables.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/effects.rs`, `crates/baud-app/src/pty.rs`, `crates/baud-domain/src/variables.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-escape-codes"></a>
 ### iterm2-escape-codes
@@ -4930,7 +4930,7 @@ iTerm2 3.7 Proprietary Escape Codes -- OSC 9 notification, OSC 9;4 progress, OSC
 - **URL:** <https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-escape-codes.md>
 - **sha256:** `7ee11f94b5dcd4e41a8df9a035a9612c92be831ccdd50948d4220fd872e8f0f3` (23605 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/app.rs`, `baud-core/src/clip.rs`, `baud-core/src/graph.rs`, `baud-core/src/iterm.rs`, `baud-core/src/term.rs`, `baud-core/tests/iterm.rs`, `baud-core/tests/notifications.rs`, `baud-domain/build/iterm_keys.rs`, `baud-domain/src/merged.rs`, `baud-domain/src/prompts.rs`, `baud-domain/src/quantity.rs`, `baud-domain/src/vt/iterm.rs`, `baud-domain/src/vt/notify.rs`, `baud-render/src/fireworks.rs`, `baud-render/src/guide.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `crates/baud-core/src/clip.rs`, `crates/baud-core/src/graph.rs`, `crates/baud-core/src/iterm.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/tests/iterm.rs`, `crates/baud-core/tests/notifications.rs`, `crates/baud-domain/build/iterm_keys.rs`, `crates/baud-domain/src/merged.rs`, `crates/baud-domain/src/prompts.rs`, `crates/baud-domain/src/quantity.rs`, `crates/baud-domain/src/vt/iterm.rs`, `crates/baud-domain/src/vt/notify.rs`, `crates/baud-render/src/fireworks.rs`, `crates/baud-render/src/guide.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-feature-reporting"></a>
 ### iterm2-feature-reporting
@@ -4940,7 +4940,7 @@ Terminal Feature Reporting -- TERM\_FEATURES and OSC 1337 ; Capabilities, the NO
 - **URL:** <https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/feature-reporting/index.md>
 - **sha256:** `e359dbc6dadb49160a1c7d829e4f7ac9b480f9ebc7f73b3a98b3964a2b98f896` (47344 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/iterm.rs`, `baud-domain/build/iterm_keys.rs`, `baud-domain/src/vt/iterm.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/iterm.rs`, `crates/baud-domain/build/iterm_keys.rs`, `crates/baud-domain/src/vt/iterm.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-finddriver-654bb13"></a>
 ### iterm2-finddriver-654bb13
@@ -4951,7 +4951,7 @@ iTerm2 654bb13, iTermFindDriver.m -- smart case the default mode when none is sa
 - **sha256:** `42cdc2a6cff2855c126b6a1c028d9efac913faeab3bc285895a32b75555c9fbe` (26246 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-app/src/find.rs`
+- **Cited in:** `crates/baud-app/src/find.rs`
 
 <a id="iterm2-images"></a>
 ### iterm2-images
@@ -4961,7 +4961,7 @@ iTerm2 3.7 Inline Images Protocol -- OSC 1337 File, MultipartFile, FilePart, Fil
 - **URL:** <https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-images.md>
 - **sha256:** `3b619ce2ce4d7798950f3c826b01c5676ecdee57bc89c5a5130863c1337d0290` (5228 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/file.rs`, `baud-core/tests/iterm_file.rs`, `baud-domain/build/iterm_keys.rs`, `baud-domain/src/bmp.rs`, `baud-domain/src/gif.rs`, `baud-domain/src/jpeg.rs`, `baud-domain/src/vt/iterm_file.rs`, `baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/file.rs`, `crates/baud-core/tests/iterm_file.rs`, `crates/baud-domain/build/iterm_keys.rs`, `crates/baud-domain/src/bmp.rs`, `crates/baud-domain/src/gif.rs`, `crates/baud-domain/src/jpeg.rs`, `crates/baud-domain/src/vt/iterm_file.rs`, `crates/baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-nsdictionary-9e29604"></a>
 ### iterm2-nsdictionary-9e29604
@@ -4972,7 +4972,7 @@ iTerm2 9e29604, sources/Categories/NSDictionary+iTerm.m -- colorValueForKey: 'sR
 - **sha256:** `4388c4924b5b1f104c48cffe2fd2547a05eb10af61ba3705398de2d99ffc463c` (19796 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/iterm.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/iterm.rs`
 
 <a id="iterm2-nswindow-iterm-2a8d67e"></a>
 ### iterm2-nswindow-iterm-2a8d67e
@@ -4982,7 +4982,7 @@ iTerm2 2a8d67e, sources/Categories/NSWindow+iTerm.m -- it\_titleBarDoubleClick: 
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/2a8d67e06111e8246c6af16d87546060b572fb21/sources/Categories/NSWindow+iTerm.m>
 - **sha256:** `713859c2caf88319b5dbc1db35438fe642eb68a238702c3ecc144a1dedb1f372` (4742 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/container.rs`
+- **Cited in:** `crates/baud-present-macos/src/container.rs`
 
 <a id="iterm2-osc1337-doc-keys"></a>
 ### iterm2-osc1337-doc-keys
@@ -4992,7 +4992,7 @@ iTerm2's OSC 1337 keys, the names alone: the 39 words iTerm2 3.7's escape-codes,
 - **URL:** <https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-escape-codes.md>
 - **sha256:** `46306dd287077d19bd41eb5d78254a0d9580fca788ef5aa84ae8d2fd3a464c39` (1998 bytes)
 - **Copy:** [docs/research/sources/iterm2-osc1337-doc-keys.txt](research/sources/iterm2-osc1337-doc-keys.txt)
-- **Cited in:** `baud-domain/build/iterm_keys.rs`, `baud-domain/src/vt/iterm_keys.rs`
+- **Cited in:** `crates/baud-domain/build/iterm_keys.rs`, `crates/baud-domain/src/vt/iterm_keys.rs`
 
 <a id="iterm2-osc1337-source-keys"></a>
 ### iterm2-osc1337-source-keys
@@ -5002,7 +5002,7 @@ iTerm2's OSC 1337 keys, the names alone: the 54 keys executeXtermSetKvp compares
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/VT100/VT100Terminal.m>
 - **sha256:** `f33b7c9d544cc968feb2f03eece62bcf52cf23285c7fb6c8c52ddb9253af183d` (1036 bytes)
 - **Copy:** [docs/research/sources/iterm2-osc1337-source-keys.txt](research/sources/iterm2-osc1337-source-keys.txt)
-- **Cited in:** `baud-domain/build/iterm_keys.rs`, `baud-domain/src/vt/iterm_keys.rs`
+- **Cited in:** `crates/baud-domain/build/iterm_keys.rs`, `crates/baud-domain/src/vt/iterm_keys.rs`
 
 <a id="iterm2cs-gen-py"></a>
 ### iterm2cs-gen-py
@@ -5012,7 +5012,7 @@ iTerm2-Color-Schemes 99d9701, tools/gen.py -- the WCAG pass applied to every gen
 - **URL:** <https://raw.githubusercontent.com/mbadolato/iTerm2-Color-Schemes/99d9701ba3cf4a06d24eea6ca4f25a64656b446b/tools/gen.py>
 - **sha256:** `7bf9c7f130777000e9bea060fc260ba2ff02e8fd28b173501f4a087980aeb6c7` (19967 bytes)
 - **Copy:** [docs/research/sources/iterm2-color-schemes-gen.py.txt](research/sources/iterm2-color-schemes-gen.py.txt)
-- **Cited in:** `baud-domain/src/themefile/detect.rs`, `baud-domain/src/themefile/iterm.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/detect.rs`, `crates/baud-domain/src/themefile/iterm.rs`
 
 <a id="itu-r-v607-3-ar"></a>
 ### itu-r-v607-3-ar
@@ -5022,7 +5022,7 @@ ITU-R Recommendation V.607-3, Terms and symbols for information quantities in te
 - **URL:** <https://www.itu.int/dms_pubrec/itu-r/rec/v/R-REC-V.607-3-200005-W!!PDF-A.pdf>
 - **sha256:** `aa7ff4a2475d1c37a72353d9126bfc02b81735778ca3d20334870c276b51168f` (93775 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/session.rs`
+- **Cited in:** `crates/baud-app/examples/demo/session.rs`
 
 <a id="itu-r-v607-3-zh"></a>
 ### itu-r-v607-3-zh
@@ -5032,7 +5032,7 @@ ITU-R Recommendation V.607-3 -- Chinese, PDF. ITU-R, 2000, itu.int, ITU publicat
 - **URL:** <https://www.itu.int/dms_pubrec/itu-r/rec/v/R-REC-V.607-3-200005-W!!PDF-C.pdf>
 - **sha256:** `ee4caeeac423ec75eba53560025cfb0bdfe7c03263bfc2fd3b8c69a625202728` (169801 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/session.rs`
+- **Cited in:** `crates/baud-app/examples/demo/session.rs`
 
 <a id="itu-t-s1"></a>
 ### itu-t-s1
@@ -5042,7 +5042,7 @@ ITU-T Recommendation S.1 (03/93), International Telegraph Alphabet No. 2 -- Tabl
 - **URL:** <https://www.itu.int/rec/dologin_pub.asp?lang=e&id=T-REC-S.1-199303-I!!PDF-E&type=items>
 - **sha256:** `14132deba012dfa218eeac42ee55d22ad5ec025b06e7cb7707180267dc1e771a` (71081 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `assets/readme/README.md`, `tools/baud-pictures/src/brand.rs`
+- **Cited in:** `docs/assets/readme/README.md`, `tools/baud-pictures/src/brand.rs`
 
 <a id="itu-t416"></a>
 ### itu-t416
@@ -5052,7 +5052,7 @@ ITU-T T.416 | ISO/IEC 8613-6, 13.1.8 SGR -- 38 and 48 take a parameter sub-strin
 - **URL:** <https://www.itu.int/rec/dologin_pub.asp?lang=e&id=T-REC-T.416-199303-I!!PDF-E&type=items>
 - **sha256:** `3337680cb61970a39d753237738aa824325101ee57ee9eca972729d11fe7d97a` (395442 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/dcs.rs`, `baud-core/src/freeze.rs`, `baud-core/tests/frozen.rs`, `baud-core/tests/vt220/dcs.rs`, `baud-domain/src/frozen.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/dcs.rs`, `crates/baud-core/src/freeze.rs`, `crates/baud-core/tests/frozen.rs`, `crates/baud-core/tests/vt220/dcs.rs`, `crates/baud-domain/src/frozen.rs`, `docs/vt-coverage.md`
 
 <a id="itu-t61"></a>
 ### itu-t61
@@ -5063,7 +5063,7 @@ CCITT Recommendation T.61 (11/88), Character repertoire and coded character sets
 - **sha256:** `968bcf0d70b7119a72371ac6963c0bb4f554650a1012b91e5825aa95a0492d40` (657473 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-23
-- **Cited in:** `baud-core/tests/sgr/fonts.rs`, `baud-domain/src/style.rs`, `baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/sgr/fonts.rs`, `crates/baud-domain/src/style.rs`, `crates/baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`
 
 <a id="itu-t81"></a>
 ### itu-t81
@@ -5074,7 +5074,7 @@ CCITT Recommendation T.81 (09/92), ISO/IEC 10918-1 -- Digital compression and co
 - **sha256:** `631031d4ba56b06abee3e312a0f235b9422da9c7267d1c8f7604418795768bf0` (1058883 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-23
-- **Cited in:** `baud-domain/src/jpeg.rs`, `baud-domain/tests/jpeg.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/jpeg.rs`, `crates/baud-domain/tests/jpeg.rs`, `docs/vt-coverage.md`
 
 <a id="jbm-2304-release"></a>
 ### jbm-2304-release
@@ -5084,7 +5084,7 @@ JetBrains Mono v2.304, the release archive -- fonts/ttf/JetBrainsMono-Medium.ttf
 - **URL:** <https://github.com/JetBrains/JetBrainsMono/releases/download/v2.304/JetBrainsMono-2.304.zip>
 - **sha256:** `6f6376c6ed2960ea8a963cd7387ec9d76e3f629125bc33d1fdcd7eb7012f7bbf` (5622857 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `assets/logo/README.md`, `tools/baud-pictures/src/brand.rs`
+- **Cited in:** `docs/assets/logo/README.md`, `tools/baud-pictures/src/brand.rs`
 
 <a id="jfif-102"></a>
 ### jfif-102
@@ -5095,7 +5095,7 @@ JPEG File Interchange Format, Version 1.02 -- the YCbCr and RGB conversion equat
 - **sha256:** `1135325aa12ee6b3def5a374fecdf3d6d0de88dc4f205af7de8d25a9c949e173` (17183 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-23
-- **Cited in:** `baud-domain/src/jpeg.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/jpeg.rs`, `docs/vt-coverage.md`
 
 <a id="jsoncpp-reader-1-9-6"></a>
 ### jsoncpp-reader-1-9-6
@@ -5106,7 +5106,7 @@ jsoncpp 1.9.6 (89e2973), src/lib\_json/json\_reader.cpp -- CharReaderBuilder::se
 - **sha256:** `d2a4cf73844f81bce79b7943daccbaecf64738ccd0c71bd892bb97dcc9d90da3` (59135 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/iterm.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/iterm.rs`
 
 <a id="kitten-notify-go"></a>
 ### kitten-notify-go
@@ -5116,7 +5116,7 @@ kitty v0.49.2, kittens/notify/main.go -- f=, t= and n= written with base64.StdEn
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kittens/notify/main.go>
 - **sha256:** `7fbc0eb93e8b3a9f2e0fcefd8a2066c8568585a167727b77bf30875e5ae7c517` (8416 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/notify.rs`
+- **Cited in:** `crates/baud-domain/src/vt/notify.rs`
 
 <a id="kitty-1e1486e-background-slang"></a>
 ### kitty-1e1486e-background-slang
@@ -5126,7 +5126,7 @@ kitty 1e1486e, kitty/shaders/background.slang -- a selected cell's page: the cel
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/shaders/background.slang>
 - **sha256:** `a7349107a8716541ef53f12127df99d8bc05f20ae1f7c77fb80499d955944ea6` (13087 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/themefile/terminals.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/terminals.rs`
 
 <a id="kitty-1e1486e-shaders-c"></a>
 ### kitty-1e1486e-shaders-c
@@ -5137,7 +5137,7 @@ kitty 1e1486e, kitty/shaders.c -- cell\_update\_uniform\_block: the selection's 
 - **sha256:** `547a8bd1927de37993f89c6a44e28fb99c54958faa81902aa7b32cc09cea067e` (164008 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-22
-- **Cited in:** `baud-domain/src/themefile.rs`, `baud-domain/src/themefile/terminals.rs`, `baud-render/tests/theme_cells.rs`
+- **Cited in:** `crates/baud-domain/src/themefile.rs`, `crates/baud-domain/src/themefile/terminals.rs`, `crates/baud-render/tests/theme_cells.rs`
 
 <a id="kitty-6d5d0c4-animation-c"></a>
 ### kitty-6d5d0c4-animation-c
@@ -5157,7 +5157,7 @@ kitty 6d5d0c4, kitty/animation.h -- EASE\_IN\_OUT is cubic-bezier 0.42, 0, 0.58,
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/animation.h>
 - **sha256:** `ff852a8fe35d30fdefe3e9cc3983f3abf675d348d355a15538fcd4a9c1ed36e8` (1141 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/bell.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/src/bell.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-6d5d0c4-color-stack"></a>
 ### kitty-6d5d0c4-color-stack
@@ -5167,7 +5167,7 @@ kitty 6d5d0c4, docs/color-stack.rst -- 'OSC 21 ; key=value ; ...', kitty's colou
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/docs/color-stack.rst>
 - **sha256:** `5a78944c05fc59c000bef534701443f118f22502f3d82a626129c1fc9808f415` (9147 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/host.rs`, `baud-core/src/colour.rs`, `baud-core/tests/kitty_colours.rs`, `baud-domain/src/style.rs`, `baud-domain/src/vt/kitty_color.rs`, `baud-domain/src/vt/xcms.rs`, `baud-render/src/bell.rs`, `baud-render/tests/theme_cells.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/host.rs`, `crates/baud-core/src/colour.rs`, `crates/baud-core/tests/kitty_colours.rs`, `crates/baud-domain/src/style.rs`, `crates/baud-domain/src/vt/kitty_color.rs`, `crates/baud-domain/src/vt/xcms.rs`, `crates/baud-render/src/bell.rs`, `crates/baud-render/tests/theme_cells.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-6d5d0c4-colors-c"></a>
 ### kitty-6d5d0c4-colors-c
@@ -5178,7 +5178,7 @@ kitty 6d5d0c4, kitty/colors.c -- CGETSET: default\_fg and default\_bg 'cannot be
 - **sha256:** `a13cac7e7162951ed7332c9c9ab972bf2ff55feba238c1cf59f8ef91f5928f0f` (65249 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-22
-- **Cited in:** `baud-core/src/colour.rs`, `baud-core/src/storage.rs`, `baud-core/tests/kitty_colours.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/colour.rs`, `crates/baud-core/src/storage.rs`, `crates/baud-core/tests/kitty_colours.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-6d5d0c4-core-text"></a>
 ### kitty-6d5d0c4-core-text
@@ -5188,7 +5188,7 @@ kitty: core\_text.m -- the alpha-mask context, fill and stroke, font smoothing. 
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/core_text.m>
 - **sha256:** `60a71ad4237b258f4aa82ebdeee3a588d98a8a09bd30ab43e5304f274bad7ff2` (62715 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fallback.rs`
+- **Cited in:** `crates/baud-app/src/fallback.rs`
 
 <a id="kitty-6d5d0c4-mouse"></a>
 ### kitty-6d5d0c4-mouse
@@ -5199,7 +5199,7 @@ kitty 6d5d0c4, kitty/mouse.c -- move\_cursor\_to\_mouse\_if\_at\_shell\_prompt: 
 - **sha256:** `382eef67591a19bedbe87edf87da08e8437e0d80abce68dae88596d3149d0403` (74077 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-app/src/readline.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/readline.rs`, `docs/input-coverage.md`
 
 <a id="kitty-6d5d0c4-options-definition"></a>
 ### kitty-6d5d0c4-options-definition
@@ -5210,7 +5210,7 @@ kitty 6d5d0c4, kitty/options/definition.py -- scroll\_to\_previous\_prompt kitty
 - **sha256:** `d121fedddbecbfa0e76aba0e11ecfe1cb11946dd362bc097b83da54093b9a107` (160774 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-render/src/bell.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/src/bell.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-6d5d0c4-options-to-c"></a>
 ### kitty-6d5d0c4-options-to-c
@@ -5231,7 +5231,7 @@ kitty 6d5d0c4, kitty/screen.c -- process\_cwd\_notification stores OSC 7 raw. Ko
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/screen.c>
 - **sha256:** `d4790574514bb60d4ac112de3e5473a1e085291d9ce14c7912267ac2a06d6c28` (295417 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/gesture.rs`, `baud-bench/tests/bell_flashes.rs`, `baud-core/src/ops.rs`, `baud-core/src/term.rs`, `baud-core/tests/kitty_colours.rs`, `baud-render/src/bell.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/gesture.rs`, `crates/baud-bench/tests/bell_flashes.rs`, `crates/baud-core/src/ops.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/tests/kitty_colours.rs`, `crates/baud-render/src/bell.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-6d5d0c4-shaders"></a>
 ### kitty-6d5d0c4-shaders
@@ -5241,7 +5241,7 @@ kitty 6d5d0c4, kitty/shaders.c -- cell\_prepare\_to\_render, when the cell buffe
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/shaders.c>
 - **sha256:** `54c80625f495603ef320b1e05992b1bbe797edcbb24814061ecdb061c6704c8d` (153540 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/renderer.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/src/renderer.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-6d5d0c4-shell-integration-py"></a>
 ### kitty-6d5d0c4-shell-integration-py
@@ -5252,7 +5252,7 @@ kitty 6d5d0c4, kitty/shell\_integration.py -- setup\_zsh\_env (ZDOTDIR, kept in 
 - **sha256:** `40525f51d6025ba5d109e5dec6655b44a552c35a12a939663fdb4ac9edb84429` (8590 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-31
-- **Cited in:** `baud-app/src/shell.rs`
+- **Cited in:** `crates/baud-app/src/shell.rs`
 
 <a id="kitty-6d5d0c4-tests-screen"></a>
 ### kitty-6d5d0c4-tests-screen
@@ -5273,7 +5273,7 @@ kitty 6d5d0c4, kitty/vt-parser.c -- OSC 0/1/2, OSC 7, OSC 21 as color\_control. 
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/vt-parser.c>
 - **sha256:** `4c9ec255ae06262c1c094e07504ba002416ba7b10290fc1876cf28c637399f15` (68279 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/colour.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/colour.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-aef2bc23-wl-text-input"></a>
 ### kitty-aef2bc23-wl-text-input
@@ -5284,7 +5284,7 @@ kitty aef2bc23, glfw/wl\_text\_input.c -- text-input-v3 bound at version 1, dele
 - **sha256:** `1e85dfbda5697d470e4c6252a4c2077c91272268e3713de3e8bade87f6f51fea` (7718 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-present-wayland/src/ime.rs`
+- **Cited in:** `crates/baud-present-wayland/src/ime.rs`
 
 <a id="kitty-background-slang"></a>
 ### kitty-background-slang
@@ -5294,7 +5294,7 @@ kitty v0.49.2, kitty/shaders/background.slang -- compute\_background, which cell
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kitty/shaders/background.slang>
 - **sha256:** `5cb615a2d4d0165f0e2882f301838602e7fb6c935dc8eb295c6eb1a7e69023d0` (14512 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/cellmap.rs`, `baud-render/src/color.rs`, `baud-render/tests/kitty_draw.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/src/cellmap.rs`, `crates/baud-render/src/color.rs`, `crates/baud-render/tests/kitty_draw.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-base64-h"></a>
 ### kitty-base64-h
@@ -5305,7 +5305,7 @@ kitty v0.50.0, kitty/base64.h -- base64\_decode8, the graphics payload decoder. 
 - **sha256:** `d68bd509659b29962758f1d9f17be8341e38643348a939716c45d67e4418eb91` (2647 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-08
-- **Cited in:** `baud-core/tests/kitty_string_end.rs`, `baud-domain/src/base64.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/kitty_string_end.rs`, `crates/baud-domain/src/base64.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-cell-slang"></a>
 ### kitty-cell-slang
@@ -5315,7 +5315,7 @@ kitty v0.49.2, kitty/shaders/cell.slang -- draw\_bg\_bitfield, the background pa
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kitty/shaders/cell.slang>
 - **sha256:** `6a960652b35fb6b807be2207efd0f3fc06ca4e6377a7a29ae4960c327d6f7da2` (14049 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/tests/kitty_draw.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/tests/kitty_draw.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-clipboard"></a>
 ### kitty-clipboard
@@ -5337,7 +5337,7 @@ kitty 1e1486e, gen/color\_names.py -- the 753 colour names parse\_color looks up
 - **sha256:** `255914422a50db71c07b7de905c919ff44db90f7ee0faffd0d2fd60d26b794fe` (29907 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/build/colour_names.rs`, `baud-domain/src/themefile.rs`, `baud-domain/src/themefile/terminals.rs`, `baud-domain/tests/themeterminals.rs`
+- **Cited in:** `crates/baud-domain/build/colour_names.rs`, `crates/baud-domain/src/themefile.rs`, `crates/baud-domain/src/themefile/terminals.rs`, `crates/baud-domain/tests/themeterminals.rs`
 
 <a id="kitty-colors-1e1486e"></a>
 ### kitty-colors-1e1486e
@@ -5348,7 +5348,7 @@ kitty 1e1486e, kitty/colors.c -- Color.parse\_color: #rgb to #rrrrggggbbbb, rgb:
 - **sha256:** `a13cac7e7162951ed7332c9c9ab972bf2ff55feba238c1cf59f8ef91f5928f0f` (65249 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/build/colour_names.rs`, `baud-domain/src/vt/kitty_color.rs`
+- **Cited in:** `crates/baud-domain/build/colour_names.rs`, `crates/baud-domain/src/vt/kitty_color.rs`
 
 <a id="kitty-conf"></a>
 ### kitty-conf
@@ -5358,7 +5358,7 @@ kitty.conf reference -- the Performance tuning section: repaint\_delay 10, input
 - **URL:** <https://sw.kovidgoyal.net/kitty/conf/>
 - **sha256:** `4c9eab40da7c0f2e2dede04450988988e5694c448c59e74195a50fa440848b9b` (550570 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/themefile/terminals.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/themefile/terminals.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-conf-utils-1e1486e"></a>
 ### kitty-conf-utils-1e1486e
@@ -5369,7 +5369,7 @@ kitty 1e1486e, kitty/conf/utils.py -- the config line grammar (key\_pat, parse\_
 - **sha256:** `5af002918cbf199f2bd250527322b1b49af33fda66d255434d5efb8256eca295` (17984 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/terminals.rs`, `baud-domain/tests/themeterminals.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/terminals.rs`, `crates/baud-domain/tests/themeterminals.rs`
 
 <a id="kitty-cursor-trail"></a>
 ### kitty-cursor-trail
@@ -5379,7 +5379,7 @@ kitty 1e1486e, cursor\_trail.c -- four corners chasing the cursor's, each with i
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/cursor_trail.c>
 - **sha256:** `66b73c132a5b139fa297cd1d595331f8718b5c379cde40fe1008a769dfe37aed` (7730 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/trail.rs`, `baud-core/src/placed.rs`, `baud-render/src/trail.rs`, `docs/cursor.md`
+- **Cited in:** `crates/baud-app/src/trail.rs`, `crates/baud-core/src/placed.rs`, `crates/baud-render/src/trail.rs`, `docs/cursor.md`
 
 <a id="kitty-cursor-trail-v0492"></a>
 ### kitty-cursor-trail-v0492
@@ -5389,7 +5389,7 @@ kitty v0.49.2, cursor\_trail.c -- four corners chasing the cursor's, each with i
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/cursor_trail.c>
 - **sha256:** `9c0c4ae2efc3a37b9322eaac0098cc6d5c4d79971d3b735c292de5b621834ca4` (7987 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/trail.rs`
+- **Cited in:** `crates/baud-app/src/trail.rs`
 
 <a id="kitty-decorations-851cb80"></a>
 ### kitty-decorations-851cb80
@@ -5400,7 +5400,7 @@ kitty 851cb80, kitty/decorations.c -- vert and horz: a line round(pt x dpi / 72)
 - **sha256:** `acc40e55854d8240179cada95a912ecd9ab5496c1067b7078b04c60e84b1caba` (110848 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-22
-- **Cited in:** `baud-render/src/renderer.rs`
+- **Cited in:** `crates/baud-render/src/renderer.rs`
 
 <a id="kitty-desktop-notifications"></a>
 ### kitty-desktop-notifications
@@ -5410,7 +5410,7 @@ Desktop notifications -- the OSC 99 protocol: chunks, ids, the query, actions, c
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/docs/desktop-notifications.rst>
 - **sha256:** `57188360fc9466f4e2324457ca38f7d25de5383eeedd6b982bbea8af9fc60b51` (26196 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/term.rs`, `baud-core/tests/notifications.rs`, `baud-domain/src/vt/fdo_notify.rs`, `baud-domain/src/vt/notice_icons.rs`, `baud-domain/src/vt/notice_plan.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/term.rs`, `crates/baud-core/tests/notifications.rs`, `crates/baud-domain/src/vt/fdo_notify.rs`, `crates/baud-domain/src/vt/notice_icons.rs`, `crates/baud-domain/src/vt/notice_plan.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-escape-code-parser"></a>
 ### kitty-escape-code-parser
@@ -5420,7 +5420,7 @@ kitty v0.49.2, tools/wcswidth/escape-code-parser.go -- the CSI kitten's loop han
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/tools/wcswidth/escape-code-parser.go>
 - **sha256:** `f8f822da47913b38d3541bbdb083af23d593aacb49b2ffcd2a2b848b3a741edb` (7597 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/kitten_detects_the_da.rs`
+- **Cited in:** `crates/baud-core/tests/kitten_detects_the_da.rs`
 
 <a id="kitty-file-transfer"></a>
 ### kitty-file-transfer
@@ -5441,7 +5441,7 @@ kitty v0.49.2, kitty/fonts.c -- font\_for\_cell, which draws U+10EEEE with the b
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kitty/fonts.c>
 - **sha256:** `d7e6741fa2b2a2fc218e2af2d25bc050d872df8a01145003d2a4294ed0cb7dc8` (123825 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/renderer.rs`, `baud-render/tests/kitty_placeholder.rs`
+- **Cited in:** `crates/baud-render/src/renderer.rs`, `crates/baud-render/tests/kitty_placeholder.rs`
 
 <a id="kitty-fonts-core-text-fa9f8da"></a>
 ### kitty-fonts-core-text-fa9f8da
@@ -5451,7 +5451,7 @@ kitty kitty/fonts/core\_text.py -- find\_best\_match: PostScript and full name, 
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/fa9f8dac181e07b033898480dbf75a331546715d/kitty/fonts/core_text.py>
 - **sha256:** `297e7c1d161e10b9f4e0c3004c709de36f3fc05cd2be5fafd650ec83e6be8302` (10351 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/discover.rs`
+- **Cited in:** `crates/baud-app/src/discover.rs`
 
 <a id="kitty-fonts-fontconfig-fa9f8da"></a>
 ### kitty-fonts-fontconfig-fa9f8da
@@ -5461,7 +5461,7 @@ kitty kitty/fonts/fontconfig.py -- find\_best\_match: a font name looked up in p
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/fa9f8dac181e07b033898480dbf75a331546715d/kitty/fonts/fontconfig.py>
 - **sha256:** `29d2dc652bc1b2afc924c960d453b28e385b2a0e6ab440075d9accab55843d9a` (12209 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/discover.rs`
+- **Cited in:** `crates/baud-app/src/discover.rs`
 
 <a id="kitty-functional-keys"></a>
 ### kitty-functional-keys
@@ -5471,7 +5471,7 @@ kitty's functional key codes, transcribed: name, CSI number and final byte of th
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/docs/keyboard-protocol.rst>
 - **sha256:** `091133d0098c47b26786614720ac08d7c0ca0a797333fb44e0152706e4bb3548` (1923 bytes)
 - **Copy:** [docs/research/sources/kitty-functional-keys.tsv](research/sources/kitty-functional-keys.tsv)
-- **Cited in:** `baud-core/tests/kitty_encode.rs`, `baud-domain/src/vt/key.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-core/tests/kitty_encode.rs`, `crates/baud-domain/src/vt/key.rs`, `docs/input-coverage.md`
 
 <a id="kitty-glfw-c-6d5d0c4"></a>
 ### kitty-glfw-c-6d5d0c4
@@ -5482,7 +5482,7 @@ kitty 6d5d0c4, kitty/glfw.c -- key\_callback hands on\_key\_input no event marke
 - **sha256:** `f439724c08a16a3583b2999faccb4b15c228298bae513a2c8df03300b49e11ad` (167248 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-30
-- **Cited in:** `baud-app/src/app.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `docs/input-coverage.md`
 
 <a id="kitty-glfw-cocoa-init-851cb80"></a>
 ### kitty-glfw-cocoa-init-851cb80
@@ -5493,7 +5493,7 @@ kitty 851cb80, glfw/cocoa\_init.m -- local event monitors for key-down, key-up a
 - **sha256:** `d262f6b7ee0318dda4fd191e2b9a8a904d570357bdb39d38e5dfc9afae218b8c` (51377 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-30
-- **Cited in:** `baud-present-macos/src/keyup.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-present-macos/src/keyup.rs`, `docs/input-coverage.md`
 
 <a id="kitty-glfw-cocoa-window-851cb80"></a>
 ### kitty-glfw-cocoa-window-851cb80
@@ -5504,7 +5504,7 @@ kitty 851cb80, glfw/cocoa\_window.m -- vk\_code\_to\_functional\_key\_code: 0x47
 - **sha256:** `bdd0de5b9b20dcb71a95cfbdd6d439117876b843889adcd5de27ad21ea92ef71` (216538 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-app/src/app.rs`, `baud-app/src/layouts.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `crates/baud-app/src/layouts.rs`, `docs/input-coverage.md`
 
 <a id="kitty-glfw-input-c-6d5d0c4"></a>
 ### kitty-glfw-input-c-6d5d0c4
@@ -5526,7 +5526,7 @@ kitty 851cb80, glfw/input.c -- \_glfwInputKeyboard: a release with no recorded p
 - **sha256:** `0a579673610e990d5a24ae19eb20d616eec01406b29d8023271b99a753379544` (52633 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-30
-- **Cited in:** `baud-app/src/app.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `docs/input-coverage.md`
 
 <a id="kitty-glfw-window-c-6d5d0c4"></a>
 ### kitty-glfw-window-c-6d5d0c4
@@ -5537,7 +5537,7 @@ kitty 6d5d0c4, glfw/window.c -- \_glfwInputWindowFocus builds a release, marked 
 - **sha256:** `f15cb39ecc741259c24849ed36997a6f431066db07df697482d9a31353355a58` (34589 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-30
-- **Cited in:** `baud-app/src/app.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `docs/input-coverage.md`
 
 <a id="kitty-graphics"></a>
 ### kitty-graphics
@@ -5547,7 +5547,7 @@ Terminal graphics protocol. Kovid Goyal, 2025, kitty documentation.
 - **URL:** <https://sw.kovidgoyal.net/kitty/graphics-protocol/>
 - **sha256:** `1e7c751498e93ea358d8d611aa3da824b9c91afc815447fca343a9b2146a4a32` (300190 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/session.rs`, `baud-app/src/film/mpv.rs`, `baud-app/src/film/mpv/capture.rs`, `baud-app/src/host.rs`, `baud-app/src/kitty_files.rs`, `baud-app/src/ran.rs`, `baud-app/src/reads.rs`, `baud-core/src/graph.rs`, `baud-core/src/hardcopy.rs`, `baud-core/src/kitty.rs`, `baud-core/src/osc.rs`, `baud-core/src/storage.rs`, `baud-core/src/term.rs`, `baud-core/tests/hardcopy.rs`, `baud-core/tests/kitty_animation.rs`, `baud-core/tests/kitty_cursor.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-core/tests/kitty_per_cell.rs`, `baud-core/tests/kitty_placeholder.rs`, `baud-core/tests/kitty_records.rs`, `baud-core/tests/kitty_refused.rs`, `baud-core/tests/kitty_relative.rs`, `baud-core/tests/line_rendition.rs`, `baud-domain/build/placeholder.rs`, `baud-domain/src/image.rs`, `baud-domain/src/image/frames.rs`, `baud-domain/src/kitty.rs`, `baud-domain/src/placeholder.rs`, `baud-domain/src/zlib.rs`, `baud-domain/tests/image_store.rs`, `baud-domain/tests/kitty_graphics.rs`, `baud-domain/tests/placeholder.rs`, `baud-present-macos/tests/cells.rs`, `baud-render/src/cellmap.rs`, `baud-render/src/color.rs`, `baud-render/src/renderer.rs`, `baud-render/tests/kitty_draw.rs`, `baud-render/tests/kitty_placeholder.rs`, `bench-others/multibench/src/counts.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/examples/demo/session.rs`, `crates/baud-app/src/film/mpv.rs`, `crates/baud-app/src/film/mpv/capture.rs`, `crates/baud-app/src/host.rs`, `crates/baud-app/src/kitty_files.rs`, `crates/baud-app/src/ran.rs`, `crates/baud-app/src/reads.rs`, `crates/baud-core/src/graph.rs`, `crates/baud-core/src/hardcopy.rs`, `crates/baud-core/src/kitty.rs`, `crates/baud-core/src/osc.rs`, `crates/baud-core/src/storage.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/tests/hardcopy.rs`, `crates/baud-core/tests/kitty_animation.rs`, `crates/baud-core/tests/kitty_cursor.rs`, `crates/baud-core/tests/kitty_graphics.rs`, `crates/baud-core/tests/kitty_per_cell.rs`, `crates/baud-core/tests/kitty_placeholder.rs`, `crates/baud-core/tests/kitty_records.rs`, `crates/baud-core/tests/kitty_refused.rs`, `crates/baud-core/tests/kitty_relative.rs`, `crates/baud-core/tests/line_rendition.rs`, `crates/baud-domain/build/placeholder.rs`, `crates/baud-domain/src/image.rs`, `crates/baud-domain/src/image/frames.rs`, `crates/baud-domain/src/kitty.rs`, `crates/baud-domain/src/placeholder.rs`, `crates/baud-domain/src/zlib.rs`, `crates/baud-domain/tests/image_store.rs`, `crates/baud-domain/tests/kitty_graphics.rs`, `crates/baud-domain/tests/placeholder.rs`, `crates/baud-present-macos/tests/cells.rs`, `crates/baud-render/src/cellmap.rs`, `crates/baud-render/src/color.rs`, `crates/baud-render/src/renderer.rs`, `crates/baud-render/tests/kitty_draw.rs`, `crates/baud-render/tests/kitty_placeholder.rs`, `docs/vt-coverage.md`, `tools/bench-others/multibench/src/counts.rs`
 
 <a id="kitty-graphics-c"></a>
 ### kitty-graphics-c
@@ -5558,7 +5558,7 @@ kitty v0.49.2, kitty/graphics.c -- the reference implementation of the graphics 
 - **sha256:** `bfab5f2794ce6a40d454190c8d57f330fa9c4377cfc9084ebd191b4e3973fe14` (123771 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-18
-- **Cited in:** `baud-app/src/film/mpv.rs`, `baud-app/src/kitty_files.rs`, `baud-core/tests/kitty_animation.rs`, `baud-core/tests/kitty_cursor.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-core/tests/kitty_relative.rs`, `baud-core/tests/kitty_screens.rs`, `baud-core/tests/kitty_string_end.rs`, `baud-domain/src/image.rs`, `baud-domain/src/image/frames.rs`, `baud-domain/src/kitty.rs`, `baud-domain/tests/kitty_graphics.rs`, `baud-present-macos/tests/cells.rs`, `baud-render/src/renderer.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/film/mpv.rs`, `crates/baud-app/src/kitty_files.rs`, `crates/baud-core/tests/kitty_animation.rs`, `crates/baud-core/tests/kitty_cursor.rs`, `crates/baud-core/tests/kitty_graphics.rs`, `crates/baud-core/tests/kitty_relative.rs`, `crates/baud-core/tests/kitty_screens.rs`, `crates/baud-core/tests/kitty_string_end.rs`, `crates/baud-domain/src/image.rs`, `crates/baud-domain/src/image/frames.rs`, `crates/baud-domain/src/kitty.rs`, `crates/baud-domain/tests/kitty_graphics.rs`, `crates/baud-present-macos/tests/cells.rs`, `crates/baud-render/src/renderer.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-graphics-command"></a>
 ### kitty-graphics-command
@@ -5568,7 +5568,7 @@ kitty v0.49.2, tools/tui/graphics/command.go -- how kitten serialises a payload:
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/tools/tui/graphics/command.go>
 - **sha256:** `b9d0cb3d2ae47588131fdd0702202fd43ec1fe73a1bbe8c69715ee2a7b02a65a` (17117 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/pages.rs`, `baud-bench/benches/kitty_image.rs`, `baud-core/tests/kitty_graphics.rs`
+- **Cited in:** `crates/baud-app/src/pages.rs`, `crates/baud-bench/benches/kitty_image.rs`, `crates/baud-core/tests/kitty_graphics.rs`
 
 <a id="kitty-graphics-rst"></a>
 ### kitty-graphics-rst
@@ -5579,7 +5579,7 @@ kitty v0.49.2, docs/graphics-protocol.rst -- the graphics protocol page's source
 - **sha256:** `3d5982b1adc57423d69a4db856aca9e739ba0b187b1c90866d1081eb4b3fe921` (61463 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-30
-- **Cited in:** `baud-app/src/kitty_files.rs`, `baud-core/tests/kitten_icat.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-core/tests/kitty_retransmit.rs`, `baud-domain/src/kitty.rs`, `baud-domain/tests/kitty_retransmit.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/kitty_files.rs`, `crates/baud-core/tests/kitten_icat.rs`, `crates/baud-core/tests/kitty_graphics.rs`, `crates/baud-core/tests/kitty_retransmit.rs`, `crates/baud-domain/src/kitty.rs`, `crates/baud-domain/tests/kitty_retransmit.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-hyperlink-target"></a>
 ### kitty-hyperlink-target
@@ -5589,7 +5589,7 @@ kitty v0.43.1, kitty/shaders.c -- draw\_hyperlink\_target: show\_hyperlink\_targ
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/v0.43.1/kitty/shaders.c>
 - **sha256:** `6b5a1f2a97e3ca21b3b0d21701834a97285bd5ba5949a084d0b0e2ccb55d94e8` (72846 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/renderer.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/src/renderer.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-icat-detect"></a>
 ### kitty-icat-detect
@@ -5599,7 +5599,7 @@ kitty v0.49.2, kittens/icat/detect.go -- the detection burst: three &#96;a=q&#96
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kittens/icat/detect.go>
 - **sha256:** `60a0864dd4d55c3b9f490448a6df3de94f29594d32b87ea6c9e2c934cd67ab13` (3823 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/kitty_files.rs`, `baud-app/src/programs.rs`, `baud-core/tests/kitten_detects_the_da.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-core/tests/vt220/replies.rs`, `baud-domain/src/image.rs`, `baud-domain/src/kitty.rs`, `baud-domain/src/vt/report.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/kitty_files.rs`, `crates/baud-app/src/programs.rs`, `crates/baud-core/tests/kitten_detects_the_da.rs`, `crates/baud-core/tests/kitty_graphics.rs`, `crates/baud-core/tests/vt220/replies.rs`, `crates/baud-domain/src/image.rs`, `crates/baud-domain/src/kitty.rs`, `crates/baud-domain/src/vt/report.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-icat-main"></a>
 ### kitty-icat-main
@@ -5609,7 +5609,7 @@ kitty v0.49.2, kittens/icat/main.go -- detection, and the refusal when the direc
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kittens/icat/main.go>
 - **sha256:** `46baf19b5decb550887997d441596e193fbfcb578fafd55f9eab457119b5b4ef` (10082 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/kitten_icat.rs`
+- **Cited in:** `crates/baud-core/tests/kitten_icat.rs`
 
 <a id="kitty-icat-transmit"></a>
 ### kitty-icat-transmit
@@ -5619,7 +5619,7 @@ kitty v0.49.2, kittens/icat/transmit.go -- the transfer modes and the first chun
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kittens/icat/transmit.go>
 - **sha256:** `01c123bf6d70e2dcc25cdad590c4481b1cf23420de98026c5435a3d51a9c0b9e` (11281 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/kitty_files.rs`, `baud-core/tests/kitten_icat.rs`, `baud-core/tests/kitty_placeholder.rs`, `baud-domain/src/placeholder.rs`
+- **Cited in:** `crates/baud-app/src/kitty_files.rs`, `crates/baud-core/tests/kitten_icat.rs`, `crates/baud-core/tests/kitty_placeholder.rs`, `crates/baud-domain/src/placeholder.rs`
 
 <a id="kitty-imaging-5a098df-gifmeta"></a>
 ### kitty-imaging-5a098df-gifmeta
@@ -5630,7 +5630,7 @@ kovidgoyal/imaging 5a098df, prism/meta/gifmeta/gifmeta.go -- kitty icat's GIF de
 - **sha256:** `45d9f5afebb640af6cb7ede5641d8885f7a676ec4c8df519a047664222bbbaf1` (1253 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-23
-- **Cited in:** `baud-domain/src/gif.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/gif.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-key-encoding-c"></a>
 ### kitty-key-encoding-c
@@ -5640,7 +5640,7 @@ kitty 9710eb4, kitty/key\_encoding.c -- encode\_glfw\_key\_event sends a key's t
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/9710eb4460ca0ab1532b0107d7066c20d7e9a66f/kitty/key_encoding.c>
 - **sha256:** `5aebe0e13233d8303bf5ee4a2f8c5a51fb4967df2893be6034866b563f27d48c` (16680 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/kitty_encode.rs`, `baud-domain/src/vt/key.rs`
+- **Cited in:** `crates/baud-core/tests/kitty_encode.rs`, `crates/baud-domain/src/vt/key.rs`
 
 <a id="kitty-keyboard"></a>
 ### kitty-keyboard
@@ -5651,7 +5651,7 @@ Comprehensive keyboard handling in terminals. Kovid Goyal, 2025, kitty documenta
 - **sha256:** `1178a0b1c861cf31710feca2edec7d3b4e54998e6e4f1da24169ffc5766d9b46` (240076 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-08-27
-- **Cited in:** `baud-app/examples/demo/session.rs`, `baud-app/src/app.rs`, `baud-app/src/layouts.rs`, `baud-core/src/ops.rs`, `baud-core/src/term.rs`, `baud-core/src/write.rs`, `baud-core/tests/key_encode.rs`, `baud-core/tests/kitten_icat.rs`, `baud-core/tests/kitty_encode.rs`, `baud-core/tests/kitty_keyboard.rs`, `baud-core/tests/ris_power_on.rs`, `baud-domain/src/input.rs`, `baud-domain/src/vt/csi.rs`, `baud-domain/src/vt/key.rs`, `baud-domain/src/vt/key/keyboards.rs`, `baud-domain/src/vt/report.rs`, `baud-domain/tests/input.rs`, `baud-domain/tests/key_bytes.rs`, `baud-domain/tests/kitty.rs`, `baud-present-macos/src/keyup.rs`, `baud-present-wayland/src/keys.rs`, `baud-present-wayland/tests/keypad.rs`, `baud-present-wayland/tests/numlock.rs`, `baud-present-wayland/tests/shift.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/examples/demo/session.rs`, `crates/baud-app/src/app.rs`, `crates/baud-app/src/layouts.rs`, `crates/baud-core/src/ops.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/src/write.rs`, `crates/baud-core/tests/key_encode.rs`, `crates/baud-core/tests/kitten_icat.rs`, `crates/baud-core/tests/kitty_encode.rs`, `crates/baud-core/tests/kitty_keyboard.rs`, `crates/baud-core/tests/ris_power_on.rs`, `crates/baud-domain/src/input.rs`, `crates/baud-domain/src/vt/csi.rs`, `crates/baud-domain/src/vt/key.rs`, `crates/baud-domain/src/vt/key/keyboards.rs`, `crates/baud-domain/src/vt/report.rs`, `crates/baud-domain/tests/input.rs`, `crates/baud-domain/tests/key_bytes.rs`, `crates/baud-domain/tests/kitty.rs`, `crates/baud-present-macos/src/keyup.rs`, `crates/baud-present-wayland/src/keys.rs`, `crates/baud-present-wayland/tests/keypad.rs`, `crates/baud-present-wayland/tests/numlock.rs`, `crates/baud-present-wayland/tests/shift.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="kitty-keyboard-rst"></a>
 ### kitty-keyboard-rst
@@ -5662,7 +5662,7 @@ kitty v0.49.2, docs/keyboard-protocol.rst -- the keyboard protocol page's source
 - **sha256:** `1feb3aea4a1c7e4cca524524d65a71e1a7b87b4fa2a13194df923817d08fe8bd` (36771 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-25
-- **Cited in:** `baud-core/tests/key_encode.rs`, `baud-core/tests/kitty_encode.rs`, `baud-domain/src/vt/key.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-core/tests/key_encode.rs`, `crates/baud-core/tests/kitty_encode.rs`, `crates/baud-domain/src/vt/key.rs`, `docs/input-coverage.md`
 
 <a id="kitty-keys-c-9710eb4"></a>
 ### kitty-keys-c-9710eb4
@@ -5673,7 +5673,7 @@ kitty 9710eb4, kitty/keys.c -- is\_modifier\_key: LEFT\_SHIFT to ISO\_LEVEL5\_SH
 - **sha256:** `f0105af70a374c2355b3d36ca821a524b57bb7ab5ed2ebcb18e069335f43849f` (25757 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-core/tests/kitty_encode.rs`, `baud-domain/src/input.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-core/tests/kitty_encode.rs`, `crates/baud-domain/src/input.rs`, `docs/input-coverage.md`
 
 <a id="kitty-legacy-c0"></a>
 ### kitty-legacy-c0
@@ -5683,7 +5683,7 @@ kitty's legacy C0 controls table, transcribed: the 35 cells of kitty v0.49.2's k
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/docs/keyboard-protocol.rst>
 - **sha256:** `bc85acfe51d379a5f0ac3beacd6439e49087dbd1d0c5359fb0a6ff0018e57c7e` (1025 bytes)
 - **Copy:** [docs/research/sources/kitty-legacy-c0.tsv](research/sources/kitty-legacy-c0.tsv)
-- **Cited in:** `baud-core/tests/key_encode.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-core/tests/key_encode.rs`, `docs/input-coverage.md`
 
 <a id="kitty-mouse-c-0-43-1"></a>
 ### kitty-mouse-c-0-43-1
@@ -5704,7 +5704,7 @@ kitty v0.49.2, kitty/notifications.py -- parse\_metadata, merge\_metadata, set\_
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/notifications.py>
 - **sha256:** `1cd750e60dbf8e77e70edc62e06c75780091324d26de6e86f2547c8d02b971a0` (47959 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/notifications.rs`, `baud-domain/src/vt/notify.rs`
+- **Cited in:** `crates/baud-core/tests/notifications.rs`, `crates/baud-domain/src/vt/notify.rs`
 
 <a id="kitty-options-definition"></a>
 ### kitty-options-definition
@@ -5714,7 +5714,7 @@ kitty 1e1486e, options/definition.py -- cursor\_trail, cursor\_trail\_decay and 
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/options/definition.py>
 - **sha256:** `322b4af9667818d1961e556a7c26f65a668da34e071f52f6acc1a4d819727533` (163193 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/palette.rs`, `baud-app/src/windows.rs`, `baud-domain/src/themefile.rs`, `baud-domain/src/themefile/detect.rs`, `baud-domain/src/themefile/terminals.rs`, `baud-domain/tests/themeterminals.rs`, `baud-present-wayland/src/keys.rs`, `docs/cursor.md`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/palette.rs`, `crates/baud-app/src/windows.rs`, `crates/baud-domain/src/themefile.rs`, `crates/baud-domain/src/themefile/detect.rs`, `crates/baud-domain/src/themefile/terminals.rs`, `crates/baud-domain/tests/themeterminals.rs`, `crates/baud-present-wayland/src/keys.rs`, `docs/cursor.md`, `docs/input-coverage.md`
 
 <a id="kitty-options-definition-v0492"></a>
 ### kitty-options-definition-v0492
@@ -5724,7 +5724,7 @@ kitty v0.49.2, options/definition.py -- the options cursor\_trail (445-447), cur
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/options/definition.py>
 - **sha256:** `1ff05cd3a58612c0bd12de7a15d9f645ca3f6ebcdbbb5d0a380740730ef22cc5` (165097 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/trail.rs`, `baud-render/src/trail.rs`
+- **Cited in:** `crates/baud-app/src/trail.rs`, `crates/baud-render/src/trail.rs`
 
 <a id="kitty-options-utils-1e1486e"></a>
 ### kitty-options-utils-1e1486e
@@ -5735,7 +5735,7 @@ kitty 1e1486e, kitty/options/utils.py -- to\_color\_or\_none and cursor\_text\_c
 - **sha256:** `5fc552256355df39edcbaa7fbf1892079a7c0e2449500440a446e442b7cff08a` (63673 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/terminals.rs`, `baud-domain/tests/themeterminals.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/terminals.rs`, `crates/baud-domain/tests/themeterminals.rs`
 
 <a id="kitty-placeholder-diacritics"></a>
 ### kitty-placeholder-diacritics
@@ -5745,7 +5745,7 @@ The Unicode placeholder diacritics, transcribed: the first field of each data li
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/gen/rowcolumn-diacritics.txt>
 - **sha256:** `12702f1a69351430959fcbea48eb648a0558792c2aa1afd8c44c6a64c0ec21fb` (1939 bytes)
 - **Copy:** [docs/research/sources/kitty-placeholder-diacritics.txt](research/sources/kitty-placeholder-diacritics.txt)
-- **Cited in:** `baud-core/tests/kitty_placeholder.rs`, `baud-domain/build/placeholder.rs`, `baud-domain/src/lib.rs`, `baud-domain/tests/placeholder.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/kitty_placeholder.rs`, `crates/baud-domain/build/placeholder.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/tests/placeholder.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-rowcolumn-diacritics"></a>
 ### kitty-rowcolumn-diacritics
@@ -5755,7 +5755,7 @@ kitty v0.49.2, gen/rowcolumn-diacritics.txt -- the 297 combining marks a Unicode
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/gen/rowcolumn-diacritics.txt>
 - **sha256:** `a80368b3272c41d8b50f3f640cf4305b6423e5a1aae6b72a405129bc29425f2c` (18056 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/build/placeholder.rs`, `baud-domain/src/lib.rs`, `baud-domain/src/placeholder.rs`, `baud-domain/tests/placeholder.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/build/placeholder.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/src/placeholder.rs`, `crates/baud-domain/tests/placeholder.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-screen-0-49"></a>
 ### kitty-screen-0-49
@@ -5765,7 +5765,7 @@ kitty v0.49.0, screen.c -- screen\_resize, resize\_screen\_buffers and scrolled\
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/07ed6aa3de28af2a01e521f18c56ed292aa34cfc/kitty/screen.c>
 - **sha256:** `5e8c23dfe18c7cfe15829bbeabc1646e21910aebeb17301d36cfa4bd9f393d5f` (300663 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/scrollback.rs`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/scrollback.rs`
 
 <a id="kitty-screen-c"></a>
 ### kitty-screen-c
@@ -5776,7 +5776,7 @@ kitty v0.49.2, kitty/screen.c -- screen\_render\_line\_graphics, how a line's Un
 - **sha256:** `e73f7eaa9d01d40bb0cbe6a3232691bc864c9b8ab3770cef983106bf40c32fe0` (305999 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/kitty_cursor.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-core/tests/kitty_screens.rs`, `baud-domain/src/image.rs`, `baud-domain/src/placeholder.rs`, `baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/kitty_cursor.rs`, `crates/baud-core/tests/kitty_graphics.rs`, `crates/baud-core/tests/kitty_screens.rs`, `crates/baud-domain/src/image.rs`, `crates/baud-domain/src/placeholder.rs`, `crates/baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-shaders-c"></a>
 ### kitty-shaders-c
@@ -5786,7 +5786,7 @@ kitty v0.49.2, kitty/shaders.c -- send\_image\_to\_gpu, the texture filter an im
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kitty/shaders.c>
 - **sha256:** `6f2cafc540e1b4b2735785f2fa1db429471f1e338cf9b576dfb73122474c0037` (166583 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/image.rs`
+- **Cited in:** `crates/baud-domain/src/image.rs`
 
 <a id="kitty-shell-integration"></a>
 ### kitty-shell-integration
@@ -5797,7 +5797,7 @@ kitty 6d5d0c4, docs/shell-integration.rst -- OSC 133;A redraw=0, special\_key=1,
 - **sha256:** `7f49470c5ebd39129d47f681fca6fb39cc3d15f893166fdb0f10c595186c2d95` (19089 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-app/src/ran.rs`, `baud-app/src/readline.rs`, `baud-core/tests/prompt_marks.rs`, `baud-domain/src/vt/semantic.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/ran.rs`, `crates/baud-app/src/readline.rs`, `crates/baud-core/tests/prompt_marks.rs`, `crates/baud-domain/src/vt/semantic.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="kitty-simd-string-h"></a>
 ### kitty-simd-string-h
@@ -5807,7 +5807,7 @@ kitty v0.49.2, kitty/simd-string.h -- blend\_pixel\_over\_straight and blend\_pi
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kitty/simd-string.h>
 - **sha256:** `2c0cec3947ed57a709f87174570e26877b17758659119fae264f74e1b6fbd6be` (6570 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/kitty_animation.rs`, `baud-domain/src/image/frames.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/kitty_animation.rs`, `crates/baud-domain/src/image/frames.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-text-sizing"></a>
 ### kitty-text-sizing
@@ -5817,7 +5817,7 @@ kitty: the text sizing protocol (OSC 66), v0.48.2. Kovid Goyal, 2026, kovidgoyal
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/v0.48.2/docs/text-sizing-protocol.rst>
 - **sha256:** `98300c9d1cab5269ded5b378eb0043bbe40f7ea9e0472e1ddc8b8c8e5b2fda27` (25872 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/text_size.rs`, `baud-domain/tests/text_size.rs`
+- **Cited in:** `crates/baud-domain/src/vt/text_size.rs`, `crates/baud-domain/tests/text_size.rs`
 
 <a id="kitty-themes-rst"></a>
 ### kitty-themes-rst
@@ -5827,7 +5827,7 @@ kitty 6d5d0c4, docs/kittens/themes.rst -- auto themes, and the next OS colour-mo
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/docs/kittens/themes.rst>
 - **sha256:** `d230a9acec8b3ae3605649719ba3f177ae738d780d11e5b4d9dd60c03a09c7e3` (5464 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/appearance.rs`
+- **Cited in:** `crates/baud-app/src/appearance.rs`
 
 <a id="kitty-trail-slang"></a>
 ### kitty-trail-slang
@@ -5847,7 +5847,7 @@ kitty v0.49.2, shaders/trail.slang -- the trail's fragment, zero inside the curs
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/shaders/trail.slang>
 - **sha256:** `16a752335c838b57278365593350820390571a587ce8f3fefc107bebd0e35e77` (1303 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/trail.rs`
+- **Cited in:** `crates/baud-render/src/trail.rs`
 
 <a id="kitty-tui-hold"></a>
 ### kitty-tui-hold
@@ -5857,7 +5857,7 @@ kitty v0.49.2, tools/tui/hold.go -- what &#96;kitten icat --hold&#96; waits for.
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/tools/tui/hold.go>
 - **sha256:** `7684cc26088c731f54b5e4bf2308022b1eca2bc58fa5cbabcc2c2a39457f5225` (1594 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/kitten_icat.rs`
+- **Cited in:** `crates/baud-core/tests/kitten_icat.rs`
 
 <a id="kitty-tui-loop-read"></a>
 ### kitty-tui-loop-read
@@ -5867,7 +5867,7 @@ kitty v0.49.2, tools/tui/loop/read.go -- the Primary DA a kitten's loop waits on
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/tools/tui/loop/read.go>
 - **sha256:** `0d8e0ce91eee9669351f52c29dc6c24e18a0e45c4afebf2c283e1d5f871265aa` (3072 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/kitten_icat.rs`
+- **Cited in:** `crates/baud-core/tests/kitten_icat.rs`
 
 <a id="kitty-underlines"></a>
 ### kitty-underlines
@@ -5877,7 +5877,7 @@ Colored and styled underlines. Kovid Goyal, 2025, kitty documentation.
 - **URL:** <https://sw.kovidgoyal.net/kitty/underlines/>
 - **sha256:** `73c2eb31824a9594f256693dd55d990acd3cc0094345f3b61a0f8d2c5c2a6546` (156855 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/sgr/groups.rs`, `baud-core/tests/sgr/underline.rs`, `baud-domain/src/style.rs`, `baud-domain/src/vt/sgr.rs`, `baud-render/src/renderer.rs`, `baud-render/tests/decorations.rs`, `baud-render/tests/underline_styles.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/sgr/groups.rs`, `crates/baud-core/tests/sgr/underline.rs`, `crates/baud-domain/src/style.rs`, `crates/baud-domain/src/vt/sgr.rs`, `crates/baud-render/src/renderer.rs`, `crates/baud-render/tests/decorations.rs`, `crates/baud-render/tests/underline_styles.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-utils-py"></a>
 ### kitty-utils-py
@@ -5887,7 +5887,7 @@ kitty v0.49.2, kitty/utils.py -- is\_ok\_to\_read\_image\_path, is\_ok\_to\_read
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kitty/utils.py>
 - **sha256:** `cedf69dd3cc909e25f9a11e35e794599364e8f1bced13ce53e744114a0d63f7f` (38776 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/kitty_files.rs`
+- **Cited in:** `crates/baud-app/src/kitty_files.rs`
 
 <a id="kitty-vt-parser-c"></a>
 ### kitty-vt-parser-c
@@ -5898,7 +5898,7 @@ kitty v0.50.0, kitty/vt-parser.c -- where an APC, DCS, OSC, PM or SOS string end
 - **sha256:** `013e26af75562807204754c92efec9d1759f7ecb596211a57afced0c0bc3c984` (71933 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-08
-- **Cited in:** `baud-app/src/pages.rs`, `baud-core/src/graph.rs`, `baud-core/tests/control_strings.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-core/tests/kitty_string_end.rs`, `baud-core/tests/string_controls.rs`, `baud-domain/src/base64.rs`, `baud-render/tests/kitten_logo.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/pages.rs`, `crates/baud-core/src/graph.rs`, `crates/baud-core/tests/control_strings.rs`, `crates/baud-core/tests/kitty_graphics.rs`, `crates/baud-core/tests/kitty_string_end.rs`, `crates/baud-core/tests/string_controls.rs`, `crates/baud-domain/src/base64.rs`, `crates/baud-render/tests/kitten_logo.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-window-py"></a>
 ### kitty-window-py
@@ -5908,7 +5908,7 @@ kitty 6d5d0c4, kitty/window.py -- is\_dark of the current default background, an
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/window.py>
 - **sha256:** `81b932ca6c2f8c196d180dedcbba48c798008589f22bc7a689b3968b1b9bb2b9` (114737 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/colour.rs`, `baud-core/tests/kitty_colours.rs`, `baud-domain/src/vt/kitty_color.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/colour.rs`, `crates/baud-core/tests/kitty_colours.rs`, `crates/baud-domain/src/vt/kitty_color.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-xkb-glfw-c"></a>
 ### kitty-xkb-glfw-c
@@ -5918,7 +5918,7 @@ kitty 9710eb4, glfw/xkb\_glfw.c -- a key's text only while no Control, Alt, Supe
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/9710eb4460ca0ab1532b0107d7066c20d7e9a66f/glfw/xkb_glfw.c>
 - **sha256:** `cc053ce1c1d385d313b3b5ce5009f6f6562bf7000cfbd8e476fc7ac2c8e831f2` (49402 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/app.rs`, `baud-core/tests/kitty_encode.rs`, `baud-domain/src/input.rs`, `baud-present-wayland/src/keys.rs`, `baud-present-wayland/tests/keypad.rs`, `baud-present-wayland/tests/shift.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `crates/baud-core/tests/kitty_encode.rs`, `crates/baud-domain/src/input.rs`, `crates/baud-present-wayland/src/keys.rs`, `crates/baud-present-wayland/tests/keypad.rs`, `crates/baud-present-wayland/tests/shift.rs`, `docs/input-coverage.md`
 
 <a id="kotobank-nikkoku-bo"></a>
 ### kotobank-nikkoku-bo
@@ -5928,7 +5928,7 @@ Seisenban Nihon Kokugo Daijiten, ボー (baud), on kotobank. Shogakukan, 2006, k
 - **URL:** <https://kotobank.jp/word/%E3%83%9C%E3%83%BC-3170481>
 - **sha256:** `67673b124c8ca23720b0a23740435ebb174ccdc9d0794b48c41b539126bf4488` (225683 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/session.rs`
+- **Cited in:** `crates/baud-app/examples/demo/session.rs`
 
 <a id="last-resort-license"></a>
 ### last-resort-license
@@ -5965,7 +5965,7 @@ libadwaita 0ffcd2c, src/adw-style-manager.c -- how an app colour scheme resolves
 - **URL:** <https://gitlab.gnome.org/GNOME/libadwaita/-/raw/0ffcd2c80b2260bdae01b89e88d94bb5c856db13/src/adw-style-manager.c>
 - **sha256:** `87c68da0d03b8b554826d6fcd06046e5dfd451f0db3526279087a2d1626e7de9` (36525 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/appearance.rs`
+- **Cited in:** `crates/baud-app/src/appearance.rs`
 
 <a id="libbase64-dec-tail-c"></a>
 ### libbase64-dec-tail-c
@@ -5976,7 +5976,7 @@ kitty v0.50.0, 3rdparty/base64/lib/arch/generic/dec\_tail.c -- libbase64 (Alfred
 - **sha256:** `9784172e7ddb2586213c9cd3cf61e2d4eb884b0d2cbc902c80b90c9654c25fab` (1774 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-08
-- **Cited in:** `baud-core/tests/kitty_string_end.rs`, `baud-domain/src/base64.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/kitty_string_end.rs`, `crates/baud-domain/src/base64.rs`, `docs/vt-coverage.md`
 
 <a id="libjpeg-turbo-314"></a>
 ### libjpeg-turbo-314
@@ -5987,7 +5987,7 @@ libjpeg-turbo 3.1.4 -- src/jdarith.c (decode\_mcu\_AC\_refine, a scan stopped on
 - **sha256:** `3a581ad5a3060cee69487aae0bc71a1f3be94b89f92215e32b43742ec4a5055c` (2528165 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-01
-- **Cited in:** `baud-domain/src/jpeg.rs`, `baud-domain/tests/jpeg.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/jpeg.rs`, `crates/baud-domain/tests/jpeg.rs`, `docs/vt-coverage.md`
 
 <a id="libnotify-348-notify-client"></a>
 ### libnotify-348-notify-client
@@ -5998,7 +5998,7 @@ Libnotify-348.120.4, notify\_client.c -- \_notify\_globals(), notify\_is\_valid\
 - **sha256:** `d6a955e8fbadfe6e8716ab3b60dda6ea2a964654420b09c45ae2455b334326f7` (151157 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-24
-- **Cited in:** `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/sys.rs`
 
 <a id="libunity-launcher-entry"></a>
 ### libunity-launcher-entry
@@ -6008,7 +6008,7 @@ libunity, src/unity-launcher.vala -- com.canonical.Unity.LauncherEntry: Update(a
 - **URL:** <https://git.launchpad.net/ubuntu/+source/libunity/plain/src/unity-launcher.vala?id=d45a5f5e66a1acc2eb02541f9a09b064ca3fb1bc>
 - **sha256:** `cb6437626b890c5b3a32e9d5b4ee201a1be629f27505f202f085906d58356631` (16135 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/bus.rs`, `baud-domain/src/vt/launcher_entry.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/bus.rs`, `crates/baud-domain/src/vt/launcher_entry.rs`, `docs/vt-coverage.md`
 
 <a id="libx11-cmscolnm-b8d5a70"></a>
 ### libx11-cmscolnm-b8d5a70
@@ -6019,7 +6019,7 @@ libX11 b8d5a70, src/xcms/cmsColNm.c -- \_XcmsParseColorString lower-cases a colo
 - **sha256:** `1e9da33b74e797b5f0db2d8f5b253146c5cdbee429f105710138310ae1a0cb81` (24530 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/vt/osc.rs`
+- **Cited in:** `crates/baud-domain/src/vt/osc.rs`
 
 <a id="libx11-compose-5"></a>
 ### libx11-compose-5
@@ -6029,7 +6029,7 @@ Compose(5) -- X client mappings for multi-key input sequences: the file format, 
 - **URL:** <https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/libX11-1.8.13/man/Compose.man>
 - **sha256:** `6901b1cd8a7dab84b96d720db0ee9b10e13bca06da00918edb8253d0e409cfd3` (5789 bytes)
 - **Copy:** [docs/research/sources/libx11-1.8.13-Compose.man](research/sources/libx11-1.8.13-Compose.man)
-- **Cited in:** `baud-xkb/src/compose.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-xkb/src/compose.rs`, `docs/input-coverage.md`
 
 <a id="libx11-compose-el-gr"></a>
 ### libx11-compose-el-gr
@@ -6058,7 +6058,7 @@ libX11 b8d5a70, src/xcms/LRGB.c -- XcmsLRGB\_RGB\_ParseString: rgb: with one to 
 - **sha256:** `52b9a3b9d8d3d6913bb5014daba84f460446b25d0da9146dca997c125ee80fa6` (48009 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/vt/osc.rs`, `baud-domain/src/vt/xcms.rs`, `baud-domain/src/vt/xcms/tests.rs`
+- **Cited in:** `crates/baud-domain/src/vt/osc.rs`, `crates/baud-domain/src/vt/xcms.rs`, `crates/baud-domain/src/vt/xcms/tests.rs`
 
 <a id="libx11-parsecol-b8d5a70"></a>
 ### libx11-parsecol-b8d5a70
@@ -6069,7 +6069,7 @@ libX11 b8d5a70, src/ParseCol.c -- XParseColor: the # forms shifted into the most
 - **sha256:** `b5f82e2c4fece4ea738805364c78371e604b457bc414cfdbc8e66bbac3cf85f1` (3551 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/xresources.rs`, `baud-domain/src/vt/osc.rs`, `baud-domain/tests/x_colour_names.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/themefile/xresources.rs`, `crates/baud-domain/src/vt/osc.rs`, `crates/baud-domain/tests/x_colour_names.rs`, `docs/vt-coverage.md`
 
 <a id="libx11-xcms-cmsint-b8d5a70"></a>
 ### libx11-xcms-cmsint-b8d5a70
@@ -6079,7 +6079,7 @@ libX11 b8d5a70, src/xcms/cmsInt.c -- XCMSCOMPPROC defaults to XcmsTekHVCClipC; t
 - **URL:** <https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/cmsInt.c>
 - **sha256:** `759b590b3b9fd8f83385ab15419c12d9b270d51e413c988a5c8b76928450c0eb` (9180 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/xcms.rs`
+- **Cited in:** `crates/baud-domain/src/vt/xcms.rs`
 
 <a id="libx11-xcms-cmsmath-b8d5a70"></a>
 ### libx11-xcms-cmsmath-b8d5a70
@@ -6089,7 +6089,7 @@ libX11 b8d5a70, src/xcms/cmsMath.c -- \_XcmsCubeRoot and \_XcmsSquareRoot (The O
 - **URL:** <https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/cmsMath.c>
 - **sha256:** `c76f1c65d6236a08dd714ab3c1907bb9e4fea609645235ff29cf14013efbc61d` (3110 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/xcms.rs`
+- **Cited in:** `crates/baud-domain/src/vt/xcms.rs`
 
 <a id="libx11-xcms-cmstrig-b8d5a70"></a>
 ### libx11-xcms-cmstrig-b8d5a70
@@ -6099,7 +6099,7 @@ libX11 b8d5a70, src/xcms/cmsTrig.c -- \_XcmsSine, \_XcmsCosine, \_XcmsArcTangent
 - **URL:** <https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/cmsTrig.c>
 - **sha256:** `83d2aea0d7e973fc51c2e0fa5e341cde733bc0ab47ac240e30a7af3f92884afd` (14957 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/xcms.rs`
+- **Cited in:** `crates/baud-domain/src/vt/xcms.rs`
 
 <a id="libx11-xcms-cvcols-b8d5a70"></a>
 ### libx11-xcms-cvcols-b8d5a70
@@ -6109,7 +6109,7 @@ libX11 b8d5a70, src/xcms/CvCols.c -- XcmsConvertColors: a device-independent spe
 - **URL:** <https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/CvCols.c>
 - **sha256:** `bc21e1fb29b4372363c83c8c51254699a4ea8e48691477715905c4b015227f8c` (26555 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/xcms.rs`
+- **Cited in:** `crates/baud-domain/src/vt/xcms.rs`
 
 <a id="libx11-xcms-hvc-b8d5a70"></a>
 ### libx11-xcms-hvc-b8d5a70
@@ -6119,7 +6119,7 @@ libX11 b8d5a70, src/xcms/HVC.c -- TekHVC to and from u'v'Y, ThetaOffset, ValidSp
 - **URL:** <https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/HVC.c>
 - **sha256:** `fcf1cc53185292d3942a661d3867fb70c91d3dadc4367a8a872426b18d78ce8d` (16116 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/xcms.rs`
+- **Cited in:** `crates/baud-domain/src/vt/xcms.rs`
 
 <a id="libx11-xcms-hvcgcc-b8d5a70"></a>
 ### libx11-xcms-hvcgcc-b8d5a70
@@ -6129,7 +6129,7 @@ libX11 b8d5a70, src/xcms/HVCGcC.c -- XcmsTekHVCClipC, the default gamut compress
 - **URL:** <https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/HVCGcC.c>
 - **sha256:** `b3843bc82484a7e02a5d175fc9459e86053658116adf6a815251c76534a2c2bf` (4764 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/xcms.rs`
+- **Cited in:** `crates/baud-domain/src/vt/xcms.rs`
 
 <a id="libx11-xcms-hvcmxc-b8d5a70"></a>
 ### libx11-xcms-hvcmxc-b8d5a70
@@ -6139,7 +6139,7 @@ libX11 b8d5a70, src/xcms/HVCMxC.c -- XcmsTekHVCQueryMaxC. Tektronix, Inc.; The O
 - **URL:** <https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/HVCMxC.c>
 - **sha256:** `cdb713294aec5401092de8e032edd3a2ee96dfd05809eaf9e1a6a8385ffe86a8` (7767 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/xcms.rs`
+- **Cited in:** `crates/baud-domain/src/vt/xcms.rs`
 
 <a id="libx11-xcms-hvcmxvc-b8d5a70"></a>
 ### libx11-xcms-hvcmxvc-b8d5a70
@@ -6149,7 +6149,7 @@ libX11 b8d5a70, src/xcms/HVCMxVC.c -- \_XcmsTekHVCQueryMaxVCRGB. Tektronix, Inc.
 - **URL:** <https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/HVCMxVC.c>
 - **sha256:** `2c0aa86df3f8f34f4dcc021d591b50e68d3178c930d20f67e7d2fd6dc62ffc63` (6987 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/xcms.rs`
+- **Cited in:** `crates/baud-domain/src/vt/xcms.rs`
 
 <a id="libx11-xcms-lab-b8d5a70"></a>
 ### libx11-xcms-lab-b8d5a70
@@ -6159,7 +6159,7 @@ libX11 b8d5a70, src/xcms/Lab.c -- CIELab to XYZ: a/5 and b/2, and Y = L\*/9.0329
 - **URL:** <https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/Lab.c>
 - **sha256:** `3f776cb3c3952c8231e8fabcf81e2e78a305951629248afc56cbb1d762d2eeda` (10874 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/xcms.rs`
+- **Cited in:** `crates/baud-domain/src/vt/xcms.rs`
 
 <a id="libx11-xcms-luv-b8d5a70"></a>
 ### libx11-xcms-luv-b8d5a70
@@ -6169,7 +6169,7 @@ libX11 b8d5a70, src/xcms/Luv.c -- CIELuv to u'v'Y: u\* / (13 L\*/100). Tektronix
 - **URL:** <https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/Luv.c>
 - **sha256:** `29701699e6e3697e221cd87a5cbae1e33d2729278bb77f81bbf9ce72912d6058` (10097 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/xcms.rs`
+- **Cited in:** `crates/baud-domain/src/vt/xcms.rs`
 
 <a id="libx11-xcms-makefile-b8d5a70"></a>
 ### libx11-xcms-makefile-b8d5a70
@@ -6191,7 +6191,7 @@ libX11 b8d5a70, src/xcms/Xcms.txt -- the client-side colour name database a stoc
 - **sha256:** `7a3f9b068488408d8a3422013209db1b32e5cc57d500c0f069c06490c1f41c29` (1723 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-18
-- **Cited in:** `baud-core/tests/xterm/osc.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/xterm/osc.rs`, `docs/vt-coverage.md`
 
 <a id="libx11-xcms-uvy-b8d5a70"></a>
 ### libx11-xcms-uvy-b8d5a70
@@ -6201,7 +6201,7 @@ libX11 b8d5a70, src/xcms/uvY.c -- CIE u'v'Y to and from XYZ, and its Y range. Te
 - **URL:** <https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/uvY.c>
 - **sha256:** `a0f485d20da7e4feb9f4248acf3cefd3a15db8387c1c6538c7a1ea141c15bc7c` (10525 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/xcms.rs`
+- **Cited in:** `crates/baud-domain/src/vt/xcms.rs`
 
 <a id="libx11-xcms-xyy-b8d5a70"></a>
 ### libx11-xcms-xyy-b8d5a70
@@ -6211,7 +6211,7 @@ libX11 b8d5a70, src/xcms/xyY.c -- CIE xyY to XYZ by way of u'v', and its ranges.
 - **URL:** <https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/xyY.c>
 - **sha256:** `7f6f989f1c434dbe19a9091d1137761eeda2a122551cd784de74a3356e686647` (9869 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/xcms.rs`
+- **Cited in:** `crates/baud-domain/src/vt/xcms.rs`
 
 <a id="libx11-xcms-xyz-b8d5a70"></a>
 ### libx11-xcms-xyz-b8d5a70
@@ -6221,7 +6221,7 @@ libX11 b8d5a70, src/xcms/XYZ.c -- CIEXYZ: parse and its Y range. Tektronix, Inc.
 - **URL:** <https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/XYZ.c>
 - **sha256:** `423be657949edbc84c6d95e7e2ccebd6802ca2f2ad395578adc3418c41d95800` (4833 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/xcms.rs`
+- **Cited in:** `crates/baud-domain/src/vt/xcms.rs`
 
 <a id="libx11-xkbbind-c"></a>
 ### libx11-xkbbind-c
@@ -6232,7 +6232,7 @@ libX11 1.8.13, src/xkb/XKBBind.c -- XLookupString's Control fallback: with Contr
 - **sha256:** `0c2163f33ab1ceb8ca7826ed2dce2a1c3734603a28c6008959d766929f89536d` (23500 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-present-wayland/src/keys.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-present-wayland/src/keys.rs`, `docs/input-coverage.md`
 
 <a id="libx11-xkbuse-c"></a>
 ### libx11-xkbuse-c
@@ -6254,7 +6254,7 @@ libX11 b8d5a70, src/Xrm.c -- the resource file reader: bindings, comments, #incl
 - **sha256:** `61c88a71ee19267f16cc6d0916c79c07dbe52c868e86a82e7d06aca7aecdd68d` (69137 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/xresources.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/xresources.rs`
 
 <a id="libxft-xftcolor-6b333a3"></a>
 ### libxft-xftcolor-6b333a3
@@ -6265,7 +6265,7 @@ libXft 6b333a3, src/xftcolor.c -- XftColorAllocValue takes each 16-bit component
 - **sha256:** `0549d05ee0478ad9c77572fcf7ed625fcf574227172410325af26e2c1ba53fbb` (3450 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/xresources.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/xresources.rs`
 
 <a id="libxkbcommon-compose-parser-c"></a>
 ### libxkbcommon-compose-parser-c
@@ -6276,7 +6276,7 @@ libxkbcommon 1.13.2, src/compose/parser.c -- the Compose grammar, the lexer and 
 - **sha256:** `d6252e3fe61e20552d7aa5808a76725ccedeefee3113d5bb4d782f4e0a23281a` (26889 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-xkb/src/compose.rs`
+- **Cited in:** `crates/baud-xkb/src/compose.rs`
 
 <a id="libxkbcommon-compose-paths-c"></a>
 ### libxkbcommon-compose-paths-c
@@ -6287,7 +6287,7 @@ libxkbcommon 1.13.2, src/compose/paths.c -- resolve\_name over locale.alias and 
 - **sha256:** `e9824c89ffb87dd6a0ddf0dc5dde96cee1ba24bc196f438a11560c368db60ef7` (6663 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-app/src/pty.rs`, `baud-xkb/src/compose.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`, `crates/baud-xkb/src/compose.rs`
 
 <a id="libxkbcommon-compose-state-c"></a>
 ### libxkbcommon-compose-state-c
@@ -6298,7 +6298,7 @@ libxkbcommon 1.13.2, src/compose/state.c -- xkb\_compose\_state\_feed, get\_stat
 - **sha256:** `7ee3226e43cb216b3742b177f46b16a28cca66722c71b093ab0bf57fbbb5c769` (4802 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-xkb/src/keysym.rs`
+- **Cited in:** `crates/baud-xkb/src/keysym.rs`
 
 <a id="libxkbcommon-keysym-c"></a>
 ### libxkbcommon-keysym-c
@@ -6309,7 +6309,7 @@ libxkbcommon 1.13.2, src/keysym.c -- xkb\_keysym\_from\_name (the U and 0x forms
 - **sha256:** `123e3390d443b85c9cc9d1833c168ecda955d1c642fda03881052bb99c3369c5` (14948 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-xkb/src/keysym.rs`
+- **Cited in:** `crates/baud-xkb/src/keysym.rs`
 
 <a id="libxkbcommon-keysym-utf-c"></a>
 ### libxkbcommon-keysym-utf-c
@@ -6320,7 +6320,7 @@ libxkbcommon 1.13.2, src/keysym-utf.c -- xkb\_utf32\_to\_keysym and xkb\_keysym\
 - **sha256:** `a66da728a39b440535d9aa62cfc9a46410bd0e54d41d6190ce0aab91a8eee9ef` (78027 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-xkb/src/keysym.rs`
+- **Cited in:** `crates/baud-xkb/src/keysym.rs`
 
 <a id="lindbloom-chromadapt"></a>
 ### lindbloom-chromadapt
@@ -6331,7 +6331,7 @@ Chromatic Adaptation -- the reference whites from ASTM E308-01, D65 0.95047 1.00
 - **sha256:** `2da1d53b86992a40fa769a413ac0f76d302c485d2a58351bf1029d16ac406132` (55523 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-25
-- **Cited in:** `baud-domain/src/themefile/oklab.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/oklab.rs`
 
 <a id="lindbloom-rgb-xyz-matrix"></a>
 ### lindbloom-rgb-xyz-matrix
@@ -6342,7 +6342,7 @@ RGB/XYZ Matrices -- sRGB D65's XYZ-to-RGB matrix, 3.2404542 -1.5371385 -0.498531
 - **sha256:** `405bb5f8779b9d2115265ea207579c344d022dd005219278ad4a5febf5edbbee` (13811 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-25
-- **Cited in:** `baud-domain/src/themefile/oklab.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/oklab.rs`
 
 <a id="linux-af-unix"></a>
 ### linux-af-unix
@@ -6353,7 +6353,7 @@ Linux cf72cbb, net/unix/af\_unix.c -- unix\_stream\_read\_generic: a read ends a
 - **sha256:** `05a9dd99d8cffacb41e0a0127f597998f93a3f01634d083d528ff0efbb573760` (93547 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-24
-- **Cited in:** `baud-present-wayland/tests/handshake.rs`
+- **Cited in:** `crates/baud-present-wayland/tests/handshake.rs`
 
 <a id="linux-asm-generic-unistd-h"></a>
 ### linux-asm-generic-unistd-h
@@ -6363,7 +6363,7 @@ Linux v6.12, include/uapi/asm-generic/unistd.h -- the shared syscall table: \_\_
 - **URL:** <https://raw.githubusercontent.com/torvalds/linux/v6.12/include/uapi/asm-generic/unistd.h>
 - **sha256:** `aec51e459e2b113bcf8e16c99be09d5384fe3f4fa4a16100dfe0e71dbc0e172a` (31240 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/sys.rs`
 
 <a id="linux-devpts-inode-c"></a>
 ### linux-devpts-inode-c
@@ -6373,7 +6373,7 @@ Linux cf72cbb, fs/devpts/inode.c -- devpts\_new\_index: ENOSPC once kernel/pty/n
 - **URL:** <https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/fs/devpts/inode.c>
 - **sha256:** `e1492ab16d289b4ecface213e014091c8c2a1a32ee32f5770be3927e6af9f1ec` (14229 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/pty.rs`, `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`, `crates/baud-app/src/sys.rs`
 
 <a id="linux-ledtrig-tty"></a>
 ### linux-ledtrig-tty
@@ -6383,7 +6383,7 @@ Linux cf72cbb, drivers/leds/trigger/ledtrig-tty.c -- the tty LED trigger: a dela
 - **URL:** <https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/leds/trigger/ledtrig-tty.c>
 - **sha256:** `eedf57ba102ca3a57b42ff9ee0a8396b7f4ac2d54dc76f376ca95f73206b487d` (8163 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/lights.rs`
+- **Cited in:** `crates/baud-render/src/lights.rs`
 
 <a id="linux-madvise-2"></a>
 ### linux-madvise-2
@@ -6393,7 +6393,7 @@ Linux man-pages 6.9.1, madvise(2) -- MADV\_DONTNEED, RETURN VALUE and ERRORS. Mi
 - **URL:** <https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man2/madvise.2?h=man-pages-6.9.1>
 - **sha256:** `b4df0dd15fb4c4ec23d563e930a8643521c98a5539caa8336bf9aa3bdd89b620` (26172 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/pages.rs`, `baud-domain/src/image.rs`
+- **Cited in:** `crates/baud-app/src/pages.rs`, `crates/baud-domain/src/image.rs`
 
 <a id="linux-man-close-range"></a>
 ### linux-man-close-range
@@ -6403,7 +6403,7 @@ close\_range(2) -- 'closes all open file descriptors from first to last (include
 - **URL:** <https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man2/close_range.2?id=adb436b2e4471218021d86f188fb58dec3946eb8>
 - **sha256:** `4ac5cb3b5deedbe3f23519b8f5d1a751aefddacc4fae2864798f3ac8e27e3666` (6695 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/inherited.rs`
+- **Cited in:** `crates/baud-app/src/inherited.rs`
 
 <a id="linux-man-getmntent-3"></a>
 ### linux-man-getmntent-3
@@ -6413,7 +6413,7 @@ getmntent(3) -- 'octal escapes are used to represent the characters space (\\040
 - **URL:** <https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man3/getmntent.3?id=adb436b2e4471218021d86f188fb58dec3946eb8>
 - **sha256:** `87cf7916f65d2a00b12eebb2e4ddcecab72ba1bcb3fcd1c8cbaf78e259e708e9` (5258 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/probe.rs`
+- **Cited in:** `crates/baud-app/src/probe.rs`
 
 <a id="linux-man-inotify-7"></a>
 ### linux-man-inotify-7
@@ -6423,7 +6423,7 @@ inotify(7) -- 'When a directory is monitored, inotify will return events for the
 - **URL:** <https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man7/inotify.7?id=adb436b2e4471218021d86f188fb58dec3946eb8>
 - **sha256:** `63b8f75789236ad9e14184e4922b380361bca6b509420f0f1c03c138fabb2c87` (28937 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/reload.rs`, `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/reload.rs`, `crates/baud-app/src/sys.rs`
 
 <a id="linux-man-pidfd-open"></a>
 ### linux-man-pidfd-open
@@ -6433,7 +6433,7 @@ pidfd\_open(2) -- 'When the task that it refers to terminates and becomes a zomb
 - **URL:** <https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man2/pidfd_open.2?id=adb436b2e4471218021d86f188fb58dec3946eb8>
 - **sha256:** `e1b56b12a9a763ca13937c96f9e2e500c704303819691b5485359d81f4bc1ff6` (7258 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/pty.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`
 
 <a id="linux-man-proc-pid-cmdline"></a>
 ### linux-man-proc-pid-cmdline
@@ -6443,7 +6443,7 @@ proc\_pid\_cmdline(5) -- 'a set of strings separated by null bytes'. The Linux m
 - **URL:** <https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man5/proc_pid_cmdline.5?id=adb436b2e4471218021d86f188fb58dec3946eb8>
 - **sha256:** `a9f3b83b1b0442319d0a8a5be23787c8024bc485dd54a062da9c37d57733f111` (1557 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fg.rs`
+- **Cited in:** `crates/baud-app/src/fg.rs`
 
 <a id="linux-man-proc-pid-cwd"></a>
 ### linux-man-proc-pid-cwd
@@ -6453,7 +6453,7 @@ proc\_pid\_cwd(5) -- PTRACE\_MODE\_READ\_FSCREDS governs reading the link. The L
 - **URL:** <https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man5/proc_pid_cwd.5?id=adb436b2e4471218021d86f188fb58dec3946eb8>
 - **sha256:** `631f2ff8a968d27742c389648cac2674e6a24e1afe88c14f4d44f547c85257d9` (1051 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fg.rs`
+- **Cited in:** `crates/baud-app/src/fg.rs`
 
 <a id="linux-man-proc-pid-mountinfo"></a>
 ### linux-man-proc-pid-mountinfo
@@ -6463,7 +6463,7 @@ proc\_pid\_mountinfo(5) -- the eleven fields, the optional ones ended by a singl
 - **URL:** <https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man5/proc_pid_mountinfo.5?id=adb436b2e4471218021d86f188fb58dec3946eb8>
 - **sha256:** `190e9124ac7b358a9f9936fcbd8b2f740217c0ebb3a6ac1343551e7d11b5b38c` (3705 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/probe.rs`
+- **Cited in:** `crates/baud-app/src/probe.rs`
 
 <a id="linux-n-tty"></a>
 ### linux-n-tty
@@ -6473,7 +6473,7 @@ Linux cf72cbb, drivers/tty/n\_tty.c -- the N\_TTY line discipline: N\_TTY\_BUF\_
 - **URL:** <https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/n_tty.c>
 - **sha256:** `5f33bf3bca249d246c2bbf85f7852e77dd65dc14e57a135a83fa03adb9dda0a9` (64766 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/sys.rs`, `baud-core/src/storage.rs`, `baud-domain/src/source.rs`, `baud-render/src/lights.rs`
+- **Cited in:** `crates/baud-app/src/sys.rs`, `crates/baud-core/src/storage.rs`, `crates/baud-domain/src/source.rs`, `crates/baud-render/src/lights.rs`
 
 <a id="linux-pr-set-thp-disable-2const"></a>
 ### linux-pr-set-thp-disable-2const
@@ -6483,7 +6483,7 @@ Linux man-pages 6.9.1, PR\_SET\_THP\_DISABLE(2const). Michael Kerrisk, Alejandro
 - **URL:** <https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man2const/PR_SET_THP_DISABLE.2const?h=man-pages-6.9.1>
 - **sha256:** `15ac088f6396c8992f74a987080d119c04b47a3fc4aa8422fabc1cae8de69149` (1357 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/pages.rs`, `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/pages.rs`, `crates/baud-app/src/sys.rs`
 
 <a id="linux-proc-pid-smaps-5"></a>
 ### linux-proc-pid-smaps-5
@@ -6493,7 +6493,7 @@ Linux man-pages 6.9.1, proc\_pid\_smaps(5) -- Anonymous. Michael Kerrisk and the
 - **URL:** <https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man5/proc_pid_smaps.5?h=man-pages-6.9.1>
 - **sha256:** `1d5f512d0bf0ee313c19e6055370fc5de49deffde3d857e3cf71fbb52e945d6c` (4128 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/pages.rs`
+- **Cited in:** `crates/baud-app/src/pages.rs`
 
 <a id="linux-proc-pid-statm-5"></a>
 ### linux-proc-pid-statm-5
@@ -6503,7 +6503,7 @@ Linux man-pages 6.9.1, proc\_pid\_statm(5) -- resident and shared. Michael Kerri
 - **URL:** <https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man5/proc_pid_statm.5?h=man-pages-6.9.1>
 - **sha256:** `4c12a618124b865ca4226068f992eac3e1f057d75710ee72c3b52b59a2ca8371` (1577 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/pages.rs`
+- **Cited in:** `crates/baud-app/src/pages.rs`
 
 <a id="linux-pty"></a>
 ### linux-pty
@@ -6513,7 +6513,7 @@ Linux cf72cbb, drivers/tty/pty.c -- the pty master write path into the flip buff
 - **URL:** <https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/pty.c>
 - **sha256:** `199d8e94c5d78bccdf6b18f928d8adf85280a54c09cedbb0706047c612be4059` (24170 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/pty.rs`, `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`, `crates/baud-app/src/sys.rs`
 
 <a id="linux-sys-c-v6-8"></a>
 ### linux-sys-c-v6-8
@@ -6523,7 +6523,7 @@ Linux v6.8, kernel/sys.c -- prctl's PR\_SET\_THP\_DISABLE, which sets MMF\_DISAB
 - **URL:** <https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/plain/kernel/sys.c?h=v6.8>
 - **sha256:** `a5dbbc30a1dc3cc545e72fe6652435d9923b6fa15293911b02d4fc5591481b87` (70305 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/pages.rs`, `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/pages.rs`, `crates/baud-app/src/sys.rs`
 
 <a id="linux-transhuge-rst"></a>
 ### linux-transhuge-rst
@@ -6533,7 +6533,7 @@ Linux v6.8, Documentation/admin-guide/mm/transhuge.rst. The Linux kernel develop
 - **URL:** <https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/plain/Documentation/admin-guide/mm/transhuge.rst?h=v6.8>
 - **sha256:** `736daa18a27c995b7c4b39b5b1e9b862e1eaeb512f45861b08d31a876e3796e4` (19289 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/pages.rs`
+- **Cited in:** `crates/baud-app/src/pages.rs`
 
 <a id="linux-tty-jobctrl"></a>
 ### linux-tty-jobctrl
@@ -6543,7 +6543,7 @@ Linux cf72cbb, drivers/tty/tty\_jobctrl.c -- tiocgpgrp: the master side skips th
 - **URL:** <https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/tty_jobctrl.c>
 - **sha256:** `72ed41201aa4c751567fbc63c6d805fe6b79e4e4dfabeb8ed901945621822dfd` (14809 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/sys.rs`
 
 <a id="linux-uapi-dma-buf"></a>
 ### linux-uapi-dma-buf
@@ -6553,7 +6553,7 @@ Linux v6.12, include/uapi/linux/dma-buf.h -- DMA\_BUF\_IOCTL\_EXPORT\_SYNC\_FILE
 - **URL:** <https://raw.githubusercontent.com/torvalds/linux/v6.12/include/uapi/linux/dma-buf.h>
 - **sha256:** `f9e4cff5ae3a9e5d9b0db9a22cb98720d4d9d656544e0088d80c17a436c5b8f2` (7322 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-vulkan/src/sys.rs`
+- **Cited in:** `crates/baud-present-vulkan/src/sys.rs`
 
 <a id="linux-uapi-drm"></a>
 ### linux-uapi-drm
@@ -6563,7 +6563,7 @@ Linux v6.12, include/uapi/drm/drm.h -- DRM\_IOCTL\_SYNCOBJ\_FD\_TO\_HANDLE, DRM\
 - **URL:** <https://raw.githubusercontent.com/torvalds/linux/v6.12/include/uapi/drm/drm.h>
 - **sha256:** `3ab6ac01bf91067aed96b70d7fa7847a86e7f726d74278151f085143688659cc` (45915 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-vulkan/src/sys.rs`
+- **Cited in:** `crates/baud-present-vulkan/src/sys.rs`
 
 <a id="linux-uapi-inotify-h"></a>
 ### linux-uapi-inotify-h
@@ -6573,7 +6573,7 @@ Linux v6.17, include/uapi/linux/inotify.h -- the IN\_ event bits, IN\_CLOEXEC = 
 - **URL:** <https://raw.githubusercontent.com/torvalds/linux/v6.17/include/uapi/linux/inotify.h>
 - **sha256:** `48c09a53335353490f94cd465c96f092d0b3a9736b42aae8691e41b9c6390370` (3304 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/sys.rs`
 
 <a id="linux-vt-ris"></a>
 ### linux-vt-ris
@@ -6583,7 +6583,7 @@ Linux vt.c -- ESC c is reset\_terminal(vc, 1), which clears the visible screen o
 - **URL:** <https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/vt/vt.c>
 - **sha256:** `4501ad46d48c11d4a44d1c01d2ccfb07de291a281b323dbe08fea8d954b3cfdd` (124238 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/scrollback.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/scrollback.rs`, `docs/vt-coverage.md`
 
 <a id="linux-vt-sgr"></a>
 ### linux-vt-sgr
@@ -6593,7 +6593,7 @@ Linux vt.c -- SGR 21 falls through to a single underline, no console driver draw
 - **URL:** <https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/vt/vt.c>
 - **sha256:** `4501ad46d48c11d4a44d1c01d2ccfb07de291a281b323dbe08fea8d954b3cfdd` (124238 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/sgr.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/sgr.rs`, `docs/vt-coverage.md`
 
 <a id="lscolors-lib"></a>
 ### lscolors-lib
@@ -6622,7 +6622,7 @@ macOS 27.0 (26A5425a), Generic RGB Profile.icc -- the calibrated RGB space's col
 - **sha256:** `49429d4dd70f439f6fa47a298e5ffbd280375d2cbd18708b1e05a34aafe5d219` (1992 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/gamut.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/gamut.rs`
 
 <a id="macos-man-clock_gettime"></a>
 ### macos-man-clock_gettime
@@ -6641,7 +6641,7 @@ getfsstat(2) -- MNT\_NOWAIT 'will directly return the information retained in th
 - **URL:** $SDKROOT/usr/share/man/man2/getfsstat.2
 - **sha256:** `dec7d3d9b062670ff3a4b2d19f8367041eddcb4189fc4ef627111f5b90fd9c54` (4324 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/probe.rs`, `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/probe.rs`, `crates/baud-app/src/sys.rs`
 
 <a id="macos-man-getiopolicy-np-3"></a>
 ### macos-man-getiopolicy-np-3
@@ -6651,7 +6651,7 @@ getiopolicy\_np(3), which setiopolicy\_np.3 is a copy of -- IOPOL\_MATERIALIZE\_
 - **URL:** $SDKROOT/usr/share/man/man3/getiopolicy\_np.3
 - **sha256:** `2ffde535dd7f738db5555ab8d3f4cae5b9e5d3dc6c946f86d53619f0d4c5283e` (9513 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/sys.rs`
 
 <a id="macos-man-kqueue"></a>
 ### macos-man-kqueue
@@ -6661,7 +6661,7 @@ kqueue(2) -- EVFILT\_PROC: NOTE\_EXIT, NOTE\_FORK, NOTE\_EXEC (rendered text). A
 - **URL:** $SDKROOT/usr/share/man/man2/kqueue.2
 - **sha256:** `4ba50cf4cc28d9208313d27b67032dddde18d722c4d4dfb674dce88dfdea721c` (21365 bytes)
 - **Copy:** [docs/research/sources/macos-man-kqueue.txt](research/sources/macos-man-kqueue.txt)
-- **Cited in:** `baud-app/src/pty/outbox_watch.rs`, `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/pty/outbox_watch.rs`, `crates/baud-app/src/sys.rs`
 
 <a id="macos-man-launchd"></a>
 ### macos-man-launchd
@@ -6672,7 +6672,7 @@ launchd(8) -- 'During boot launchd is invoked by the kernel to run as the first 
 - **sha256:** `05a8aa5e6cc7353c0b8aacd1747ee99c2b60c6f88e4189b217ef60cb7fe3786f` (3077 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-14
-- **Cited in:** `baud-app/src/pty.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`
 
 <a id="macos-man-open-1"></a>
 ### macos-man-open-1
@@ -6682,7 +6682,7 @@ open(1) -- '-n Open a new instance of the application(s) even if one is already 
 - **URL:** /usr/share/man/man1/open.1
 - **sha256:** `f101b198baed0b661adeb0d4df860a7143fe0c18275ba7f41b6f06932dc77bf2` (5457 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/metal.rs`
+- **Cited in:** `crates/baud-present-macos/src/metal.rs`
 
 <a id="macos-man-stat-2"></a>
 ### macos-man-stat-2
@@ -6692,7 +6692,7 @@ stat(2), which lstat.2 includes -- 'lstat() is like stat() except in the case wh
 - **URL:** $SDKROOT/usr/share/man/man2/stat.2
 - **sha256:** `3815623c9262a951b015cf9fe8d7896b96821b5172f97269d89c1feb6362cfc8` (18536 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/probe.rs`
+- **Cited in:** `crates/baud-app/src/probe.rs`
 
 <a id="macos-man-sysctl-conf-5"></a>
 ### macos-man-sysctl-conf-5
@@ -6702,7 +6702,7 @@ sysctl.conf(5) -- 'The /etc/sysctl.conf file is read in when the system goes int
 - **URL:** /usr/share/man/man5/sysctl.conf.5
 - **sha256:** `c7bd0d8f41fe339db180389d4018264b8bc18ce7d6558fe9542018895719b322` (2507 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/pty.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`
 
 <a id="macos-man-tcgetpgrp"></a>
 ### macos-man-tcgetpgrp
@@ -6721,7 +6721,7 @@ AXSettings.h -- AXAnimatedImagesEnabled and its change notification, macos(14.0)
 - **URL:** $SDKROOT/System/Library/Frameworks/Accessibility.framework/Headers/AXSettings.h
 - **sha256:** `389bfc220b3cd6b5a670df70f5d7c0d24f86881d5c3577d8480bafc30d841ede` (7063 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/settings.rs`
+- **Cited in:** `crates/baud-present-macos/src/settings.rs`
 
 <a id="macos-sdk-axuielement-h"></a>
 ### macos-sdk-axuielement-h
@@ -6731,7 +6731,7 @@ AXUIElement.h -- AXIsProcessTrusted: 'Returns whether the current process is a t
 - **URL:** $SDKROOT/System/Library/Frameworks/ApplicationServices.framework/Frameworks/HIServices.framework/Headers/AXUIElement.h
 - **sha256:** `10f58138ceb51d24d5855b961592af8c077aa2d563f68753016e0bbaacdd3bad` (40681 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/mac.rs`
+- **Cited in:** `crates/baud-app/examples/demo/mac.rs`
 
 <a id="macos-sdk-caanimation-h"></a>
 ### macos-sdk-caanimation-h
@@ -6741,7 +6741,7 @@ CAAnimation.h -- timingFunction: 'Defaults to nil indicating linear pacing'. App
 - **URL:** $SDKROOT/System/Library/Frameworks/QuartzCore.framework/Headers/CAAnimation.h
 - **sha256:** `d5ce2097bd26c2955d9e204ef70f46aeefa3f19cc8d2fcba833b4a9acab05e90` (15539 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/fireworks.rs`
+- **Cited in:** `crates/baud-render/src/fireworks.rs`
 
 <a id="macos-sdk-caemittercell-h"></a>
 ### macos-sdk-caemittercell-h
@@ -6751,7 +6751,7 @@ CAEmitterCell.h -- birthRate 'The number of emitted objects created every second
 - **URL:** $SDKROOT/System/Library/Frameworks/QuartzCore.framework/Headers/CAEmitterCell.h
 - **sha256:** `dce033ae7cb9e509921f72c657aa31d00a4a94e4a9a1798ec92d5a23c1583309` (4652 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/fireworks.rs`
+- **Cited in:** `crates/baud-render/src/fireworks.rs`
 
 <a id="macos-sdk-carboneventscore-h"></a>
 ### macos-sdk-carboneventscore-h
@@ -6761,7 +6761,7 @@ CarbonEventsCore.h -- IsSecureEventInputEnabled: 'enabled by any process, not ju
 - **URL:** $SDKROOT/System/Library/Frameworks/Carbon.framework/Frameworks/HIToolbox.framework/Headers/CarbonEventsCore.h
 - **sha256:** `dcf2bb524f4577fd7ea7940c57372dc980c911047cece6e8e810de6c213cf81c` (109345 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/guard.rs`, `baud-app/examples/demo/mac.rs`
+- **Cited in:** `crates/baud-app/examples/demo/guard.rs`, `crates/baud-app/examples/demo/mac.rs`
 
 <a id="macos-sdk-catransaction-h"></a>
 ### macos-sdk-catransaction-h
@@ -6771,7 +6771,7 @@ CATransaction.h -- animationDuration: 'Defines the default duration of animation
 - **URL:** $SDKROOT/System/Library/Frameworks/QuartzCore.framework/Headers/CATransaction.h
 - **sha256:** `9557c8b235f4f9766cf4e8c7b2c032325b15742e6c8a324c7f74dfceb41fbe50` (4810 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/fireworks.rs`
+- **Cited in:** `crates/baud-render/src/fireworks.rs`
 
 <a id="macos-sdk-cgdisplayconfiguration-h"></a>
 ### macos-sdk-cgdisplayconfiguration-h
@@ -6781,7 +6781,7 @@ CGDisplayConfiguration.h -- CGDisplayIsAsleep: 'Return true if the display is as
 - **URL:** $SDKROOT/System/Library/Frameworks/CoreGraphics.framework/Headers/CGDisplayConfiguration.h
 - **sha256:** `24fc3b20cb4815835a632990a43ed28256997acc2cf8d4600159f8e8a4d7e27c` (16937 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/guard.rs`
+- **Cited in:** `crates/baud-app/examples/demo/guard.rs`
 
 <a id="macos-sdk-cgevent-h"></a>
 ### macos-sdk-cgevent-h
@@ -6791,7 +6791,7 @@ CGEvent.h -- CGEventGetTimestamp/CGEventSetTimestamp ('Return/Set the timestamp 
 - **URL:** $SDKROOT/System/Library/Frameworks/CoreGraphics.framework/Headers/CGEvent.h
 - **sha256:** `82c0ad9eb7c2f1ccfe8483fe96f5d71493ee1f5b4a6a68458ba9c07dd728f8bb` (16961 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/mac.rs`
+- **Cited in:** `crates/baud-app/examples/demo/mac.rs`
 
 <a id="macos-sdk-cgsession-h"></a>
 ### macos-sdk-cgsession-h
@@ -6801,7 +6801,7 @@ CGSession.h -- kCGSessionOnConsoleKey: 'An indication of whether the session is 
 - **URL:** $SDKROOT/System/Library/Frameworks/CoreGraphics.framework/Headers/CGSession.h
 - **sha256:** `471b7f3720173a1f638254ce6e3f97c97631d9dcd1aee185aebc48885b10f9b9` (2059 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/guard.rs`, `baud-app/examples/demo/mac.rs`
+- **Cited in:** `crates/baud-app/examples/demo/guard.rs`, `crates/baud-app/examples/demo/mac.rs`
 
 <a id="macos-sdk-cgwindow-h"></a>
 ### macos-sdk-cgwindow-h
@@ -6811,7 +6811,7 @@ CGWindow.h -- kCGWindowListOptionOnScreenOnly: 'List all on-screen windows in th
 - **URL:** $SDKROOT/System/Library/Frameworks/CoreGraphics.framework/Headers/CGWindow.h
 - **sha256:** `0f01073171b13d5a63a95763bac468efc00da89cb232292f2bcd95b1c0198aee` (12386 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/guard.rs`, `baud-app/examples/demo/mac.rs`
+- **Cited in:** `crates/baud-app/examples/demo/guard.rs`, `crates/baud-app/examples/demo/mac.rs`
 
 <a id="macos-sdk-dispatch-source-h"></a>
 ### macos-sdk-dispatch-source-h
@@ -6821,7 +6821,7 @@ dispatch/source.h -- DISPATCH\_SOURCE\_TYPE\_READ 'monitors a file descriptor fo
 - **URL:** $SDKROOT/usr/include/dispatch/source.h
 - **sha256:** `c0a3c34828c40d761b421d1b595ce1da22110410412facc531b1ac16af12d5d2` (29441 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/full_screen_check.rs`, `baud-app/src/pty/outbox_watch.rs`, `baud-app/src/reload.rs`
+- **Cited in:** `crates/baud-app/src/full_screen_check.rs`, `crates/baud-app/src/pty/outbox_watch.rs`, `crates/baud-app/src/reload.rs`
 
 <a id="macos-sdk-events-h"></a>
 ### macos-sdk-events-h
@@ -6831,7 +6831,7 @@ Events.h (HIToolbox) -- the virtual keycodes: one per physical key, the keypad's
 - **URL:** $SDKROOT/System/Library/Frameworks/Carbon.framework/Frameworks/HIToolbox.framework/Headers/Events.h
 - **sha256:** `b80b0c6e10ea4a06494d02399424cb806cc04a2971724688cb2063e04f2149d6` (29094 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/keys.rs`, `baud-app/src/app.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/examples/demo/keys.rs`, `crates/baud-app/src/app.rs`, `docs/input-coverage.md`
 
 <a id="macos-sdk-iokitlib-h"></a>
 ### macos-sdk-iokitlib-h
@@ -6841,7 +6841,7 @@ IOKitLib.h -- IORegistryEntryCreateCFProperty: 'Create a CF representation of a 
 - **URL:** $SDKROOT/System/Library/Frameworks/IOKit.framework/Headers/IOKitLib.h
 - **sha256:** `553869588e8c0b162b232e294dea2579cfd739d83e772a0b8a79e2be91a5816e` (79847 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/mac.rs`
+- **Cited in:** `crates/baud-app/examples/demo/mac.rs`
 
 <a id="macos-sdk-libproc-h"></a>
 ### macos-sdk-libproc-h
@@ -6851,7 +6851,7 @@ libproc.h -- proc\_pidinfo, proc\_name, proc\_pidpath; 'private interfaces ... s
 - **URL:** $SDKROOT/usr/include/libproc.h
 - **sha256:** `246d87709fc6b9157ce5cf3c475656ac48e0e1ae8bbdc46cf45acd34294448cd` (7575 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/mac.rs`, `baud-app/src/fg.rs`, `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/examples/demo/mac.rs`, `crates/baud-app/src/fg.rs`, `crates/baud-app/src/sys.rs`
 
 <a id="macos-sdk-mavideoaccommodations-h"></a>
 ### macos-sdk-mavideoaccommodations-h
@@ -6861,7 +6861,7 @@ MAVideoAccommodations.h -- MADimFlashingLightsEnabled CF\_AVAILABLE(13\_3, 16\_4
 - **URL:** $SDKROOT/System/Library/Frameworks/MediaAccessibility.framework/Headers/MAVideoAccommodations.h
 - **sha256:** `a366cf750468eeb30ee2fc0cfa6b63b10cf44e6dd5455f0fa41d042efc3da9d8` (1000 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/settings.rs`
+- **Cited in:** `crates/baud-present-macos/src/settings.rs`
 
 <a id="macos-sdk-mtlbinaryarchive-h"></a>
 ### macos-sdk-mtlbinaryarchive-h
@@ -6871,7 +6871,7 @@ MTLBinaryArchive.h -- the @discussion is the fullest Apple statement: archives '
 - **URL:** $SDKROOT/System/Library/Frameworks/Metal.framework/Headers/MTLBinaryArchive.h
 - **sha256:** `c6c3d47c2642865b657157b319c4f8ce8f0adc4bee8f312218c1bdbd2dd4d5e0` (8333 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/metal/suite.rs`
+- **Cited in:** `crates/baud-present-macos/src/metal/suite.rs`
 
 <a id="macos-sdk-nsaccessibility-h"></a>
 ### macos-sdk-nsaccessibility-h
@@ -6881,7 +6881,7 @@ NSAccessibility.h -- accessibilityDisplayShouldReduceMotion: 'UI should avoid la
 - **URL:** $SDKROOT/System/Library/Frameworks/AppKit.framework/Headers/NSAccessibility.h
 - **sha256:** `03a754431b25b24a2a732a3c9bba3856ddccdbaa5523c0912bd7b5da3b63ef50` (14733 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/access.rs`, `baud-app/src/app.rs`
+- **Cited in:** `crates/baud-app/src/access.rs`, `crates/baud-app/src/app.rs`
 
 <a id="macos-sdk-nsevent-h"></a>
 ### macos-sdk-nsevent-h
@@ -6891,7 +6891,7 @@ NSEvent.h -- @property (readonly) NSTimeInterval timestamp; declared with NO com
 - **URL:** $SDKROOT/System/Library/Frameworks/AppKit.framework/Headers/NSEvent.h
 - **sha256:** `fe7611bf49295ba80ba7bd88ca8abc6af490a0d1fb73ed59853b7a45f6e56bdb` (48599 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/app.rs`, `baud-present-macos/src/container.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `crates/baud-present-macos/src/container.rs`, `docs/input-coverage.md`
 
 <a id="macos-sdk-nsrunningapplication-h"></a>
 ### macos-sdk-nsrunningapplication-h
@@ -6901,7 +6901,7 @@ NSRunningApplication.h -- 'properties persist until the next turn of the main ru
 - **URL:** $SDKROOT/System/Library/Frameworks/AppKit.framework/Headers/NSRunningApplication.h
 - **sha256:** `b7fa5d5b933aef2165268305c631c2e8c617ba55234f83250b37cd9db1899f5e` (10783 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/mac.rs`
+- **Cited in:** `crates/baud-app/examples/demo/mac.rs`
 
 <a id="macos-sdk-nsscroller-h"></a>
 ### macos-sdk-nsscroller-h
@@ -6911,7 +6911,7 @@ NSScroller.h -- NSScrollerStyle, preferredScrollerStyle and its change notificat
 - **URL:** $SDKROOT/System/Library/Frameworks/AppKit.framework/Headers/NSScroller.h
 - **sha256:** `e9d763f1d76cc7dd9b5ab64c5caa6ad65422ff7d8a682f23cff96a1fad7941a3` (9122 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/settings.rs`
+- **Cited in:** `crates/baud-present-macos/src/settings.rs`
 
 <a id="macos-sdk-nstitlebaraccessoryviewcontroller-h"></a>
 ### macos-sdk-nstitlebaraccessoryviewcontroller-h
@@ -6921,7 +6921,7 @@ NSTitlebarAccessoryViewController.h -- layoutAttribute Right/Trailing, the macOS
 - **URL:** $SDKROOT/System/Library/Frameworks/AppKit.framework/Headers/NSTitlebarAccessoryViewController.h
 - **sha256:** `d2e609eeac15a81e3c77568dc8795c0b11190beb565a1c0a23ecdc3a1e99a152` (5309 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/sdk_gates.rs`, `baud-app/src/strip.rs`, `baud-present-macos/src/container.rs`
+- **Cited in:** `crates/baud-app/src/sdk_gates.rs`, `crates/baud-app/src/strip.rs`, `crates/baud-present-macos/src/container.rs`
 
 <a id="macos-sdk-nstrackingarea-h"></a>
 ### macos-sdk-nstrackingarea-h
@@ -6931,7 +6931,7 @@ NSTrackingArea.h -- NSTrackingMouseEnteredAndExited, NSTrackingActiveAlways, NST
 - **URL:** $SDKROOT/System/Library/Frameworks/AppKit.framework/Headers/NSTrackingArea.h
 - **sha256:** `e14fa2b09053afc05d0962ea5db14ad8addf22fe3a540839de1db4cfae11a4b5` (3397 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/hover.rs`
+- **Cited in:** `crates/baud-present-macos/src/hover.rs`
 
 <a id="macos-sdk-sys-cdefs-h"></a>
 ### macos-sdk-sys-cdefs-h
@@ -6941,7 +6941,7 @@ sys/cdefs.h -- \_\_DARWIN\_INODE64 and \_\_DARWIN\_SUF\_64\_BIT\_INO\_T: no suff
 - **URL:** $SDKROOT/usr/include/sys/cdefs.h
 - **sha256:** `ac1a889ee7e6f3025e01be9981d26751489b9e63e926035201cae07ab9e6576f` (42609 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/sys.rs`
 
 <a id="macos-sdk-sys-event-h"></a>
 ### macos-sdk-sys-event-h
@@ -6951,7 +6951,7 @@ sys/event.h -- 'NOTE\_TRACK, NOTE\_TRACKERR, and NOTE\_CHILD are no longer suppo
 - **URL:** $SDKROOT/usr/include/sys/event.h
 - **sha256:** `435ed8fe99ae70c19404c3da14be6e2d217686ac256aed3b5df721b353dbb350` (17944 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fg.rs`, `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/fg.rs`, `crates/baud-app/src/sys.rs`
 
 <a id="macos-sdk-sys-fcntl-h"></a>
 ### macos-sdk-sys-fcntl-h
@@ -6961,7 +6961,7 @@ sys/fcntl.h -- O\_EVTONLY 0x00008000, a 'descriptor requested for event notifica
 - **URL:** $SDKROOT/usr/include/sys/fcntl.h
 - **sha256:** `7b07ba67fe5eb48cd8af7b23f056ad125ab0a28411409a21874e223ccf1abaef` (26238 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/sys.rs`
 
 <a id="macos-sdk-sys-mount-h"></a>
 ### macos-sdk-sys-mount-h
@@ -6971,7 +6971,7 @@ sys/mount.h -- struct statfs (\_\_DARWIN\_STRUCT\_STATFS64), MNT\_LOCAL 'filesys
 - **URL:** $SDKROOT/usr/include/sys/mount.h
 - **sha256:** `45872741bb916b92bddd2e562d2047b552af1f68269081a0aeb58a3e5a2b8a51` (20959 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/probe.rs`, `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/probe.rs`, `crates/baud-app/src/sys.rs`
 
 <a id="macos-sdk-sys-proc-info-h"></a>
 ### macos-sdk-sys-proc-info-h
@@ -6981,7 +6981,7 @@ sys/proc\_info.h -- MAXCOMLEN names, struct proc\_vnodepathinfo, PROC\_PIDVNODEP
 - **URL:** $SDKROOT/usr/include/sys/proc\_info.h
 - **sha256:** `e427fa96b348537b21552b9de71e01039410bcad2cedee5584c5e5fddafd70fc` (31262 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/front.rs`, `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/front.rs`, `crates/baud-app/src/sys.rs`
 
 <a id="macos-sdk-sys-resource-h"></a>
 ### macos-sdk-sys-resource-h
@@ -6991,7 +6991,7 @@ sys/resource.h -- IOPOL\_TYPE\_VFS\_MATERIALIZE\_DATALESS\_FILES 3, IOPOL\_SCOPE
 - **URL:** $SDKROOT/usr/include/sys/resource.h
 - **sha256:** `1067178025c5fd88c9a1b8206a07c2695ef94dd471fe2783f06c512995382961` (20410 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/sys.rs`
 
 <a id="macos-sdk-unnotificationcontent-h"></a>
 ### macos-sdk-unnotificationcontent-h
@@ -7002,7 +7002,7 @@ UNNotificationContent.h -- title, body, sound, threadIdentifier, interruptionLev
 - **sha256:** `4f3677196ee96c8f5c3e747bf3795fc191cb799d54f4216575b9d0e0db0d213b` (10344 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-present-macos/src/notify.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-present-macos/src/notify.rs`, `docs/vt-coverage.md`
 
 <a id="macos-sdk-unusernotificationcenter-h"></a>
 ### macos-sdk-unusernotificationcenter-h
@@ -7013,7 +7013,7 @@ UNUserNotificationCenter.h -- currentNotificationCenter, requestAuthorizationWit
 - **sha256:** `7e79a7672061ab07511f71aa9cd5b7883dc83107cfabfb100d32d758bae3d281` (8450 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-app/src/notify.rs`, `baud-present-macos/src/notify.rs`
+- **Cited in:** `crates/baud-app/src/notify.rs`, `crates/baud-present-macos/src/notify.rs`
 
 <a id="macos-srgb-icc"></a>
 ### macos-srgb-icc
@@ -7024,7 +7024,7 @@ macOS 27.0 (26A5425a), sRGB Profile.icc -- the sRGB space's D50 colorants, read 
 - **sha256:** `2b3aa1645779a9e634744faf9b01e9102b0c9b88fd6deced7934df86b949af7e` (3144 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/gamut.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/gamut.rs`
 
 <a id="macos-zshrc-apple-terminal"></a>
 ### macos-zshrc-apple-terminal
@@ -7034,7 +7034,7 @@ macOS 27.0 (26A5425a), sRGB Profile.icc -- the sRGB space's D50 colorants, read 
 - **URL:** file:///etc/zshrc\_Apple\_Terminal
 - **sha256:** `763ba2dec426f377221e2e93c40708fd545e73fe3b5c5ba9ce6d93df80205bf5` (9335 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/file_uri.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/file_uri.rs`, `docs/vt-coverage.md`
 
 <a id="mechvibes-electron-license"></a>
 ### mechvibes-electron-license
@@ -7045,7 +7045,7 @@ hainguyents13/mechvibes-electron LICENSE -- the MIT License of the original Mech
 - **sha256:** `398acd97a6d32c449f5f1c6a7cb87a7907e6ae56ecfa4e433a00673a76449df5` (1067 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-08
-- **Cited in:** `assets/demo/LICENSES.md`
+- **Cited in:** `docs/assets/demo/LICENSES.md`
 
 <a id="mechvibes-license-v3-5-6"></a>
 ### mechvibes-license-v3-5-6
@@ -7056,7 +7056,7 @@ hainguyents13/mechvibes LICENSE at tag v3.5.6 -- the MIT License of Mechvibes an
 - **sha256:** `2af83c37e54f5156ee4cce2ef2f87c611162b9ec4111a3dce156e7649d302928` (1071 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-08
-- **Cited in:** `assets/demo/LICENSES.md`
+- **Cited in:** `docs/assets/demo/LICENSES.md`
 
 <a id="mintty-term-0aea388"></a>
 ### mintty-term-0aea388
@@ -7109,7 +7109,7 @@ mintty src/wintext.c -- marks drawn apart from the base with GDI; win\_check\_gl
 - **URL:** <https://raw.githubusercontent.com/mintty/mintty/0aea38866fa838756192ecdc53272c3dd251c7a6/src/wintext.c>
 - **sha256:** `2ff5334346c86aa4d0f96115e6a5765dc7750e30e22595642b9d18ccb06dc8f9` (178423 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fonts.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/fonts.rs`, `docs/vt-coverage.md`
 
 <a id="mlg-accessibility"></a>
 ### mlg-accessibility
@@ -7119,7 +7119,7 @@ macos-liquid-glass ccf01c8, src/accessibility.rs -- reduce\_transparency and inc
 - **URL:** <https://raw.githubusercontent.com/i-am-logger/macos-liquid-glass/ccf01c88648400562c55a1366151f6f0c8b6f663/src/accessibility.rs>
 - **sha256:** `7f74d6550490b9dbc0abecf6d87a3f783999ea70ea1bcf64b55e20d379802d47` (4025 bytes)
 - **Copy:** [docs/research/sources/mlg-accessibility.rs](research/sources/mlg-accessibility.rs)
-- **Cited in:** `baud-app/src/app.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`
 
 <a id="mlg-cargo"></a>
 ### mlg-cargo
@@ -7174,7 +7174,7 @@ Unicode in Terminals -- the mode 2027 draft, revision 1 (terminal-unicode-core.t
 - **URL:** <https://raw.githubusercontent.com/contour-terminal/terminal-unicode-core/64f53851ceab9a3cf08db4939bcaef75a0899573/spec/terminal-unicode-core.tex>
 - **sha256:** `f23237de5dd88ec8fee0c8059a6c979ca2eecc3e4c8fdf8ce4c4d86b7a2e47af` (7232 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/encoding/width.rs`, `baud-core/tests/syllable_columns.rs`, `baud-core/tests/vs16_width.rs`, `baud-domain/src/grapheme.rs`, `baud-domain/src/vs16.rs`, `baud-domain/src/vt/mode.rs`, `baud-domain/tests/vs16.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/encoding/width.rs`, `crates/baud-core/tests/syllable_columns.rs`, `crates/baud-core/tests/vs16_width.rs`, `crates/baud-domain/src/grapheme.rs`, `crates/baud-domain/src/vs16.rs`, `crates/baud-domain/src/vt/mode.rs`, `crates/baud-domain/tests/vs16.rs`, `docs/vt-coverage.md`
 
 <a id="modus-operandi-theme-el"></a>
 ### modus-operandi-theme-el
@@ -7184,7 +7184,7 @@ modus-themes 4fcc8d0, modus-operandi-theme.el -- the copyright and licence lines
 - **URL:** <https://raw.githubusercontent.com/protesilaos/modus-themes/4fcc8d00540a81936a213d608a69c4c85df8f970/modus-operandi-theme.el>
 - **sha256:** `10e330880269244ae45ae9e02fe6f55766da9e15036e7c7f07d7ce228195deb5` (3614 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/color.rs`
+- **Cited in:** `crates/baud-render/src/color.rs`
 
 <a id="ms-arabic-script-development"></a>
 ### ms-arabic-script-development
@@ -7195,7 +7195,7 @@ Developing OpenType Fonts for Arabic Script. Microsoft Typography, 2026, learn.m
 - **sha256:** `1a5e5059a64f0da5cb0620b730c78aa130d8164283a34c4d59ef033c742aa5f8` (85625 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-25
-- **Cited in:** `baud-font/src/gsub.rs`, `docs/bidi.md`
+- **Cited in:** `crates/baud-font/src/gsub.rs`, `docs/bidi.md`
 
 <a id="ms-bitmap-compression"></a>
 ### ms-bitmap-compression
@@ -7205,7 +7205,7 @@ Bitmap Compression -- BI\_RLE8 and BI\_RLE4: encoded and absolute modes, end of 
 - **URL:** <https://learn.microsoft.com/en-us/windows/win32/gdi/bitmap-compression>
 - **sha256:** `091833bbdb199be9402b383539146d25f0ae1651791bc9e6dfb98771cdff03d4` (50220 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/bmp.rs`, `baud-domain/tests/bmp.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/bmp.rs`, `crates/baud-domain/tests/bmp.rs`, `docs/vt-coverage.md`
 
 <a id="ms-bitmap-header-types"></a>
 ### ms-bitmap-header-types
@@ -7215,7 +7215,7 @@ Bitmap Header Types -- the four headers 'differentiated by the Size member', col
 - **URL:** <https://learn.microsoft.com/en-us/windows/win32/gdi/bitmap-header-types>
 - **sha256:** `6c445fce4232224ccffe38f97e83ce7d18d79a8d13249fd67f0bea184039d69d` (55405 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/bmp.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/bmp.rs`, `docs/vt-coverage.md`
 
 <a id="ms-bitmap-storage"></a>
 ### ms-bitmap-storage
@@ -7225,7 +7225,7 @@ Bitmap Storage -- 'a BITMAPFILEHEADER structure followed by a BITMAPINFOHEADER, 
 - **URL:** <https://learn.microsoft.com/en-us/windows/win32/gdi/bitmap-storage>
 - **sha256:** `797358d9d3af77c3fa530b6a16d637e5cde17c6359d326476d2c4833b0a0bf86` (53897 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/bmp.rs`, `baud-domain/tests/bmp.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/bmp.rs`, `crates/baud-domain/tests/bmp.rs`, `docs/vt-coverage.md`
 
 <a id="ms-bitmapcoreheader"></a>
 ### ms-bitmapcoreheader
@@ -7235,7 +7235,7 @@ BITMAPCOREHEADER structure (wingdi.h) -- WORD sides, bcBitCount 'must be 1, 4, 8
 - **URL:** <https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-bitmapcoreheader>
 - **sha256:** `38f152149caabd5879aedac33aab035922c56d79a693481643a54642a7edc2ce` (51050 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/bmp.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/bmp.rs`, `docs/vt-coverage.md`
 
 <a id="ms-bitmapcoreinfo"></a>
 ### ms-bitmapcoreinfo
@@ -7245,7 +7245,7 @@ BITMAPCOREINFO structure (wingdi.h) -- a table of RGBTRIPLEs, 'The origin of the
 - **URL:** <https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-bitmapcoreinfo>
 - **sha256:** `9621e8f8d944bcc2f86b03dde1228388b4f77352f3393f513ae67f31d787382c` (53862 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/bmp.rs`
+- **Cited in:** `crates/baud-domain/src/bmp.rs`
 
 <a id="ms-bitmapfileheader"></a>
 ### ms-bitmapfileheader
@@ -7255,7 +7255,7 @@ BITMAPFILEHEADER structure (wingdi.h) -- bfType 'must be 0x4d42', bfOffBits. Mic
 - **URL:** <https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-bitmapfileheader>
 - **sha256:** `e294d5fd6292664d9599ffff4163215a8e58e7296f1b4805fe4303f8861ea972` (51086 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/bmp.rs`
+- **Cited in:** `crates/baud-domain/src/bmp.rs`
 
 <a id="ms-bitmapinfoheader"></a>
 ### ms-bitmapinfoheader
@@ -7265,7 +7265,7 @@ BITMAPINFOHEADER structure (wingdi.h) -- biHeight's sign, biClrUsed, the colour 
 - **URL:** <https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-bitmapinfoheader>
 - **sha256:** `9731780cb4e2f0836ebfa835a073f71dcf4e839cb786c7c9565bacd4706f59f9` (60316 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/iterm_file.rs`, `baud-domain/src/bmp.rs`, `baud-domain/tests/bmp.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/iterm_file.rs`, `crates/baud-domain/src/bmp.rs`, `crates/baud-domain/tests/bmp.rs`, `docs/vt-coverage.md`
 
 <a id="ms-bitmapv4header"></a>
 ### ms-bitmapv4header
@@ -7275,7 +7275,7 @@ BITMAPV4HEADER structure (wingdi.h) -- the red, green, blue and alpha masks in t
 - **URL:** <https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-bitmapv4header>
 - **sha256:** `ce6945ff4dc974a5f4e20224c9a0a5fa4a76ae19fff41a8dcff7138de9967099` (63216 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/bmp.rs`
+- **Cited in:** `crates/baud-domain/src/bmp.rs`
 
 <a id="ms-bitmapv5header"></a>
 ### ms-bitmapv5header
@@ -7285,7 +7285,7 @@ BITMAPV5HEADER structure (wingdi.h) -- each bit count's pixels, BI\_RGB's 555 an
 - **URL:** <https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-bitmapv5header>
 - **sha256:** `e213142d25b66b3a320a70a97c498d0577996756757fef00dcb81bb4d9b4e5c9` (67211 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/bmp.rs`, `baud-domain/tests/bmp.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/bmp.rs`, `crates/baud-domain/tests/bmp.rs`, `docs/vt-coverage.md`
 
 <a id="ms-d3d12-gpu-upload-heaps"></a>
 ### ms-d3d12-gpu-upload-heaps
@@ -7305,7 +7305,7 @@ Developing OpenType Fonts for Devanagari Script. Microsoft Typography, 2026, lea
 - **sha256:** `8eea908730f3311b134f55facf6c4e56016f1137ba7659fe413ab343b546f66c` (122604 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-02
-- **Cited in:** `baud-font/build/indic.rs`, `baud-font/src/gsub.rs`, `baud-font/src/indic.rs`, `baud-font/src/layout.rs`, `baud-font/src/shape.rs`, `baud-font/src/syllabic.rs`, `baud-font/tests/devanagari.rs`
+- **Cited in:** `crates/baud-font/build/indic.rs`, `crates/baud-font/src/gsub.rs`, `crates/baud-font/src/indic.rs`, `crates/baud-font/src/layout.rs`, `crates/baud-font/src/shape.rs`, `crates/baud-font/src/syllabic.rs`, `crates/baud-font/tests/devanagari.rs`
 
 <a id="ms-itaskbarlist3-setprogressstate"></a>
 ### ms-itaskbarlist3-setprogressstate
@@ -7316,7 +7316,7 @@ ITaskbarList3::SetProgressState -- 'How the Taskbar Button Chooses the Progress 
 - **sha256:** `45eee3f01dd48bda55e3e3ed041c14315554778f89b09d479f0cd0c7c0ed1a8c` (57974 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-31
-- **Cited in:** `baud-domain/src/vt/dock_bars.rs`
+- **Cited in:** `crates/baud-domain/src/vt/dock_bars.rs`
 
 <a id="ms-opentype-avar"></a>
 ### ms-opentype-avar
@@ -7326,7 +7326,7 @@ avar -- Axis Variations Table. Microsoft Typography, 2026, OpenType specificatio
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/avar>
 - **sha256:** `511e0c7cc60a4da3c4a8b286d057957ab7a15103d8a3ce0445977d0f4382864f` (57323 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/var.rs`
+- **Cited in:** `crates/baud-font/src/var.rs`
 
 <a id="ms-opentype-cbdt"></a>
 ### ms-opentype-cbdt
@@ -7336,7 +7336,7 @@ CBDT -- Color Bitmap Data Table. Microsoft Typography, 2026, OpenType specificat
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/cbdt>
 - **sha256:** `8afac8de349652bd174768d3c50cc221db6fe9cc89521e1e7ef64be547e84cb0` (56141 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/bitmap.rs`
+- **Cited in:** `crates/baud-font/src/bitmap.rs`
 
 <a id="ms-opentype-cblc"></a>
 ### ms-opentype-cblc
@@ -7346,7 +7346,7 @@ CBLC -- Color Bitmap Location Table. Microsoft Typography, 2026, OpenType specif
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/cblc>
 - **sha256:** `00bed8a273953b901271623d0c0f997bc0ccd5dda75fc1e41094ef5aac821030` (51840 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/bitmap.rs`
+- **Cited in:** `crates/baud-font/src/bitmap.rs`
 
 <a id="ms-opentype-cff"></a>
 ### ms-opentype-cff
@@ -7356,7 +7356,7 @@ CFF -- Compact Font Format table. Microsoft Typography, 2026, OpenType specifica
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/cff>
 - **sha256:** `06a170dcb2db7ca678a9b829097c55b3e61857e6cc3db357bacbbfa2a5baa185` (50993 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/cff.rs`
+- **Cited in:** `crates/baud-font/src/cff.rs`
 
 <a id="ms-opentype-cff2"></a>
 ### ms-opentype-cff2
@@ -7366,7 +7366,7 @@ CFF2 -- Compact Font Format (CFF) Version 2. Microsoft Typography, 2026, OpenTyp
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/cff2>
 - **sha256:** `d6a55091e56ce44e85a3c43fbaeba8f0a42af0f42e5efc51756ee5e594e00d3a` (228098 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/cff.rs`, `baud-font/src/cff2.rs`, `baud-font/src/ivs.rs`, `baud-font/src/lib.rs`, `baud-font/tests/flex.rs`, `baud-font/tests/oracle.rs`, `tools/baud-oracle/src/cases/cff2.rs`
+- **Cited in:** `crates/baud-font/src/cff.rs`, `crates/baud-font/src/cff2.rs`, `crates/baud-font/src/ivs.rs`, `crates/baud-font/src/lib.rs`, `crates/baud-font/tests/flex.rs`, `crates/baud-font/tests/oracle.rs`, `tools/baud-oracle/src/cases/cff2.rs`
 
 <a id="ms-opentype-cff2-flex-depth-figure"></a>
 ### ms-opentype-cff2-flex-depth-figure
@@ -7377,7 +7377,7 @@ CFF2 -- Compact Font Format (CFF) Version 2: 'Flex depth calculations' (images/c
 - **sha256:** `eb375eb46c7a299b02650f5e68d764928a7a46dcb694c242b14e205ea5e9ffe6` (25189 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-12
-- **Cited in:** `baud-font/src/cff.rs`
+- **Cited in:** `crates/baud-font/src/cff.rs`
 
 <a id="ms-opentype-chapter2"></a>
 ### ms-opentype-chapter2
@@ -7387,7 +7387,7 @@ OpenType Layout Common Table Formats. Microsoft Typography, 2026, OpenType speci
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2>
 - **sha256:** `669fece5c12af876fa9108fcf2ae622544b9d028d21db4369300311d1dfe9d01` (177827 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/context.rs`, `baud-font/src/gsub.rs`, `baud-font/src/layout.rs`, `baud-font/src/script.rs`, `baud-font/tests/script.rs`, `baud-font/tests/shape.rs`, `baud-render/src/renderer.rs`, `baud-render/tests/script_runs.rs`, `docs/bidi.md`
+- **Cited in:** `crates/baud-font/src/context.rs`, `crates/baud-font/src/gsub.rs`, `crates/baud-font/src/layout.rs`, `crates/baud-font/src/script.rs`, `crates/baud-font/tests/script.rs`, `crates/baud-font/tests/shape.rs`, `crates/baud-render/src/renderer.rs`, `crates/baud-render/tests/script_runs.rs`, `docs/bidi.md`
 
 <a id="ms-opentype-cmap"></a>
 ### ms-opentype-cmap
@@ -7397,7 +7397,7 @@ cmap -- Character to Glyph Index Mapping Table. Microsoft Typography, 2026, Open
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/cmap>
 - **sha256:** `4c780024ef1ac3b4b28e768b2b1ebc342be3274ffcd643a2552239d895fff799` (98039 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/cmap.rs`, `baud-font/src/lib.rs`, `baud-font/tests/oracle.rs`
+- **Cited in:** `crates/baud-font/src/cmap.rs`, `crates/baud-font/src/lib.rs`, `crates/baud-font/tests/oracle.rs`
 
 <a id="ms-opentype-colr"></a>
 ### ms-opentype-colr
@@ -7407,7 +7407,7 @@ COLR -- Color Table. Microsoft Typography, 2026, OpenType specification 1.9.1, l
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/colr>
 - **sha256:** `371703dc5b7aad3efadb427c8246e7a6d716ba32b751d14867324e0e1cbae9a2` (227399 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/colr.rs`, `baud-render/src/stack.rs`, `baud-render/tests/past_budget.rs`
+- **Cited in:** `crates/baud-font/src/colr.rs`, `crates/baud-render/src/stack.rs`, `crates/baud-render/tests/past_budget.rs`
 
 <a id="ms-opentype-cpal"></a>
 ### ms-opentype-cpal
@@ -7417,7 +7417,7 @@ CPAL -- Color Palette Table. Microsoft Typography, 2026, OpenType specification 
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/cpal>
 - **sha256:** `77021ccd5b4e169ed9e7a911a36fe8695d5b7e714eeffeca72b9e778225af1ea` (66143 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/colr.rs`
+- **Cited in:** `crates/baud-font/src/colr.rs`
 
 <a id="ms-opentype-eblc"></a>
 ### ms-opentype-eblc
@@ -7427,7 +7427,7 @@ EBLC -- Embedded Bitmap Location Table. Microsoft Typography, 2026, OpenType spe
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/eblc>
 - **sha256:** `b806b0e5ad1a2db3ad1d92ad9309de2571725d97dc00e4eb94df26e391bb51eb` (70438 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/bitmap.rs`, `baud-font/tests/cblc.rs`
+- **Cited in:** `crates/baud-font/src/bitmap.rs`, `crates/baud-font/tests/cblc.rs`
 
 <a id="ms-opentype-features-ae"></a>
 ### ms-opentype-features-ae
@@ -7438,7 +7438,7 @@ Registered features, a-e (feature tags) -- OpenType specification. Microsoft Typ
 - **sha256:** `ce2ca30c2ec4aa65653abd241e7e3c5411ec3e8eefd4b38ac5c1db7aa3e191d1` (115308 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-02
-- **Cited in:** `baud-font/src/indic.rs`
+- **Cited in:** `crates/baud-font/src/indic.rs`
 
 <a id="ms-opentype-features-pt"></a>
 ### ms-opentype-features-pt
@@ -7449,7 +7449,7 @@ Registered features, p - t (feature tags). Microsoft Typography, 2026, OpenType 
 - **sha256:** `516aefdd51083f7b89a360b23c15840413c5e3b26c946ed3e35f6e2d2b57d447` (135440 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-25
-- **Cited in:** `baud-font/src/shape.rs`, `baud-present-macos/tests/cells.rs`
+- **Cited in:** `crates/baud-font/src/shape.rs`, `crates/baud-present-macos/tests/cells.rs`
 
 <a id="ms-opentype-fvar"></a>
 ### ms-opentype-fvar
@@ -7459,7 +7459,7 @@ fvar -- Font Variations Table. Microsoft Typography, 2026, OpenType specificatio
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/fvar>
 - **sha256:** `ca701abf6b5c12d4b015e88a3b260185febf421d90635f5c76c9e69483d58d7d` (70464 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/var.rs`
+- **Cited in:** `crates/baud-font/src/var.rs`
 
 <a id="ms-opentype-gdef"></a>
 ### ms-opentype-gdef
@@ -7469,7 +7469,7 @@ GDEF -- Glyph Definition Table. Microsoft Typography, 2026, OpenType specificati
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/gdef>
 - **sha256:** `ef785dba265caff514f87209e9d604250954c11c578912937a444d6ebe466cc3` (88126 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/layout.rs`
+- **Cited in:** `crates/baud-font/src/layout.rs`
 
 <a id="ms-opentype-glyf"></a>
 ### ms-opentype-glyf
@@ -7479,7 +7479,7 @@ glyf -- Glyph Data. Microsoft Typography, 2026, OpenType specification 1.9.1, le
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/glyf>
 - **sha256:** `f20773354b1838589212a68597b1ae9098e646f2eadad058c021cbd28c1d553b` (77582 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/glyf.rs`, `baud-font/src/outline.rs`, `baud-font/tests/components.rs`, `baud-font/tests/vertical.rs`, `tools/baud-oracle/src/cases/colour_refused.rs`, `tools/baud-oracle/src/cases/component.rs`, `tools/baud-oracle/src/cases/vertical.rs`
+- **Cited in:** `crates/baud-font/src/glyf.rs`, `crates/baud-font/src/outline.rs`, `crates/baud-font/tests/components.rs`, `crates/baud-font/tests/vertical.rs`, `tools/baud-oracle/src/cases/colour_refused.rs`, `tools/baud-oracle/src/cases/component.rs`, `tools/baud-oracle/src/cases/vertical.rs`
 
 <a id="ms-opentype-gpos"></a>
 ### ms-opentype-gpos
@@ -7489,7 +7489,7 @@ GPOS -- Glyph Positioning Table. Microsoft Typography, 2026, OpenType specificat
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/gpos>
 - **sha256:** `e2c316cd42e38b45529ca4f24d07deb2d66ee7d71d9dd58946589b3ec0df644d` (199170 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/context.rs`, `baud-font/src/gpos.rs`
+- **Cited in:** `crates/baud-font/src/context.rs`, `crates/baud-font/src/gpos.rs`
 
 <a id="ms-opentype-gpos-2026-10-23"></a>
 ### ms-opentype-gpos-2026-10-23
@@ -7499,7 +7499,7 @@ GPOS -- Glyph Positioning Table (as fetched 2026-10-23). Microsoft Typography, 2
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/gpos>
 - **sha256:** `844355c1818bb531eec8e715ac963038a30c4aa8db078a39ab73dff7624fa76a` (199132 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/gpos.rs`
+- **Cited in:** `crates/baud-font/src/gpos.rs`
 
 <a id="ms-opentype-gsub"></a>
 ### ms-opentype-gsub
@@ -7509,7 +7509,7 @@ GSUB -- Glyph Substitution Table. Microsoft Typography, 2026, OpenType specifica
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/gsub>
 - **sha256:** `358ebe0b4c4d3faa98003f9a4240208d7e0cf23ade776d1ea3f3429d932a0f09` (138327 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/context.rs`, `baud-font/src/gsub.rs`
+- **Cited in:** `crates/baud-font/src/context.rs`, `crates/baud-font/src/gsub.rs`
 
 <a id="ms-opentype-gvar"></a>
 ### ms-opentype-gvar
@@ -7519,7 +7519,7 @@ gvar -- Glyph Variations Table. Microsoft Typography, 2026, OpenType specificati
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/gvar>
 - **sha256:** `e331340853c0ee96d0037dfda514189a719a994d5f3533cb8332e99931e711ec` (83405 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `MEASUREMENTS.md`, `baud-font/src/glyf.rs`, `baud-font/src/gvar.rs`, `baud-font/tests/components.rs`, `baud-font/tests/vertical.rs`, `tools/baud-fontbuild/src/glyphs.rs`, `tools/baud-fontbuild/src/lib.rs`, `tools/baud-oracle/src/cases/tuples.rs`
+- **Cited in:** `MEASUREMENTS.md`, `crates/baud-font/src/glyf.rs`, `crates/baud-font/src/gvar.rs`, `crates/baud-font/tests/components.rs`, `crates/baud-font/tests/vertical.rs`, `tools/baud-fontbuild/src/glyphs.rs`, `tools/baud-fontbuild/src/lib.rs`, `tools/baud-oracle/src/cases/tuples.rs`
 
 <a id="ms-opentype-head"></a>
 ### ms-opentype-head
@@ -7529,7 +7529,7 @@ head -- Font Header Table. Microsoft Typography, 2026, OpenType specification 1.
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/head>
 - **sha256:** `2d1d38db5db387fcfef88d3b5275f232cc0a3d1614e68455809a05d804cc0933` (57627 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/describe.rs`, `baud-font/src/glyf.rs`, `baud-font/src/lib.rs`, `baud-font/tests/bearings.rs`, `tools/baud-oracle/src/cases/bearing.rs`
+- **Cited in:** `crates/baud-font/src/describe.rs`, `crates/baud-font/src/glyf.rs`, `crates/baud-font/src/lib.rs`, `crates/baud-font/tests/bearings.rs`, `tools/baud-oracle/src/cases/bearing.rs`
 
 <a id="ms-opentype-hhea"></a>
 ### ms-opentype-hhea
@@ -7539,7 +7539,7 @@ hhea -- Horizontal Header Table. Microsoft Typography, 2026, OpenType specificat
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/hhea>
 - **sha256:** `20892c53e980a6dfb2e05ccb0786405c641ae874f9501a11388f6e04248423e0` (53202 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/lib.rs`
+- **Cited in:** `crates/baud-font/src/lib.rs`
 
 <a id="ms-opentype-hmtx"></a>
 ### ms-opentype-hmtx
@@ -7549,7 +7549,7 @@ hmtx -- Horizontal Metrics Table. Microsoft Typography, 2026, OpenType specifica
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/hmtx>
 - **sha256:** `bc1bf1ab74468c1eea5efb0b3815534c9489fc704ae1a1e8c3d69b5fe8bdc9c9` (53863 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/face.rs`, `baud-font/src/glyf.rs`, `baud-font/src/lib.rs`, `baud-font/tests/bake.rs`, `baud-font/tests/bearings.rs`, `baud-font/tests/oracle.rs`, `tools/baud-oracle/src/cases/bearing.rs`
+- **Cited in:** `crates/baud-font/src/face.rs`, `crates/baud-font/src/glyf.rs`, `crates/baud-font/src/lib.rs`, `crates/baud-font/tests/bake.rs`, `crates/baud-font/tests/bearings.rs`, `crates/baud-font/tests/oracle.rs`, `tools/baud-oracle/src/cases/bearing.rs`
 
 <a id="ms-opentype-hvar"></a>
 ### ms-opentype-hvar
@@ -7559,7 +7559,7 @@ HVAR -- Horizontal Metrics Variations Table. Microsoft Typography, 2026, OpenTyp
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/hvar>
 - **sha256:** `8ead14e7627fdf90f109e8cb344ff5ec3dfc904d202c7f8984a12664c99a373a` (58462 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/hvar.rs`
+- **Cited in:** `crates/baud-font/src/hvar.rs`
 
 <a id="ms-opentype-loca"></a>
 ### ms-opentype-loca
@@ -7569,7 +7569,7 @@ loca -- Index to Location. Microsoft Typography, 2026, OpenType specification 1.
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/loca>
 - **sha256:** `ed8b0f262510379cd0711e8d3723e7dc7cec00164278f4061680eab157e66339` (50402 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/glyf.rs`
+- **Cited in:** `crates/baud-font/src/glyf.rs`
 
 <a id="ms-opentype-maxp"></a>
 ### ms-opentype-maxp
@@ -7579,7 +7579,7 @@ maxp -- Maximum Profile. Microsoft Typography, 2026, OpenType specification 1.9.
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/maxp>
 - **sha256:** `3f0e07c7186733d10c0c4a9299798ac3f41cc7a971a2ba5e93c5de7974d1e369` (51298 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/lib.rs`
+- **Cited in:** `crates/baud-font/src/lib.rs`
 
 <a id="ms-opentype-name"></a>
 ### ms-opentype-name
@@ -7590,7 +7590,7 @@ name -- Naming Table: the record layout, nameID 1 (Font Family name), 4 (Full fo
 - **sha256:** `a211b27cd2c9b3b48b4ca5848eec2296f8c06a30a566d0cd7089e4599b179674` (88939 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-app/src/embedded.rs`, `baud-app/src/fonts.rs`, `baud-core/src/font.rs`, `baud-font/src/describe.rs`, `baud-font/src/name.rs`, `baud-font/tests/describe.rs`, `baud-font/tests/name.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/embedded.rs`, `crates/baud-app/src/fonts.rs`, `crates/baud-core/src/font.rs`, `crates/baud-font/src/describe.rs`, `crates/baud-font/src/name.rs`, `crates/baud-font/tests/describe.rs`, `crates/baud-font/tests/name.rs`, `docs/vt-coverage.md`
 
 <a id="ms-opentype-os2"></a>
 ### ms-opentype-os2
@@ -7600,7 +7600,7 @@ OS/2 -- OS/2 and Windows Metrics Table. Microsoft Typography, 2026, OpenType spe
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/os2>
 - **sha256:** `1c7497d3b106eced5ed1a9e16ebd74bf19e73c6f130ba7cf289719a6daeaed2f` (160948 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/lib.rs`
+- **Cited in:** `crates/baud-font/src/lib.rs`
 
 <a id="ms-opentype-os2-2026-10-21"></a>
 ### ms-opentype-os2-2026-10-21
@@ -7610,7 +7610,7 @@ OS/2 -- OS/2 and Windows Metrics Table: usWeightClass (1-1000, 400 Normal, 700 B
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/os2>
 - **sha256:** `4021e58bdec7fb90c2219553ed76f231719845692acd5af9c05d764c5f5a47c2` (160582 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/describe.rs`, `baud-font/tests/describe.rs`
+- **Cited in:** `crates/baud-font/src/describe.rs`, `crates/baud-font/tests/describe.rs`
 
 <a id="ms-opentype-otff"></a>
 ### ms-opentype-otff
@@ -7620,7 +7620,7 @@ The OpenType Font File. Microsoft Typography, 2026, OpenType specification 1.9.1
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/otff>
 - **sha256:** `22113f57c286d9b2a4f8e6a905354402857c6a2624ccd8480dc5f7effa5c3b16` (87394 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/bytes.rs`, `baud-font/src/describe.rs`, `baud-font/src/face.rs`, `baud-font/src/lib.rs`
+- **Cited in:** `crates/baud-font/src/bytes.rs`, `crates/baud-font/src/describe.rs`, `crates/baud-font/src/face.rs`, `crates/baud-font/src/lib.rs`
 
 <a id="ms-opentype-otvarcommonformats"></a>
 ### ms-opentype-otvarcommonformats
@@ -7631,7 +7631,7 @@ OpenType Font Variations Common Table Formats. Microsoft Typography, 2026, OpenT
 - **sha256:** `791f55bf79a4d78853b1376917e9d536bdad504fa386a9364c3e69a20fabb9c6` (108722 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-09-29
-- **Cited in:** `baud-font/src/gvar.rs`, `baud-font/src/ivs.rs`, `tools/baud-oracle/src/cases/tuples.rs`
+- **Cited in:** `crates/baud-font/src/gvar.rs`, `crates/baud-font/src/ivs.rs`, `tools/baud-oracle/src/cases/tuples.rs`
 
 <a id="ms-opentype-otvaroverview"></a>
 ### ms-opentype-otvaroverview
@@ -7642,7 +7642,7 @@ OpenType Font Variations Overview. Microsoft Typography, 2026, OpenType specific
 - **sha256:** `fc658ea56e311fca105f4292241fcd5157df247f3982d7cbb76fc11acea1d497` (133645 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-09-29
-- **Cited in:** `baud-font/src/cff2.rs`, `baud-font/src/var.rs`
+- **Cited in:** `crates/baud-font/src/cff2.rs`, `crates/baud-font/src/var.rs`
 
 <a id="ms-opentype-post"></a>
 ### ms-opentype-post
@@ -7652,7 +7652,7 @@ post -- PostScript Table. Microsoft Typography, 2026, OpenType specification 1.9
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/post>
 - **sha256:** `925d6c6d0697a47c549680e1748c7cf5cb9f3f9212f94e26efc689d64e224e13` (59772 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/lib.rs`, `baud-render/src/stack.rs`
+- **Cited in:** `crates/baud-font/src/lib.rs`, `crates/baud-render/src/stack.rs`
 
 <a id="ms-opentype-sbix"></a>
 ### ms-opentype-sbix
@@ -7662,7 +7662,7 @@ sbix -- Standard Bitmap Graphics Table. Microsoft Typography, 2026, OpenType spe
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/sbix>
 - **sha256:** `c75d44afb8a755e08037552d23ff0a3edeb3ba04f16cfff8810ff8e6dcf3d55b` (56478 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/src/bitmap.rs`, `baud-font/src/face.rs`, `baud-render/src/atlas.rs`
+- **Cited in:** `crates/baud-font/src/bitmap.rs`, `crates/baud-font/src/face.rs`, `crates/baud-render/src/atlas.rs`
 
 <a id="ms-opentype-scripttags"></a>
 ### ms-opentype-scripttags
@@ -7672,7 +7672,7 @@ Script tags (OpenType 1.9.1). Microsoft Typography, 2026, OpenType specification
 - **URL:** <https://learn.microsoft.com/en-us/typography/opentype/spec/scripttags>
 - **sha256:** `a94a195a9b83c971f12db63385b97202d74addf12e05848ace74569a8936d337` (60816 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/build/script.rs`, `baud-font/src/layout.rs`, `baud-font/src/script.rs`
+- **Cited in:** `crates/baud-font/build/script.rs`, `crates/baud-font/src/layout.rs`, `crates/baud-font/src/script.rs`
 
 <a id="ms-opentype-tt-instructing-glyphs"></a>
 ### ms-opentype-tt-instructing-glyphs
@@ -7683,7 +7683,7 @@ Instructing TrueType Glyphs -- phantom points. Microsoft Typography, 2026, OpenT
 - **sha256:** `87bc107df092035dd7df825b680e16bc3ac81a213c65c13aed9f22acc2c141dc` (77190 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-11
-- **Cited in:** `baud-font/src/glyf.rs`, `baud-font/tests/bearings.rs`, `baud-font/tests/vertical.rs`, `tools/baud-oracle/src/cases/vertical.rs`
+- **Cited in:** `crates/baud-font/src/glyf.rs`, `crates/baud-font/tests/bearings.rs`, `crates/baud-font/tests/vertical.rs`, `tools/baud-oracle/src/cases/vertical.rs`
 
 <a id="ms-opentype-vhea"></a>
 ### ms-opentype-vhea
@@ -7694,7 +7694,7 @@ vhea -- Vertical Header Table. Microsoft Typography, 2026, OpenType specificatio
 - **sha256:** `63c5551a26d8c4a7a764d897d6b495c320082e76cb572b2f9c7308749e0c0577` (59893 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-14
-- **Cited in:** `baud-font/src/face.rs`
+- **Cited in:** `crates/baud-font/src/face.rs`
 
 <a id="ms-opentype-vmtx"></a>
 ### ms-opentype-vmtx
@@ -7705,7 +7705,7 @@ vmtx -- Vertical Metrics Table. Microsoft Typography, 2026, OpenType specificati
 - **sha256:** `47069d2c60208eed178becf757970b041605752f626f05c8914249fe33198a7b` (53344 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-14
-- **Cited in:** `baud-font/src/face.rs`, `baud-font/src/glyf.rs`, `baud-font/tests/vertical.rs`, `tools/baud-oracle/src/cases/vertical.rs`
+- **Cited in:** `crates/baud-font/src/face.rs`, `crates/baud-font/src/glyf.rs`, `crates/baud-font/tests/vertical.rs`, `tools/baud-oracle/src/cases/vertical.rs`
 
 <a id="ms-rgbquad"></a>
 ### ms-rgbquad
@@ -7715,7 +7715,7 @@ RGBQUAD structure (wingdi.h), the documentation's source -- rgbBlue, rgbGreen, r
 - **URL:** <https://raw.githubusercontent.com/MicrosoftDocs/sdk-api/656e9656bfaef34dd29cd7ee9e1146aec17e924c/sdk-api-src/content/wingdi/ns-wingdi-rgbquad.md>
 - **sha256:** `5e0b8d4d95b369f935ef15ddc48ffb779c09428caef8d5539fefde37d5ab4eeb` (2537 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/bmp.rs`
+- **Cited in:** `crates/baud-domain/src/bmp.rs`
 
 <a id="ms-rgbtriple"></a>
 ### ms-rgbtriple
@@ -7725,7 +7725,7 @@ RGBTRIPLE structure (wingdi.h), the documentation's source -- rgbtBlue, rgbtGree
 - **URL:** <https://raw.githubusercontent.com/MicrosoftDocs/sdk-api/656e9656bfaef34dd29cd7ee9e1146aec17e924c/sdk-api-src/content/wingdi/ns-wingdi-rgbtriple.md>
 - **sha256:** `8044ec9b1c380de3e72081ebea6002b48316d9999408e456a1b8201561f1cdad` (2235 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/bmp.rs`
+- **Cited in:** `crates/baud-domain/src/bmp.rs`
 
 <a id="ms-syriac-script-development"></a>
 ### ms-syriac-script-development
@@ -7736,7 +7736,7 @@ Developing OpenType Fonts for Syriac Script. Microsoft Typography, 2026, learn.m
 - **sha256:** `d18e146097e47373aafb3e2581fa44e8be8e0271352022e7ede763d7455bd0de` (81270 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-25
-- **Cited in:** `baud-domain/src/joining.rs`, `baud-font/src/gsub.rs`, `baud-font/src/layout.rs`
+- **Cited in:** `crates/baud-domain/src/joining.rs`, `crates/baud-font/src/gsub.rs`, `crates/baud-font/src/layout.rs`
 
 <a id="ms-wmf-bitmapinfoheader"></a>
 ### ms-wmf-bitmapinfoheader
@@ -7746,7 +7746,7 @@ Developing OpenType Fonts for Syriac Script. Microsoft Typography, 2026, learn.m
 - **URL:** <https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/567172fa-b8a2-4d79-86a2-5e21d6659ef3>
 - **sha256:** `00711c04d7b377804fd822bcad748cb3d4af2fade27f59bfeeb741fd182ba557` (42585 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/bmp.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/bmp.rs`, `docs/vt-coverage.md`
 
 <a id="ms-wmf-bitmapv4header"></a>
 ### ms-wmf-bitmapv4header
@@ -7756,7 +7756,7 @@ Developing OpenType Fonts for Syriac Script. Microsoft Typography, 2026, learn.m
 - **URL:** <https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/071b0c0d-c2df-4f1c-9828-d03c26002c61>
 - **sha256:** `80114140f20596c1f7148a8711116c06a3d725834eb5cbc3c9d97370361c6a9a` (41621 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/bmp.rs`
+- **Cited in:** `crates/baud-domain/src/bmp.rs`
 
 <a id="ms-wmf-bitmapv5header"></a>
 ### ms-wmf-bitmapv5header
@@ -7766,7 +7766,7 @@ Developing OpenType Fonts for Syriac Script. Microsoft Typography, 2026, learn.m
 - **URL:** <https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/8a37c67b-dab0-4693-98a9-fe0499095da6>
 - **sha256:** `35edf4766c38a4606e999d16f3ed034705682cdcb4665b50f90ccf008f5c7741` (39525 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/bmp.rs`
+- **Cited in:** `crates/baud-domain/src/bmp.rs`
 
 <a id="ms-wmf-compression"></a>
 ### ms-wmf-compression
@@ -7776,7 +7776,7 @@ Developing OpenType Fonts for Syriac Script. Microsoft Typography, 2026, learn.m
 - **URL:** <https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/4e588f70-bd92-4a6f-b77f-35d0feaf7a57>
 - **sha256:** `bf4398afe3fc4b510e13f7343d7a1c6e8e0b1db33d86dd9b83fa7ffffe2cfd25` (39662 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/bmp.rs`
+- **Cited in:** `crates/baud-domain/src/bmp.rs`
 
 <a id="msdfgen-readme"></a>
 ### msdfgen-readme
@@ -7796,7 +7796,7 @@ MS-DOS 2.0, ANSI.DOC -- the ANSI.SYS console driver's sequences, SCP ESC &#91; s
 - **sha256:** `bc19719c34a94d451fe7afbc090e3576ba2dc64074e0e5254c07e4eed773b352` (6784 bytes)
 - **Copy:** [docs/research/sources/msdos-2.0-ANSI.DOC](research/sources/msdos-2.0-ANSI.DOC)
 - **Read:** 2026-10-11
-- **Cited in:** `baud-core/tests/decrc_unsaved.rs`, `baud-core/tests/vt100/save_params.rs`, `baud-domain/src/vt/csi.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/decrc_unsaved.rs`, `crates/baud-core/tests/vt100/save_params.rs`, `crates/baud-domain/src/vt/csi.rs`, `docs/vt-coverage.md`
 
 <a id="msdos4-ansi-asm"></a>
 ### msdos4-ansi-asm
@@ -7817,7 +7817,7 @@ ANSI.SYS (MS-DOS command reference, TechNet archive) -- ESC&#91;s and ESC&#91;u.
 - **sha256:** `d2eb64f61fd2874525e7fa360513882f058e7b8a3bd5cb9bbd43b2534e5273db` (161179 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-11
-- **Cited in:** `baud-core/tests/vt100/save_params.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/vt100/save_params.rs`, `docs/vt-coverage.md`
 
 <a id="mutter-35f64c3d-text-input"></a>
 ### mutter-35f64c3d-text-input
@@ -7828,7 +7828,7 @@ mutter 35f64c3d, src/wayland/meta-wayland-text-input.c -- the compositor's side:
 - **sha256:** `b20eb6eb8e72f747e0f0a91488fb1cd16c468eb0af9a9dfd930db133de4fd97a` (41569 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-present-wayland/src/ime.rs`
+- **Cited in:** `crates/baud-present-wayland/src/ime.rs`
 
 <a id="mutter-47-data-device"></a>
 ### mutter-47-data-device
@@ -7849,7 +7849,7 @@ Mohan Sundar Rajan, Doorsanchar Katha (दूरसंचार कथा), Nati
 - **URL:** <https://archive.org/download/doorsanchar-katha-mohan-sundar-rajan/page/n231.jpg>
 - **sha256:** `f6e6d04d7875ae6494e880c84e90ba9fada949377a32ebc0fb34d1e5c8353665` (929916 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/session.rs`
+- **Cited in:** `crates/baud-app/examples/demo/session.rs`
 
 <a id="ncurses-caps"></a>
 ### ncurses-caps
@@ -7859,7 +7859,7 @@ ncurses 6.0, include/Caps -- the predefined capabilities in compiled order. Thom
 - **URL:** <https://raw.githubusercontent.com/ThomasDickey/ncurses-snapshots/3ee43f2d93b5089689641c11f8acb225d7214863/include/Caps>
 - **sha256:** `f329299bc45f5fd455999133a2babb08971f4d3d3e3d7d71462d9057fffbccf6` (65613 bytes)
 - **Copy:** [docs/research/sources/terminfo/ncurses-6.0-Caps](research/sources/terminfo/ncurses-6.0-Caps)
-- **Cited in:** `baud-domain/build/terminfo_caps.rs`, `baud-domain/src/terminfo.rs`
+- **Cited in:** `crates/baud-domain/build/terminfo_caps.rs`, `crates/baud-domain/src/terminfo.rs`
 
 <a id="neovide-cursor-renderer"></a>
 ### neovide-cursor-renderer
@@ -7869,7 +7869,7 @@ Neovide 105fd64, cursor\_renderer/mod.rs -- four corners, and short jumps on the
 - **URL:** <https://raw.githubusercontent.com/neovide/neovide/105fd640f83616501d7c6bfedb0b4c15ab9515e1/src/renderer/cursor_renderer/mod.rs>
 - **sha256:** `56d850fe262faa93daf96c31c609a095e430b913929401075ef5e314e8a7db1b` (22925 bytes)
 - **Copy:** [docs/research/sources/neovide-cursor-renderer.rs](research/sources/neovide-cursor-renderer.rs)
-- **Cited in:** `baud-app/src/carried.rs`, `baud-render/src/trail.rs`, `docs/cursor.md`
+- **Cited in:** `crates/baud-app/src/carried.rs`, `crates/baud-render/src/trail.rs`, `docs/cursor.md`
 
 <a id="neovim-core-defaults-lua"></a>
 ### neovim-core-defaults-lua
@@ -7879,7 +7879,7 @@ neovim fc3f004, runtime/lua/vim/\_core/defaults.lua -- Tc;RGB;setrgbf;setrgbb as
 - **URL:** <https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/runtime/lua/vim/_core/defaults.lua>
 - **sha256:** `351c47fc23bf3e27a44c67fc722a850ef245d3379f9b34a06583b652709e6c71` (40643 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/dcs.rs`, `baud-core/tests/vt220/dcs.rs`, `baud-core/tests/xterm/tcap.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/dcs.rs`, `crates/baud-core/tests/vt220/dcs.rs`, `crates/baud-core/tests/xterm/tcap.rs`, `docs/vt-coverage.md`
 
 <a id="neovim-text-lua"></a>
 ### neovim-text-lua
@@ -7889,7 +7889,7 @@ neovim fc3f004, runtime/lua/vim/text.lua -- hexencode writes upper-case hex. the
 - **URL:** <https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/runtime/lua/vim/text.lua>
 - **sha256:** `efef7209a25c442697548822cb59573253586c8a05115dcc97d7c54850359958` (7510 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/xterm/tcap.rs`
+- **Cited in:** `crates/baud-core/tests/xterm/tcap.rs`
 
 <a id="neovim-tty-lua"></a>
 ### neovim-tty-lua
@@ -7899,7 +7899,7 @@ neovim fc3f004, runtime/lua/vim/tty.lua -- vim.tty.query: one DCS for every name
 - **URL:** <https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/runtime/lua/vim/tty.lua>
 - **sha256:** `68dfa183fba34290f8fecdb624aac2bca95a45a55ee8fc5088072e1eb45f90f4` (7278 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/xterm/tcap.rs`
+- **Cited in:** `crates/baud-core/tests/xterm/tcap.rs`
 
 <a id="neovim-tui-c"></a>
 ### neovim-tui-c
@@ -7909,7 +7909,7 @@ neovim fc3f004, src/nvim/tui/tui.c -- ?2031h sent only when DECRQM answers 2. th
 - **URL:** <https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/src/nvim/tui/tui.c>
 - **sha256:** `fe5f8e0c33a82ee48f068318f97509256150a9a843d50eda1aa56dcfdb924ce3` (91742 bytes)
 - **Copy:** [docs/research/sources/neovim-tui.c](research/sources/neovim-tui.c)
-- **Cited in:** `baud-core/tests/color_scheme.rs`
+- **Cited in:** `crates/baud-core/tests/color_scheme.rs`
 
 <a id="neovim-tui-input-c"></a>
 ### neovim-tui-input-c
@@ -7929,7 +7929,7 @@ GIF Application Extension: NETSCAPE2.0 -- bytes 17-18 'the number of iterations 
 - **sha256:** `8861f82cd84b00c3a84272d58d241d167d0cc19cd0c4be46dce9ff28b2cb4304` (2374 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-23
-- **Cited in:** `baud-app/src/logo_film.rs`, `baud-domain/src/gif.rs`, `docs/vt-coverage.md`, `tools/baud-pictures/src/logo.rs`
+- **Cited in:** `crates/baud-app/src/logo_film.rs`, `crates/baud-domain/src/gif.rs`, `docs/vt-coverage.md`, `tools/baud-pictures/src/logo.rs`
 
 <a id="nix-call-flake"></a>
 ### nix-call-flake
@@ -7939,7 +7939,7 @@ Nix, src/libflake/call-flake.nix: a flake's outputs and self. The Nix contributo
 - **URL:** <https://raw.githubusercontent.com/NixOS/nix/master/src/libflake/call-flake.nix>
 - **sha256:** `9bda256f5e51cffacbe8b7ff9dfe855b6a692a229008f36b06472d76a30a495c` (3431 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/tests/version.rs`
+- **Cited in:** `crates/baud-app/tests/version.rs`
 
 <a id="nixpkgs-9cf7092-rust-hooks"></a>
 ### nixpkgs-9cf7092-rust-hooks
@@ -7961,7 +7961,7 @@ notofonts/noto-cjk LICENSE at Sans2.004 -- SIL Open Font License 1.1. Adobe and 
 - **sha256:** `6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2` (4301 bytes)
 - **Copy:** [docs/research/sources/noto-cjk-LICENSE-523d033.txt](research/sources/noto-cjk-LICENSE-523d033.txt)
 - **Read:** 2026-11-07
-- **Cited in:** `assets/demo/LICENSES.md`
+- **Cited in:** `docs/assets/demo/LICENSES.md`
 
 <a id="noto-cjk-sans-readme-third-party"></a>
 ### noto-cjk-sans-readme-third-party
@@ -7972,7 +7972,7 @@ notofonts/noto-cjk Sans/README-third\_party.md at Sans2.004. Adobe and Google, t
 - **sha256:** `aa229a2136c426e3deca957c305727e02415198116138d8c1721222b12e22131` (888 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-07
-- **Cited in:** `assets/demo/LICENSES.md`
+- **Cited in:** `docs/assets/demo/LICENSES.md`
 
 <a id="noto-color-emoji-cbdt"></a>
 ### noto-color-emoji-cbdt
@@ -7982,7 +7982,7 @@ Noto Color Emoji (CBDT/CBLC build) -- the widely shipped CBDT face, 109 ppem, in
 - **URL:** <https://raw.githubusercontent.com/googlefonts/noto-emoji/8998f5dd683424a73e2314a8c1f1e359c19e8742/fonts/NotoColorEmoji.ttf>
 - **sha256:** `72a635cb3d2f3524c51620cdde406b217204e8a6a06c6a096ff8ed4b5fd6e27b` (10673480 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/tests/noto_subset.rs`
+- **Cited in:** `crates/baud-font/tests/noto_subset.rs`
 
 <a id="noto-emoji-fonts-license"></a>
 ### noto-emoji-fonts-license
@@ -7993,7 +7993,7 @@ googlefonts/noto-emoji fonts/LICENSE at v2.051 -- SIL Open Font License 1.1, the
 - **sha256:** `6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2` (4301 bytes)
 - **Copy:** [docs/research/sources/noto-emoji-fonts-LICENSE-8998f5d.txt](research/sources/noto-emoji-fonts-LICENSE-8998f5d.txt)
 - **Read:** 2026-11-07
-- **Cited in:** `assets/demo/LICENSES.md`
+- **Cited in:** `docs/assets/demo/LICENSES.md`
 
 <a id="noto-emoji-readme-v2-051"></a>
 ### noto-emoji-readme-v2-051
@@ -8004,7 +8004,7 @@ googlefonts/noto-emoji README.md at v2.051 -- its License section. Google, the N
 - **sha256:** `51ac190ddc677d3bebe232bd93765072f90ea7aed2300f81fc73560295c2d395` (2489 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-07
-- **Cited in:** `assets/demo/LICENSES.md`
+- **Cited in:** `docs/assets/demo/LICENSES.md`
 
 <a id="notofonts-fonts-license"></a>
 ### notofonts-fonts-license
@@ -8015,7 +8015,7 @@ notofonts/notofonts.github.io fonts/LICENSE at noto-monthly-release-2026.10.01 -
 - **sha256:** `f2095b08bed08b23a6fe26112fcd679a2bee3f002eef077eb05d215ed1051bd8` (4374 bytes)
 - **Copy:** [docs/research/sources/notofonts-fonts-LICENSE-0259702.txt](research/sources/notofonts-fonts-LICENSE-0259702.txt)
 - **Read:** 2026-11-07
-- **Cited in:** `assets/demo/LICENSES.md`
+- **Cited in:** `docs/assets/demo/LICENSES.md`
 
 <a id="notofonts-readme"></a>
 ### notofonts-readme
@@ -8026,7 +8026,7 @@ notofonts/notofonts.github.io README.md at noto-monthly-release-2026.10.01 -- it
 - **sha256:** `2ea6d22ffbb2b322d92bf121650ec8a16c37618d285bbe89a9824368a0cadb7b` (6815 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-07
-- **Cited in:** `assets/demo/LICENSES.md`
+- **Cited in:** `docs/assets/demo/LICENSES.md`
 
 <a id="objc2-license-mit"></a>
 ### objc2-license-mit
@@ -8045,7 +8045,7 @@ Egmont Koblinger, Hyperlinks (a.k.a. HTML-like anchors) in terminal emulators, g
 - **URL:** <https://gist.githubusercontent.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda/raw/5965d6de1b609d8be0ff57b5ad9d4fe172500cf7/Hyperlinks_in_Terminal_Emulators.md>
 - **sha256:** `fc706ddcaeab44f2a117aa94bd3e9bc583132ba908281b5bb62ad3f58367955f` (17584 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/link.rs`, `baud-app/src/paths.rs`, `baud-core/src/links.rs`, `baud-core/tests/xterm/hyperlinks.rs`, `baud-domain/src/cell.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/link.rs`, `crates/baud-app/src/paths.rs`, `crates/baud-core/src/links.rs`, `crates/baud-core/tests/xterm/hyperlinks.rs`, `crates/baud-domain/src/cell.rs`, `docs/vt-coverage.md`
 
 <a id="ots-designdoc"></a>
 ### ots-designdoc
@@ -8065,7 +8065,7 @@ sRGB gamut clipping -- compute\_max\_saturation's fitted polynomial and Halley s
 - **sha256:** `94dfab2f7eabd1f11e7c01fe7b3951772b21811f95907415f75158b1f0dcd707` (410043 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-render/src/color.rs`
+- **Cited in:** `crates/baud-render/src/color.rs`
 
 <a id="ottosson-oklab"></a>
 ### ottosson-oklab
@@ -8076,7 +8076,7 @@ A perceptual color space for image processing -- OKLab's two matrices from linea
 - **sha256:** `763738fd931b6d3feea3d91b61db5d40028758c3e228d11748f6b00ad1df7cf7` (207451 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/oklab.rs`, `baud-render/src/color.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/oklab.rs`, `crates/baud-render/src/color.rs`
 
 <a id="pango-8e74c27-test-hebrew"></a>
 ### pango-8e74c27-test-hebrew
@@ -8087,7 +8087,7 @@ Pango at 8e74c27, utils/test-hebrew.txt -- Genesis 1, pointed and cantillated, t
 - **sha256:** `39e80e5ee3f5355eda25ccefec3ca0095e5da8f88780621abdc0617988d0b664` (2693 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-12
-- **Cited in:** `baud-render/tests/hebrew_embedded.rs`
+- **Cited in:** `crates/baud-render/tests/hebrew_embedded.rs`
 
 <a id="pathfinder-fill-area-inc"></a>
 ### pathfinder-fill-area-inc
@@ -8106,7 +8106,7 @@ PDF Reference, third edition: Adobe Portable Document Format Version 1.4. Adobe 
 - **URL:** <https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.4.pdf>
 - **sha256:** `82274239cad9924434a2a4eaccc3b3c8ca2690472422cd96bf38ed14a69c0207` (9379963 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/print.rs`, `baud-render/src/print_pdf.rs`, `xtask/src/md5.rs`, `xtask/src/pdf.rs`
+- **Cited in:** `crates/baud-domain/src/vt/print.rs`, `crates/baud-render/src/print_pdf.rs`, `crates/xtask/src/md5.rs`, `crates/xtask/src/pdf.rs`
 
 <a id="posix-exec"></a>
 ### posix-exec
@@ -8117,7 +8117,7 @@ exec -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024: the ne
 - **sha256:** `48155c576661c580a239e2291190244a8e3145b0493cdcae62dc7a58b2d6b938` (57832 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-12
-- **Cited in:** `baud-app/examples/demo/mac.rs`, `baud-app/src/pty.rs`, `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/examples/demo/mac.rs`, `crates/baud-app/src/pty.rs`, `crates/baud-app/src/sys.rs`
 
 <a id="posix-exit"></a>
 ### posix-exit
@@ -8128,7 +8128,7 @@ exec -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024: the ne
 - **sha256:** `3316e1eb976ab64edf1e507259e7fed79adf7b9cbca3c617115805292c72e44c` (26533 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-14
-- **Cited in:** `baud-app/src/pty.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`
 
 <a id="posix-fork"></a>
 ### posix-fork
@@ -8139,7 +8139,7 @@ fork -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024: a chil
 - **sha256:** `ab97739ed39e8a21f7304a03d5efd039fc601d5744f5f6ac0e93d9ddd96a41c1` (24028 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-12
-- **Cited in:** `baud-app/src/pty.rs`, `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`, `crates/baud-app/src/sys.rs`
 
 <a id="posix-open"></a>
 ### posix-open
@@ -8149,7 +8149,7 @@ open, openat -- open file (O\_TTY\_INIT, and the subsidiary side of a pseudo-ter
 - **URL:** <https://pubs.opengroup.org/onlinepubs/9799919799/functions/open.html>
 - **sha256:** `57b770918aa3e0c25186972675df8c96da119cf4b973335ed4487405e260dc3a` (40401 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/pty.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`
 
 <a id="posix-posix-openpt"></a>
 ### posix-posix-openpt
@@ -8160,7 +8160,7 @@ posix\_openpt -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-202
 - **sha256:** `992336357bf190c80401e3ca0bc5389e3cadb29ebd626c8119d6a47c9c757182` (10570 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-08
-- **Cited in:** `baud-app/src/pty.rs`, `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`, `crates/baud-app/src/sys.rs`
 
 <a id="posix-rename"></a>
 ### posix-rename
@@ -8170,7 +8170,7 @@ rename -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024: 'a d
 - **URL:** <https://pubs.opengroup.org/onlinepubs/9799919799/functions/rename.html>
 - **sha256:** `06671610134b0a52cdf4dcdaf382f72fef85ef51088b8a52b8679c7f03829318` (26407 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/reload.rs`
+- **Cited in:** `crates/baud-app/src/reload.rs`
 
 <a id="posix-tcgetpgrp"></a>
 ### posix-tcgetpgrp
@@ -8180,7 +8180,7 @@ tcgetpgrp -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024. I
 - **URL:** <https://pubs.opengroup.org/onlinepubs/9799919799/functions/tcgetpgrp.html>
 - **sha256:** `d147e5b554f0b9d95d7aa90035e66ae31bbd40c20416be219ae6b4346b0c25fe` (6576 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fg.rs`, `baud-app/src/front.rs`
+- **Cited in:** `crates/baud-app/src/fg.rs`, `crates/baud-app/src/front.rs`
 
 <a id="posix-tcsetattr"></a>
 ### posix-tcsetattr
@@ -8190,7 +8190,7 @@ tcsetattr -- set the parameters associated with the terminal -- The Open Group B
 - **URL:** <https://pubs.opengroup.org/onlinepubs/9799919799/functions/tcsetattr.html>
 - **sha256:** `b27e4c0a8605ba67ba07787cb14e43f7305bab9dfea5fb76faa0d227c08539ea` (12454 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/pty.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`
 
 <a id="posix-waitid"></a>
 ### posix-waitid
@@ -8200,7 +8200,7 @@ waitid -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024. IEEE
 - **URL:** <https://pubs.opengroup.org/onlinepubs/9799919799/functions/waitid.html>
 - **sha256:** `d239e202038340327baa6fce18c94ee2c5c9b0bf4f8b488b754d3734dd309b34` (12864 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/sys.rs`
 
 <a id="posix-wcwidth"></a>
 ### posix-wcwidth
@@ -8211,7 +8211,7 @@ wcwidth -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024: SYN
 - **sha256:** `2a46145b54990543a28d217febf495803dd20c69b82a0bf6c1870ffcc7966fdb` (6206 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-24
-- **Cited in:** `baud-sfte-difftest/build.rs`
+- **Cited in:** `crates/baud-sfte-difftest/build.rs`
 
 <a id="posix-xbd-8"></a>
 ### posix-xbd-8
@@ -8222,7 +8222,7 @@ Environment Variables (XBD chapter 8) -- The Open Group Base Specifications Issu
 - **sha256:** `89294048dbc032eacc75804005e256eaa7eb6b5c9a2a9cf75b44d8c573d25ad7` (52350 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-14
-- **Cited in:** `baud-app/src/pty.rs`, `baud-app/src/windows.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`, `crates/baud-app/src/windows.rs`
 
 <a id="posix-xcu-2"></a>
 ### posix-xcu-2
@@ -8233,7 +8233,7 @@ Shell Command Language (XCU chapter 2) -- The Open Group Base Specifications Iss
 - **sha256:** `0889867a53fe12508a71e8739ec23ecdddc95e6f67697c98e26acc8ff0ec1acd` (357953 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-14
-- **Cited in:** `baud-app/src/pty.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`
 
 <a id="posix-xsh-2"></a>
 ### posix-xsh-2
@@ -8243,7 +8243,7 @@ System Interfaces: General Information (XSH chapter 2) -- The Open Group Base Sp
 - **URL:** <https://pubs.opengroup.org/onlinepubs/9799919799/functions/V2_chap02.html>
 - **sha256:** `9e9dc6276c456bf30309dcd0fd76912fc118c16ab1bbc8f3c9503a8de03458a3` (330207 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-sfte-difftest/build.rs`
+- **Cited in:** `crates/baud-sfte-difftest/build.rs`
 
 <a id="posix-xsh-chap02"></a>
 ### posix-xsh-chap02
@@ -8254,7 +8254,7 @@ System Interfaces, chapter 2, General Information -- The Open Group Base Specifi
 - **sha256:** `9e9dc6276c456bf30309dcd0fd76912fc118c16ab1bbc8f3c9503a8de03458a3` (330207 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-12
-- **Cited in:** `baud-app/examples/demo/mac.rs`, `baud-app/src/inherited.rs`, `baud-app/src/pty.rs`, `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/examples/demo/mac.rs`, `crates/baud-app/src/inherited.rs`, `crates/baud-app/src/pty.rs`, `crates/baud-app/src/sys.rs`
 
 <a id="premchand-saptasaroj-11"></a>
 ### premchand-saptasaroj-11
@@ -8265,7 +8265,7 @@ Premchand, Bade Ghar ki Beti, Saptasaroj (1917) p. 11, hi.wikisource revid 61093
 - **sha256:** `5c357de229988ff7e2502a03a2961baa4351de123024c959e89edff81003ca03` (3520 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-02
-- **Cited in:** `baud-font/tests/devanagari.rs`
+- **Cited in:** `crates/baud-font/tests/devanagari.rs`
 
 <a id="premchand-saptasaroj-12"></a>
 ### premchand-saptasaroj-12
@@ -8275,7 +8275,7 @@ Premchand, Bade Ghar ki Beti, Saptasaroj (1917) p. 12, hi.wikisource revid 61094
 - **URL:** <https://hi.wikisource.org/w/index.php?title=%E0%A4%AA%E0%A5%83%E0%A4%B7%E0%A5%8D%E0%A4%A0%3A%E0%A4%B8%E0%A4%AA%E0%A5%8D%E0%A4%A4%E0%A4%B8%E0%A4%B0%E0%A5%8B%E0%A4%9C.djvu/%E0%A5%A7%E0%A5%A8&action=raw&oldid=610947>
 - **sha256:** `0eb29482310718fd81c53d1f8df6a73029241439b90709b74511086579a30ad3` (3333 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/tests/devanagari.rs`
+- **Cited in:** `crates/baud-font/tests/devanagari.rs`
 
 <a id="pywal-colors-template-236aa48"></a>
 ### pywal-colors-template-236aa48
@@ -8286,7 +8286,7 @@ pywal 236aa48, pywal/templates/colors -- sixteen lines, {color0} to {color15}. D
 - **sha256:** `4fbec52377e7e29b07764fa7b8145cff3006760b1cf8cec7b7c65611df8a756b` (150 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/terminals.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/terminals.rs`
 
 <a id="pywal-util-236aa48"></a>
 ### pywal-util-236aa48
@@ -8297,7 +8297,7 @@ pywal 236aa48, pywal/util.py -- Color.\_\_str\_\_ is hex\_color, written by rgb\
 - **sha256:** `9dceb5c6cac47adbec8c763c725a92bd46de4d93329f85c96e86690ab8c325c7` (6407 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/terminals.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/terminals.rs`
 
 <a id="regex-automata-dense"></a>
 ### regex-automata-dense
@@ -8307,7 +8307,7 @@ regex\_automata::dfa::dense::DFA -- transition table representation. Andrew Gall
 - **URL:** <https://docs.rs/regex-automata/0.4.9/regex_automata/dfa/dense/struct.DFA.html>
 - **sha256:** `f882aa1f36b802b83d338226550b831f4e8154687d54d6e0a237ecc114163b37` (151497 bytes)
 - **Copy:** [docs/research/sources/gallant-regex-automata-dense.html](research/sources/gallant-regex-automata-dense.html)
-- **Cited in:** `baud-domain/src/scan.rs`
+- **Cited in:** `crates/baud-domain/src/scan.rs`
 
 <a id="rfc1321-md5"></a>
 ### rfc1321-md5
@@ -8317,7 +8317,7 @@ RFC 1321: The MD5 Message-Digest Algorithm. R. Rivest, 1992, IETF RFC 1321.
 - **URL:** <https://www.rfc-editor.org/rfc/rfc1321.txt>
 - **sha256:** `284a79d148400d9cd2a423211d1103b5cef0fb9256a4cbe6d7ebe5197c3149dd` (35222 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `xtask/src/md5.rs`
+- **Cited in:** `crates/xtask/src/md5.rs`
 
 <a id="rfc1950-zlib"></a>
 ### rfc1950-zlib
@@ -8327,7 +8327,7 @@ RFC 1950: ZLIB Compressed Data Format Specification version 3.3. P. Deutsch, J-L
 - **URL:** <https://www.rfc-editor.org/rfc/rfc1950.txt>
 - **sha256:** `8f0475a5c984657bf26277f73df9456c9b97f175084f0c1748f1eb1f0b9b10b9` (20502 bytes)
 - **Copy:** [docs/research/sources/rfc1950-zlib.txt](research/sources/rfc1950-zlib.txt)
-- **Cited in:** `baud-app/src/host.rs`, `baud-domain/src/png.rs`, `baud-domain/src/zlib.rs`, `baud-domain/tests/zlib.rs`
+- **Cited in:** `crates/baud-app/src/host.rs`, `crates/baud-domain/src/png.rs`, `crates/baud-domain/src/zlib.rs`, `crates/baud-domain/tests/zlib.rs`
 
 <a id="rfc1951-deflate"></a>
 ### rfc1951-deflate
@@ -8337,7 +8337,7 @@ RFC 1951: DEFLATE Compressed Data Format Specification version 1.3. P. Deutsch, 
 - **URL:** <https://www.rfc-editor.org/rfc/rfc1951.txt>
 - **sha256:** `5ebf4b5b7fe1c3a0c0ab9aa3ac8c0f3853a7dc484905e76e03b0b0f301350009` (36944 bytes)
 - **Copy:** [docs/research/sources/rfc1951-deflate.txt](research/sources/rfc1951-deflate.txt)
-- **Cited in:** `baud-app/src/host.rs`, `baud-bench/src/capture/deflate.rs`, `baud-domain/src/png.rs`, `baud-domain/src/zlib.rs`, `baud-domain/tests/zlib.rs`
+- **Cited in:** `crates/baud-app/src/host.rs`, `crates/baud-bench/src/capture/deflate.rs`, `crates/baud-domain/src/png.rs`, `crates/baud-domain/src/zlib.rs`, `crates/baud-domain/tests/zlib.rs`
 
 <a id="rfc2606"></a>
 ### rfc2606
@@ -8347,7 +8347,7 @@ RFC 2606: Reserved Top Level DNS Names -- '".invalid" is intended for use in onl
 - **URL:** <https://www.rfc-editor.org/rfc/rfc2606.txt>
 - **sha256:** `b6869c8984701701bc2e6973b6ffc750d497f845cc1a65a106e9301590a13ab0` (8008 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/paths.rs`
+- **Cited in:** `crates/baud-app/src/paths.rs`
 
 <a id="rfc3986"></a>
 ### rfc3986
@@ -8357,7 +8357,7 @@ RFC 3986: Uniform Resource Identifier (URI): Generic Syntax -- percent-encoding 
 - **URL:** <https://www.rfc-editor.org/rfc/rfc3986.txt>
 - **sha256:** `3102dae4b68cebe40337730312fcb612297b8928547267e8b3d1ee6002b2d683` (141811 bytes)
 - **Copy:** [docs/research/sources/rfc3986-uri.txt](research/sources/rfc3986-uri.txt)
-- **Cited in:** `baud-app/src/link.rs`, `baud-app/src/paths.rs`, `baud-app/src/rules.rs`, `baud-domain/src/vt/file_uri.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/link.rs`, `crates/baud-app/src/paths.rs`, `crates/baud-app/src/rules.rs`, `crates/baud-domain/src/vt/file_uri.rs`, `docs/vt-coverage.md`
 
 <a id="rfc4648-base64"></a>
 ### rfc4648-base64
@@ -8367,7 +8367,7 @@ RFC 4648: The Base16, Base32, and Base64 Data Encodings. S. Josefsson, 2006, IET
 - **URL:** <https://www.rfc-editor.org/rfc/rfc4648.txt>
 - **sha256:** `84e14418f795d503be5f34bf23ce4ebaa119e9ec7c9f667d8caeb111385b178f` (35491 bytes)
 - **Copy:** [docs/research/sources/rfc4648-base64.txt](research/sources/rfc4648-base64.txt)
-- **Cited in:** `baud-domain/src/base64.rs`, `baud-domain/src/vt/clipboard.rs`, `baud-domain/tests/base64.rs`, `baud-domain/tests/kitty_graphics.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/base64.rs`, `crates/baud-domain/src/vt/clipboard.rs`, `crates/baud-domain/tests/base64.rs`, `crates/baud-domain/tests/kitty_graphics.rs`, `docs/vt-coverage.md`
 
 <a id="rfc6068"></a>
 ### rfc6068
@@ -8377,7 +8377,7 @@ RFC 6068: The 'mailto' URI Scheme -- 2, the mailtoURI grammar (hfields, hfvalue,
 - **URL:** <https://www.rfc-editor.org/rfc/rfc6068.txt>
 - **sha256:** `a450492a89d30689c0a73e26e1a1d7bccf761405b23c15567f0cf9db575984af` (36683 bytes)
 - **Copy:** [docs/research/sources/rfc6068-mailto.txt](research/sources/rfc6068-mailto.txt)
-- **Cited in:** `baud-app/src/link.rs`
+- **Cited in:** `crates/baud-app/src/link.rs`
 
 <a id="rfc8089"></a>
 ### rfc8089
@@ -8387,7 +8387,7 @@ RFC 8089: The 'file' URI Scheme -- local vs non-local file URIs, 'Treating a non
 - **URL:** <https://www.rfc-editor.org/rfc/rfc8089.txt>
 - **sha256:** `b5b3b7892f56ed371b5c53c625a4cde78cabf15276e4d7d9a22da184faf2fe26` (36893 bytes)
 - **Copy:** [docs/research/sources/rfc8089-file-uri.txt](research/sources/rfc8089-file-uri.txt)
-- **Cited in:** `baud-app/src/app.rs`, `baud-app/src/link.rs`, `baud-app/src/paths.rs`, `baud-app/src/probe.rs`, `baud-app/src/title.rs`, `baud-core/src/cwd.rs`, `baud-core/src/iterm.rs`, `baud-core/src/term.rs`, `baud-core/tests/working_directory.rs`, `baud-domain/src/vt/file_uri.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `crates/baud-app/src/link.rs`, `crates/baud-app/src/paths.rs`, `crates/baud-app/src/probe.rs`, `crates/baud-app/src/title.rs`, `crates/baud-core/src/cwd.rs`, `crates/baud-core/src/iterm.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/tests/working_directory.rs`, `crates/baud-domain/src/vt/file_uri.rs`, `docs/vt-coverage.md`
 
 <a id="rfc8259-json"></a>
 ### rfc8259-json
@@ -8397,7 +8397,7 @@ RFC 8259: The JavaScript Object Notation (JSON) Data Interchange Format. T. Bray
 - **URL:** <https://www.rfc-editor.org/rfc/rfc8259.txt>
 - **sha256:** `61a5378f4255c720beb2a4b4a63b29540147c140f36988bf086291989b4cd2d7` (28360 bytes)
 - **Copy:** [docs/research/sources/rfc8259-json.txt](research/sources/rfc8259-json.txt)
-- **Cited in:** `baud-domain/src/themefile/iterm.rs`, `baud-domain/tests/themeiterm.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/iterm.rs`, `crates/baud-domain/tests/themeiterm.rs`
 
 <a id="rfc9110"></a>
 ### rfc9110
@@ -8407,7 +8407,7 @@ RFC 9110: HTTP Semantics -- 4.2.1, 'A recipient that processes such a URI refere
 - **URL:** <https://www.rfc-editor.org/rfc/rfc9110.txt>
 - **sha256:** `21c1cdce6ab0e5509b04d84a28000836c7a087cf786efe6f04877ebfff47232a` (502941 bytes)
 - **Copy:** [docs/research/sources/rfc9110-http-semantics.txt](research/sources/rfc9110-http-semantics.txt)
-- **Cited in:** `baud-app/src/link.rs`
+- **Cited in:** `crates/baud-app/src/link.rs`
 
 <a id="richter-libjpeg"></a>
 ### richter-libjpeg
@@ -8418,7 +8418,7 @@ Thomas Richter's libjpeg 1.71 (25f7128), the JPEG committee's implementation of 
 - **sha256:** `2625a50fbf4751bb145b4704a55de3da77a946d589455acedbab41ddebb19d3a` (565066 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-01
-- **Cited in:** `baud-domain/tests/jpeg.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/tests/jpeg.rs`, `docs/vt-coverage.md`
 
 <a id="rust-core-sync-atomic"></a>
 ### rust-core-sync-atomic
@@ -8428,7 +8428,7 @@ library/core/src/sync/atomic.rs at bcded3316 (rustc 1.96.0-nightly 2026-04-06) -
 - **URL:** <https://raw.githubusercontent.com/rust-lang/rust/bcded331651b60a0383b3ff51db4f24c4495ac53/library/core/src/sync/atomic.rs>
 - **sha256:** `b279d2459bdb008adea5b7c4797f099428a62a88b8e95b30a7f90fab041e76a6` (199166 bytes)
 - **Copy:** [docs/research/sources/rust-core-sync-atomic.rs](research/sources/rust-core-sync-atomic.rs)
-- **Cited in:** `baud-present-macos/src/journal.rs`
+- **Cited in:** `crates/baud-present-macos/src/journal.rs`
 
 <a id="rust-reference-link-section"></a>
 ### rust-reference-link-section
@@ -8484,7 +8484,7 @@ Rust standard library, library/std/src/sys/pal/unix/mod.rs at 249c1e4e -- init a
 - **sha256:** `cf51d0e94117cc636829e08ecf12d441bf91ca8e9a04a667c1e9e234c13ecd0e` (13960 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-09
-- **Cited in:** `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/sys.rs`
 
 <a id="rust-target-feature"></a>
 ### rust-target-feature
@@ -8525,7 +8525,7 @@ SBL Hebrew Font User Manual, version 1.5 (filed as Unicode L2/19-183). John Huds
 - **sha256:** `9062268f5c0b8f1c3e955613043a893faa21da5a8d938d4a0965ee30edfc1858` (380192 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-13
-- **Cited in:** `baud-font/src/shape.rs`
+- **Cited in:** `crates/baud-font/src/shape.rs`
 
 <a id="sco-osr507-screen-hw"></a>
 ### sco-osr507-screen-hw
@@ -8536,7 +8536,7 @@ SCO OpenServer Release 5.0.7, screen(HW) -- SCP (CSI s, ESC 7) and RCP (CSI u, E
 - **sha256:** `93fa447755151b21d0cd225f2db5e0bd3d657500b573da1c6865eb809f3629d7` (126418 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-11
-- **Cited in:** `baud-core/tests/vt100/save_params.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/vt100/save_params.rs`, `docs/vt-coverage.md`
 
 <a id="sdk27-nsappearance-h"></a>
 ### sdk27-nsappearance-h
@@ -8546,7 +8546,7 @@ macOS SDK 27.2, AppKit NSAppearance.h -- 'Use a view's, window's, or the app's e
 - **URL:** file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSAppearance.h
 - **sha256:** `9c22c3d6213676f55e9bccf9abfdfce7de14bdd1bf96e4905c29f5f62949541b` (4690 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/mark.rs`
+- **Cited in:** `crates/baud-app/src/mark.rs`
 
 <a id="sdk27-nsapplication-h"></a>
 ### sdk27-nsapplication-h
@@ -8557,7 +8557,7 @@ macOS SDK 27.0, AppKit NSApplication.h -- '- (void)activate API\_AVAILABLE(macos
 - **sha256:** `33ed7a975710fc58046253c6d12f5210acb99418ae5e2c3f6a89c585fc3ee793` (46376 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-12
-- **Cited in:** `baud-app/src/app.rs`, `baud-app/src/strip.rs`, `baud-app/src/version.rs`, `baud-present-macos/src/about.rs`, `baud-present-macos/src/full_screen.rs`, `baud-present-macos/src/hover.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`, `crates/baud-app/src/strip.rs`, `crates/baud-app/src/version.rs`, `crates/baud-present-macos/src/about.rs`, `crates/baud-present-macos/src/full_screen.rs`, `crates/baud-present-macos/src/hover.rs`
 
 <a id="sdk27-nsbitmapimagerep-h"></a>
 ### sdk27-nsbitmapimagerep-h
@@ -8567,7 +8567,7 @@ macOS SDK 27.0, AppKit NSBitmapImageRep.h -- 'NSImageCurrentFrame'. Apple Inc., 
 - **URL:** file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSBitmapImageRep.h
 - **sha256:** `023d1a388515247852e35efac8ddb30082ad6e2165b1a686c36206d817103d41` (11305 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/about.rs`
+- **Cited in:** `crates/baud-present-macos/src/about.rs`
 
 <a id="sdk27-nscolor-h"></a>
 ### sdk27-nscolor-h
@@ -8578,7 +8578,7 @@ macOS SDK 27.0, AppKit NSColor.h -- selectedTextBackgroundColor, selectedTextCol
 - **sha256:** `9dadf6af222eabf442c157c7a9bc62fdf42a251d47e9818434e0080705767a79` (41098 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-present-macos/src/selection.rs`, `baud-render/src/renderer.rs`, `baud-render/tests/inactive_selection.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-present-macos/src/selection.rs`, `crates/baud-render/src/renderer.rs`, `crates/baud-render/tests/inactive_selection.rs`, `docs/vt-coverage.md`
 
 <a id="sdk27-nsglasseffectview-h"></a>
 ### sdk27-nsglasseffectview-h
@@ -8589,7 +8589,7 @@ macOS SDK 27.0, AppKit NSGlassEffectView.h -- 'API\_AVAILABLE(macos(26.0)) @inte
 - **sha256:** `cea54a3472014e6bb561e0a0f17dd279f2bd12e8ae92435cb50b5a2dfeb11cc6` (3018 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-12
-- **Cited in:** `baud-app/src/app.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`
 
 <a id="sdk27-nsimageview-h"></a>
 ### sdk27-nsimageview-h
@@ -8599,7 +8599,7 @@ macOS SDK 27.0, AppKit NSImageView.h -- '@property BOOL animates;'. Apple Inc., 
 - **URL:** file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSImageView.h
 - **sha256:** `80039073b09b9f5c7216ce0cbde39a70741d2fdef506aa1d4b92e596594035f7` (6582 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/about.rs`
+- **Cited in:** `crates/baud-present-macos/src/about.rs`
 
 <a id="sdk27-nsrelativedatetimeformatter-h"></a>
 ### sdk27-nsrelativedatetimeformatter-h
@@ -8609,7 +8609,7 @@ macOS SDK 27.2, Foundation NSRelativeDateTimeFormatter.h -- 'A numeric relative 
 - **URL:** file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSRelativeDateTimeFormatter.h
 - **sha256:** `65a4faa76657d5628dcba3b82b3eef709fe8182b9b2ca1cb2fc930581642f2cb` (4753 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/src/about.rs`
+- **Cited in:** `crates/baud-present-macos/src/about.rs`
 
 <a id="sdk27-nsscreen-h"></a>
 ### sdk27-nsscreen-h
@@ -8620,7 +8620,7 @@ macOS SDK 27.2, AppKit NSScreen.h -- screens 'All screens; first one is "zero" s
 - **sha256:** `094f7a09261d24fd6eb934306aa37262634906ec9191c9d8131f781720630479` (7908 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-04
-- **Cited in:** `baud-app/src/windows.rs`
+- **Cited in:** `crates/baud-app/src/windows.rs`
 
 <a id="sdk27-nsuserdefaults-h"></a>
 ### sdk27-nsuserdefaults-h
@@ -8630,7 +8630,7 @@ macOS SDK 27.2, Foundation NSUserDefaults.h -- the search list, command-line arg
 - **URL:** $SDKROOT/System/Library/Frameworks/Foundation.framework/Headers/NSUserDefaults.h
 - **sha256:** `a35371e63488777f863a2b791f102d4bd77000d60fcf331ac4088574faadaf1f` (35448 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/tests/titlebar_mark.rs`, `baud-present-macos/src/container.rs`
+- **Cited in:** `crates/baud-app/tests/titlebar_mark.rs`, `crates/baud-present-macos/src/container.rs`
 
 <a id="sdk27-nsview-h"></a>
 ### sdk27-nsview-h
@@ -8641,7 +8641,7 @@ macOS SDK 27.0, AppKit NSView.h -- 'API\_AVAILABLE(macos(14.0)) @interface NSVie
 - **sha256:** `af91fb647759eccbc205c2db73a20f7d73cd3850b90ae13d4a211745abeb372c` (48886 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-12
-- **Cited in:** `baud-app/src/app.rs`, `baud-present-macos/src/container.rs`, `baud-present-macos/src/launch.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`, `crates/baud-present-macos/src/container.rs`, `crates/baud-present-macos/src/launch.rs`
 
 <a id="sdk27-nsvisualeffectview-h"></a>
 ### sdk27-nsvisualeffectview-h
@@ -8652,7 +8652,7 @@ macOS SDK 27.0, AppKit NSVisualEffectView.h -- 'API\_AVAILABLE(macos(10.10)) @in
 - **sha256:** `39cd1010675c5ecc9da580b00940b5ee32bf1175fa62852be2f68e67949bd84c` (6828 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-12
-- **Cited in:** `baud-app/src/app.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`
 
 <a id="sdk27-nswindow-h"></a>
 ### sdk27-nswindow-h
@@ -8663,7 +8663,7 @@ macOS SDK 27.2, AppKit NSWindow.h -- allowsAutomaticWindowTabbing 'applications 
 - **sha256:** `38908989c3f43a900e0831067a3ab23882ad602828522e54a205e3a9246034ab` (81526 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-31
-- **Cited in:** `baud-app/src/windows.rs`, `baud-present-macos/src/container.rs`, `baud-present-macos/src/full_screen.rs`
+- **Cited in:** `crates/baud-app/src/windows.rs`, `crates/baud-present-macos/src/container.rs`, `crates/baud-present-macos/src/full_screen.rs`
 
 <a id="sdk27-nsworkspace-h"></a>
 ### sdk27-nsworkspace-h
@@ -8673,7 +8673,7 @@ macOS SDK 27.0, AppKit NSWorkspace.h -- '@interface NSWorkspace : NSObject' with
 - **URL:** file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSWorkspace.h
 - **sha256:** `be46224f91d11b7d0e25a0ed80dda5c1a9e52c404038a5a7ebfc25794befff30` (45949 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/probe.rs`
+- **Cited in:** `crates/baud-app/src/probe.rs`
 
 <a id="semantic-prompts"></a>
 ### semantic-prompts
@@ -8683,7 +8683,7 @@ Semantic prompts proposal (OSC 133) -- OSC 133;C carries no command text. Per Bo
 - **URL:** <https://gitlab.freedesktop.org/Per_Bothner/specifications/-/raw/4d2e1d75d4861a1d924895e106f8f016880e12a7/proposals/semantic-prompts.md>
 - **sha256:** `b8e5462f99b61044b8fb03c5d5ab2e901a760d0f7d16ff2958f2889ee2a8125a` (15843 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/probe.rs`, `baud-app/src/readline.rs`, `baud-app/src/vouch.rs`, `baud-core/tests/prompt_marks.rs`, `baud-domain/src/prompts.rs`, `baud-domain/src/vt/semantic.rs`, `baud-render/src/status.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/probe.rs`, `crates/baud-app/src/readline.rs`, `crates/baud-app/src/vouch.rs`, `crates/baud-core/tests/prompt_marks.rs`, `crates/baud-domain/src/prompts.rs`, `crates/baud-domain/src/vt/semantic.rs`, `crates/baud-render/src/status.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="semver"></a>
 ### semver
@@ -8693,7 +8693,7 @@ Semantic Versioning 2.0.0. Tom Preston-Werner, 2013, semver.org.
 - **URL:** <https://semver.org/spec/v2.0.0.html>
 - **sha256:** `f9d4b8b1a5e9a0de6621dbbc70d69fdf05310b7a737509317b94a7bddfb9409e` (31121 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `MEASUREMENTS.md`, `baud-app/src/build_id.rs`, `baud-app/tests/version.rs`
+- **Cited in:** `MEASUREMENTS.md`, `crates/baud-app/src/build_id.rs`, `crates/baud-app/tests/version.rs`
 
 <a id="sfte"></a>
 ### sfte
@@ -8703,7 +8703,7 @@ sfte -- single-file terminal emulator written in C11 (amalgamated header, upstre
 - **URL:** <https://raw.githubusercontent.com/nihiL7331/sfte/5d7ac25a4180a4adbb049ec228dc89e03dae2690/sfte.h>
 - **sha256:** `23b3314dff301e25977197ec402f688708a69d3366c9c613d99b268a46d9f23c` (1462190 bytes)
 - **Copy:** [docs/research/sources/sfte.h](research/sources/sfte.h)
-- **Cited in:** `baud-app/src/trail.rs`, `baud-domain/src/vt/report.rs`, `baud-render/src/trail.rs`, `baud-render/src/transition.rs`, `baud-render/tests/screen_slide.rs`, `docs/cursor.md`
+- **Cited in:** `crates/baud-app/src/trail.rs`, `crates/baud-domain/src/vt/report.rs`, `crates/baud-render/src/trail.rs`, `crates/baud-render/src/transition.rs`, `crates/baud-render/tests/screen_slide.rs`, `docs/cursor.md`
 
 <a id="sfte-ris"></a>
 ### sfte-ris
@@ -8713,7 +8713,7 @@ sfte -- ESC c is DECSTR plus a clear of the visible cells. nihiL7331, 2026, gith
 - **URL:** <https://raw.githubusercontent.com/nihiL7331/sfte/5d7ac25a4180a4adbb049ec228dc89e03dae2690/sfte.h>
 - **sha256:** `23b3314dff301e25977197ec402f688708a69d3366c9c613d99b268a46d9f23c` (1462190 bytes)
 - **Copy:** [docs/research/sources/sfte.h](research/sources/sfte.h)
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/scrollback.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/scrollback.rs`, `docs/vt-coverage.md`
 
 <a id="shift-dfa"></a>
 ### shift-dfa
@@ -8723,7 +8723,7 @@ Shift-based DFAs. Per Vognsen, 2020, gist.
 - **URL:** <https://gist.github.com/pervognsen/218ea17743e1442e59bb60d29b1aa725>
 - **sha256:** `4ce86a5c8ba71b56285716f10e2bc06e6e580b1362838cef947572162eeab1df` (10645 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `scripts/shift-dfa-microbench.rs`
+- **Cited in:** `tools/scripts/shift-dfa-microbench.rs`
 
 <a id="sii-95-06-34-baud"></a>
 ### sii-95-06-34-baud
@@ -8733,7 +8733,7 @@ Standards Institution of Israel, information technology committee terms, part 95
 - **URL:** <http://epedia.eitan.ac.il/term/9242>
 - **sha256:** `5bcf43206b3f296c84e809b47f6e9588da67deadb95abdeda37767ca452f48cc` (63159 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/session.rs`
+- **Cited in:** `crates/baud-app/examples/demo/session.rs`
 
 <a id="simdjson"></a>
 ### simdjson
@@ -8752,7 +8752,7 @@ Transcoding Billions of Unicode Characters per Second with SIMD Instructions. Da
 - **URL:** <https://arxiv.org/pdf/2109.10433v3>
 - **sha256:** `7da1d9b93e0b2b812113284733ccf43cb4d76a0d37ced5b1cc4511ac834cd2f9` (470406 bytes)
 - **Copy:** [docs/research/sources/simdutf-transcoding.pdf](research/sources/simdutf-transcoding.pdf)
-- **Cited in:** `baud-domain/src/grid.rs`
+- **Cited in:** `crates/baud-domain/src/grid.rs`
 
 <a id="slug-license"></a>
 ### slug-license
@@ -8780,7 +8780,7 @@ SMIL Animation -- calcMode 'discrete' 'will jump from one value to the next with
 - **URL:** <https://www.w3.org/TR/2001/REC-smil-animation-20010904/>
 - **sha256:** `6753f320784df517b0d149752071cc4bb581a6d9194e928ef2e4171b6ec1519e` (297024 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/logo_film.rs`, `tools/baud-pictures/src/logo.rs`
+- **Cited in:** `crates/baud-app/src/logo_film.rs`, `tools/baud-pictures/src/logo.rs`
 
 <a id="spdx-0-13-6-crate"></a>
 ### spdx-0-13-6-crate
@@ -8791,7 +8791,7 @@ spdx 0.13.6 (EmbarkStudios), the crate -- SPDX License List 3.29.0 in identifier
 - **sha256:** `646c5a367da914e3babcb9cd8e91c37ccaac42325b8f86f036513ad103f2a716` (3143855 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-03
-- **Cited in:** `xtask/src/publish.rs`
+- **Cited in:** `crates/xtask/src/publish.rs`
 
 <a id="spdx-license-list-3-29-0-json"></a>
 ### spdx-license-list-3-29-0-json
@@ -8801,7 +8801,7 @@ SPDX License List 3.29.0, json/licenses.json -- 740 licence identifiers. The SPD
 - **URL:** <https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/json/licenses.json>
 - **sha256:** `47d1cc681abe31166b342b6cc4aab13a6ba8ea5c48794697fe3bf8b1dbaf509a` (339359 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `xtask/src/publish.rs`
+- **Cited in:** `crates/xtask/src/publish.rs`
 
 <a id="starship-1270-config-schema"></a>
 ### starship-1270-config-schema
@@ -8811,7 +8811,7 @@ starship 1.27.0, .github/config-schema.json -- every key of starship.toml and it
 - **URL:** <https://raw.githubusercontent.com/starship/starship/v1.27.0/.github/config-schema.json>
 - **sha256:** `e50ce5f3e41e5c089b1074b174447650364797a4212d3e4ba8de628a8fae5ce2` (180522 bytes)
 - **Copy:** [docs/research/sources/starship-1.27.0-config-schema.json](research/sources/starship-1.27.0-config-schema.json)
-- **Cited in:** `baud-app/tests/starship_preset.rs`
+- **Cited in:** `crates/baud-app/tests/starship_preset.rs`
 
 <a id="stb-truetype"></a>
 ### stb-truetype
@@ -8830,7 +8830,7 @@ Standard Korean Language Dictionary (표준국어대사전), 보21 (baud). Natio
 - **URL:** <https://stdict.korean.go.kr/search/searchResult.do?pageSize=10&pageIndex=3&searchKeyword=%EB%B3%B4>
 - **sha256:** `a0c60cc32f23eb33afd93d3150fb37522dc559568f871724c3e7518c39cbf00d` (46686 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/session.rs`
+- **Cited in:** `crates/baud-app/examples/demo/session.rs`
 
 <a id="swift-corelibs-28249ce-nsstring"></a>
 ### swift-corelibs-28249ce-nsstring
@@ -8840,7 +8840,7 @@ swift-corelibs-foundation 28249ce, NSString.swift -- boolValue: white space skip
 - **URL:** <https://raw.githubusercontent.com/swiftlang/swift-corelibs-foundation/28249ced079d8e7ec03b821c039bf9868738c3fc/Sources/Foundation/NSString.swift>
 - **sha256:** `87f87d334af9e7750cef41a7df53a02aeff731f07d467c501359d68a85126ac7` (76923 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/iterm.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/iterm.rs`, `docs/vt-coverage.md`
 
 <a id="swift-corelibs-28249ce-scanner"></a>
 ### swift-corelibs-28249ce-scanner
@@ -8850,7 +8850,7 @@ swift-corelibs-foundation 28249ce, Scanner.swift -- charactersToBeSkipped defaul
 - **URL:** <https://raw.githubusercontent.com/swiftlang/swift-corelibs-foundation/28249ced079d8e7ec03b821c039bf9868738c3fc/Sources/Foundation/Scanner.swift>
 - **sha256:** `b4575dbdee3d3c212aa51faa3b46e72366121938e6e89833b8facf1b51e7809e` (26519 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/iterm.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/iterm.rs`, `docs/vt-coverage.md`
 
 <a id="term-man5"></a>
 ### term-man5
@@ -8860,7 +8860,7 @@ term(5): format of compiled term file. ncurses 6.0.20150808 (term.5 1.22), 2015,
 - **URL:** <https://invisible-island.net/ncurses/man/term.5.html>
 - **sha256:** `7a4c584436fbd9d8bf7b4ae3eaacc034c72e4601fbc1f827f2f7f58a5dec2f90` (11788 bytes)
 - **Copy:** [docs/research/sources/terminfo/term.5](research/sources/terminfo/term.5)
-- **Cited in:** `baud-domain/build/terminfo_caps.rs`, `baud-domain/src/terminfo.rs`
+- **Cited in:** `crates/baud-domain/build/terminfo_caps.rs`, `crates/baud-domain/src/terminfo.rs`
 
 <a id="terminal-wg-bidi-arrow-key-swapping"></a>
 ### terminal-wg-bidi-arrow-key-swapping
@@ -8870,7 +8870,7 @@ BiDi in terminal emulators v0.1 -- recommendation/arrow-key-swapping.html: Left 
 - **URL:** <https://terminal-wg.pages.freedesktop.org/bidi/recommendation/arrow-key-swapping.html>
 - **sha256:** `69d3abc624ce844ab723fbbb7c071b4d0f2c5ae3bff8ce9b83f3fe0140ea8ffc` (23070 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/arrows.rs`, `baud-domain/src/vt/mode.rs`, `docs/bidi.md`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/arrows.rs`, `crates/baud-domain/src/vt/mode.rs`, `docs/bidi.md`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="terminal-wg-bidi-basic-modes"></a>
 ### terminal-wg-bidi-basic-modes
@@ -8880,7 +8880,7 @@ BiDi in terminal emulators v0.1 -- recommendation/basic-modes.html: the six mode
 - **URL:** <https://terminal-wg.pages.freedesktop.org/bidi/recommendation/basic-modes.html>
 - **sha256:** `e3beb7e7f805db77974c08d354f54e2439830163ca3ea551733bf5b7d80d241b` (29303 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/path.rs`, `baud-domain/src/store.rs`, `baud-domain/src/vt/mode.rs`, `baud-present-macos/tests/cells.rs`, `baud-present-vulkan/tests/scenes_bidi.rs`, `baud-render/src/bidi.rs`, `baud-render/tests/line_direction.rs`, `baud-render/tests/paragraph_modes.rs`, `baud-render/tests/status_line_direction.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/path.rs`, `crates/baud-domain/src/store.rs`, `crates/baud-domain/src/vt/mode.rs`, `crates/baud-present-macos/tests/cells.rs`, `crates/baud-present-vulkan/tests/scenes_bidi.rs`, `crates/baud-render/src/bidi.rs`, `crates/baud-render/tests/line_direction.rs`, `crates/baud-render/tests/paragraph_modes.rs`, `crates/baud-render/tests/status_line_direction.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
 
 <a id="terminal-wg-bidi-cursor"></a>
 ### terminal-wg-bidi-cursor
@@ -8890,7 +8890,7 @@ BiDi in terminal emulators v0.1 -- recommendation/cursor.html: the cursor follow
 - **URL:** <https://terminal-wg.pages.freedesktop.org/bidi/recommendation/cursor.html>
 - **sha256:** `ac87b3aebb3f706f39dd311cd15df8f713e1a7e074253fe037d6c6b877703db1` (23024 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/tests/cells.rs`, `baud-present-vulkan/tests/scenes_bidi.rs`, `baud-render/src/bidi.rs`
+- **Cited in:** `crates/baud-present-macos/tests/cells.rs`, `crates/baud-present-vulkan/tests/scenes_bidi.rs`, `crates/baud-render/src/bidi.rs`
 
 <a id="terminal-wg-bidi-display-only"></a>
 ### terminal-wg-bidi-display-only
@@ -8900,7 +8900,7 @@ BiDi in terminal emulators v0.1 -- recommendation/display-only.html: BiDi is dis
 - **URL:** <https://terminal-wg.pages.freedesktop.org/bidi/recommendation/display-only.html>
 - **sha256:** `3893c9baaef99b31197f1fb61b88daee16c506a4a5ff7ab6cc08734e213117ac` (23775 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/gesture.rs`, `baud-app/src/seat.rs`, `baud-render/src/bidi.rs`, `docs/bidi.md`
+- **Cited in:** `crates/baud-app/src/gesture.rs`, `crates/baud-app/src/seat.rs`, `crates/baud-render/src/bidi.rs`, `docs/bidi.md`
 
 <a id="terminal-wg-bidi-ecosystem"></a>
 ### terminal-wg-bidi-ecosystem
@@ -8920,7 +8920,7 @@ BiDi in terminal emulators v0.1 -- recommendation/erased-cells.html: trailing er
 - **URL:** <https://terminal-wg.pages.freedesktop.org/bidi/recommendation/erased-cells.html>
 - **sha256:** `85b14c0adb4cfaea8b058aa86df4ead75aa62a12e474a41fc0bf40594954e467` (21409 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-macos/tests/cells.rs`, `baud-present-vulkan/tests/scenes_bidi.rs`, `baud-render/src/bidi.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-present-macos/tests/cells.rs`, `crates/baud-present-vulkan/tests/scenes_bidi.rs`, `crates/baud-render/src/bidi.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
 
 <a id="terminal-wg-bidi-escape-sequences"></a>
 ### terminal-wg-bidi-escape-sequences
@@ -8930,7 +8930,7 @@ BiDi in terminal emulators v0.1 -- recommendation/escape-sequences.html: BDSM, S
 - **URL:** <https://terminal-wg.pages.freedesktop.org/bidi/recommendation/escape-sequences.html>
 - **sha256:** `7a63f9bcb72e0f418ac9650750491c884c0d8b4e98d4546f35c99f1bc010418d` (37243 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/arrows.rs`, `baud-core/src/paint.rs`, `baud-core/src/path.rs`, `baud-core/tests/character_path.rs`, `baud-core/tests/paragraph_modes.rs`, `baud-domain/src/store.rs`, `baud-domain/src/vt/mode.rs`, `baud-render/tests/line_direction.rs`, `docs/bidi.md`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/arrows.rs`, `crates/baud-core/src/paint.rs`, `crates/baud-core/src/path.rs`, `crates/baud-core/tests/character_path.rs`, `crates/baud-core/tests/paragraph_modes.rs`, `crates/baud-domain/src/store.rs`, `crates/baud-domain/src/vt/mode.rs`, `crates/baud-render/tests/line_direction.rs`, `docs/bidi.md`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="terminal-wg-bidi-misc"></a>
 ### terminal-wg-bidi-misc
@@ -8940,7 +8940,7 @@ BiDi in terminal emulators v0.1 -- recommendation/misc.html: images not flipped,
 - **URL:** <https://terminal-wg.pages.freedesktop.org/bidi/recommendation/misc.html>
 - **sha256:** `27de786f5607b4c678bdee7972008f9803ea8fe4d394134ccc068606d4e89736` (31113 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/store.rs`, `baud-render/src/bidi.rs`, `baud-render/src/boxes.rs`, `baud-render/src/renderer.rs`, `baud-render/tests/boxes.rs`, `baud-render/tests/image_direction.rs`, `baud-render/tests/paragraph_modes.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/store.rs`, `crates/baud-render/src/bidi.rs`, `crates/baud-render/src/boxes.rs`, `crates/baud-render/src/renderer.rs`, `crates/baud-render/tests/boxes.rs`, `crates/baud-render/tests/image_direction.rs`, `crates/baud-render/tests/paragraph_modes.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
 
 <a id="terminal-wg-bidi-paragraphs"></a>
 ### terminal-wg-bidi-paragraphs
@@ -8960,7 +8960,7 @@ terminal-wg/specifications issue 20, 'Specify OSC 7 behavior' (opened 2019-11-01
 - **URL:** <https://gitlab.freedesktop.org/api/v4/projects/terminal-wg%2Fspecifications/issues/20>
 - **sha256:** `1a44d21e617924f41408a9035503d54bf0aa9a3bbf5dd69980f2f52c659f37ad` (2410 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/file_uri.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/file_uri.rs`, `docs/vt-coverage.md`
 
 <a id="terminfo-ansi"></a>
 ### terminfo-ansi
@@ -8988,7 +8988,7 @@ terminfo entry: hpterm, with user-defined capabilities. ncurses 6.0.20150808 (in
 - **URL:** <https://invisible-island.net/ncurses/>
 - **sha256:** `9133af7b4b94a9625223130d5b04d1aba7491aa88f34bddb5d8b3e6bcbff18dd` (1245 bytes)
 - **Copy:** [docs/research/sources/terminfo/hpterm.ti](research/sources/terminfo/hpterm.ti)
-- **Cited in:** `baud-domain/src/vt/key/keyboards.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/key/keyboards.rs`, `docs/input-coverage.md`
 
 <a id="terminfo-man5"></a>
 ### terminfo-man5
@@ -8998,7 +8998,7 @@ terminfo(5): terminal capability data base. ncurses 6.0.20150808 (terminfo.head 
 - **URL:** <https://invisible-island.net/ncurses/man/terminfo.5.html>
 - **sha256:** `229b3f5cd16826ed0d9dddd1ee7b14f86f9893521738a6328f58b2487c40d836` (96313 bytes)
 - **Copy:** [docs/research/sources/terminfo/terminfo.5](research/sources/terminfo/terminfo.5)
-- **Cited in:** `baud-domain/build/terminfo_caps.rs`, `baud-domain/src/terminfo.rs`, `baud-domain/src/vt/tcap.rs`
+- **Cited in:** `crates/baud-domain/build/terminfo_caps.rs`, `crates/baud-domain/src/terminfo.rs`, `crates/baud-domain/src/vt/tcap.rs`
 
 <a id="terminfo-nsterm"></a>
 ### terminfo-nsterm
@@ -9071,7 +9071,7 @@ terminfo entry: xterm-256color, with user-defined capabilities. ncurses 6.0.2015
 - **URL:** <https://invisible-island.net/ncurses/>
 - **sha256:** `3efe945da1810e50a82ce8bd1564dd6eb9615082f2f0459c5c94d7cdf335e0e7` (3960 bytes)
 - **Copy:** [docs/research/sources/terminfo/xterm-256color.ti](research/sources/terminfo/xterm-256color.ti)
-- **Cited in:** `baud-core/tests/vt420/erase_colour.rs`, `baud-core/tests/xterm_keyboards.rs`, `baud-domain/build/termcap_keys.rs`, `baud-domain/build/terminfo_caps.rs`, `baud-domain/src/terminfo.rs`, `baud-domain/src/vt/key/keyboards.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/vt420/erase_colour.rs`, `crates/baud-core/tests/xterm_keyboards.rs`, `crates/baud-domain/build/termcap_keys.rs`, `crates/baud-domain/build/terminfo_caps.rs`, `crates/baud-domain/src/terminfo.rs`, `crates/baud-domain/src/vt/key/keyboards.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="terminfo-xterm-256color-ncurses66"></a>
 ### terminfo-xterm-256color-ncurses66
@@ -9099,7 +9099,7 @@ tinted-theming home 38fdf7d, builder.md -- the builder specification. the Tinted
 - **URL:** <https://raw.githubusercontent.com/tinted-theming/home/38fdf7d4c74417ea86f1e354c628fc2d2aeb5d96/builder.md>
 - **sha256:** `e48dc625db2838b5783d01e5e068cc2fb86cfe81e57ae74cb3a114b2fba0989d` (10882 bytes)
 - **Copy:** [docs/research/sources/tinted-home-builder.md](research/sources/tinted-home-builder.md)
-- **Cited in:** `baud-domain/src/themefile.rs`, `baud-domain/src/themefile/detect.rs`, `baud-domain/tests/themedetect.rs`, `baud-domain/tests/themefile.rs`
+- **Cited in:** `crates/baud-domain/src/themefile.rs`, `crates/baud-domain/src/themefile/detect.rs`, `crates/baud-domain/tests/themedetect.rs`, `crates/baud-domain/tests/themefile.rs`
 
 <a id="tinted-shell-base16"></a>
 ### tinted-shell-base16
@@ -9118,7 +9118,7 @@ tinted-theming home 38fdf7d, styling.md v0.4.2 -- the base16 slot to ANSI 0-21 t
 - **URL:** <https://raw.githubusercontent.com/tinted-theming/home/38fdf7d4c74417ea86f1e354c628fc2d2aeb5d96/styling.md>
 - **sha256:** `ba027cc4a8ebc15a30c6d4d0a13aa4d53eb2e5809bbfb7530d62b52fa6846975` (7213 bytes)
 - **Copy:** [docs/research/sources/tinted-home-styling.md](research/sources/tinted-home-styling.md)
-- **Cited in:** `baud-domain/src/themefile.rs`
+- **Cited in:** `crates/baud-domain/src/themefile.rs`
 
 <a id="tmux-input-c"></a>
 ### tmux-input-c
@@ -9137,7 +9137,7 @@ tmux 94796f6, tty.c -- ?2031h?996n sent to a VT100-like outer terminal. Nicholas
 - **URL:** <https://raw.githubusercontent.com/tmux/tmux/94796f6b1182507efac8a272fc309a79e22e58a5/tty.c>
 - **sha256:** `bdf7e459b3858722025a3e298d57b4001647ecd92d577483b345216a4b7555ea` (75168 bytes)
 - **Copy:** [docs/research/sources/tmux-tty.c](research/sources/tmux-tty.c)
-- **Cited in:** `tests/scheme/README.md`
+- **Cited in:** `tools/tests/scheme/README.md`
 
 <a id="toml-1-0-0"></a>
 ### toml-1-0-0
@@ -9148,7 +9148,7 @@ TOML v1.0.0 (8e29e84), toml.md -- the language alacritty's config is written in.
 - **sha256:** `db2ee7bd0bd4145cf9621313f0cfaa42977bb17da7d176b09a1b866f2b8b5ffa` (25584 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/alacritty.rs`, `baud-domain/tests/themealacritty.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/alacritty.rs`, `crates/baud-domain/tests/themealacritty.rs`
 
 <a id="tomorrow-night-bright-xresources"></a>
 ### tomorrow-night-bright-xresources
@@ -9239,7 +9239,7 @@ UAX #11: East Asian Width, revision 44. Ken Lunde, editor; The Unicode Consortiu
 - **URL:** <https://www.unicode.org/reports/tr11/tr11-44.html>
 - **sha256:** `a82167102910152a30e3a3c4984fd5f9b1d8caf47e5d53dc1e1aef050ba4f25e` (36530 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/config.rs`, `baud-core/tests/encoding/replacement_clusters.rs`, `baud-core/tests/encoding/width.rs`, `baud-domain/build/width.rs`, `baud-domain/src/merged.rs`, `baud-domain/src/quantity.rs`, `baud-domain/src/width.rs`, `baud-render/src/boxes.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/config.rs`, `crates/baud-core/tests/encoding/replacement_clusters.rs`, `crates/baud-core/tests/encoding/width.rs`, `crates/baud-domain/build/width.rs`, `crates/baud-domain/src/merged.rs`, `crates/baud-domain/src/quantity.rs`, `crates/baud-domain/src/width.rs`, `crates/baud-render/src/boxes.rs`, `docs/vt-coverage.md`
 
 <a id="uax14"></a>
 ### uax14
@@ -9249,7 +9249,7 @@ UAX #14: Unicode Line Breaking Algorithm, revision 55. The Unicode Consortium, 2
 - **URL:** <https://www.unicode.org/reports/tr14/tr14-55.html>
 - **sha256:** `dfa75adac235aaaf49320c955fbf48ef96acb16823ed4fb7ee8079b15b058582` (226953 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/build/linebreak.rs`, `baud-domain/src/lib.rs`, `baud-domain/src/linebreak.rs`, `baud-render/src/badge.rs`, `baud-render/src/rebreak.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/build/linebreak.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/src/linebreak.rs`, `crates/baud-render/src/badge.rs`, `crates/baud-render/src/rebreak.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
 
 <a id="uax24"></a>
 ### uax24
@@ -9259,7 +9259,7 @@ UAX #24: Unicode Script Property, revision 39. The Unicode Consortium, 2025, Uni
 - **URL:** <https://www.unicode.org/reports/tr24/tr24-39.html>
 - **sha256:** `2cad4de61a47ec57c4b67c57ec1ed8cc0a0c3304683612e1480a753353be49b8` (75969 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-font/build/script.rs`, `baud-font/src/script.rs`, `baud-font/tests/script.rs`, `baud-font/tests/shape.rs`
+- **Cited in:** `crates/baud-font/build/script.rs`, `crates/baud-font/src/script.rs`, `crates/baud-font/tests/script.rs`, `crates/baud-font/tests/shape.rs`
 
 <a id="uax29"></a>
 ### uax29
@@ -9269,7 +9269,7 @@ UAX #29: Unicode Text Segmentation, revision 47. The Unicode Consortium, 2025, U
 - **URL:** <https://www.unicode.org/reports/tr29/tr29-47.html>
 - **sha256:** `130d4e0d3f9da41bf9ad84bf580b3b92edc83886457cbc5a53b432761fd2c6ed` (138801 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/graph.rs`, `baud-core/src/paint.rs`, `baud-core/src/shift.rs`, `baud-core/src/write.rs`, `baud-core/tests/cursor_right_to_left.rs`, `baud-core/tests/defective_marks.rs`, `baud-core/tests/encoding/graphemes.rs`, `baud-core/tests/encoding/replacement_clusters.rs`, `baud-core/tests/encoding/utf8.rs`, `baud-core/tests/margin_pin.rs`, `baud-core/tests/marks.rs`, `baud-core/tests/pending_wrap.rs`, `baud-core/tests/search.rs`, `baud-core/tests/substitute_mark.rs`, `baud-core/tests/syllable_columns.rs`, `baud-core/tests/vt420/corner.rs`, `baud-domain/build/cluster.rs`, `baud-domain/build/grapheme.rs`, `baud-domain/src/cell.rs`, `baud-domain/src/grapheme.rs`, `baud-domain/src/lib.rs`, `baud-domain/src/search.rs`, `baud-domain/src/sequence.rs`, `baud-domain/tests/cluster_cells.rs`, `baud-render/src/overlay.rs`, `baud-render/src/syllable.rs`, `baud-render/tests/composition.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/graph.rs`, `crates/baud-core/src/paint.rs`, `crates/baud-core/src/shift.rs`, `crates/baud-core/src/write.rs`, `crates/baud-core/tests/cursor_right_to_left.rs`, `crates/baud-core/tests/defective_marks.rs`, `crates/baud-core/tests/encoding/graphemes.rs`, `crates/baud-core/tests/encoding/replacement_clusters.rs`, `crates/baud-core/tests/encoding/utf8.rs`, `crates/baud-core/tests/margin_pin.rs`, `crates/baud-core/tests/marks.rs`, `crates/baud-core/tests/pending_wrap.rs`, `crates/baud-core/tests/search.rs`, `crates/baud-core/tests/substitute_mark.rs`, `crates/baud-core/tests/syllable_columns.rs`, `crates/baud-core/tests/vt420/corner.rs`, `crates/baud-domain/build/cluster.rs`, `crates/baud-domain/build/grapheme.rs`, `crates/baud-domain/src/cell.rs`, `crates/baud-domain/src/grapheme.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/src/search.rs`, `crates/baud-domain/src/sequence.rs`, `crates/baud-domain/tests/cluster_cells.rs`, `crates/baud-render/src/overlay.rs`, `crates/baud-render/src/syllable.rs`, `crates/baud-render/tests/composition.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="uax44"></a>
 ### uax44
@@ -9280,7 +9280,7 @@ UAX #44: Unicode Character Database, revision 36 -- General\_Category values: Mc
 - **sha256:** `a97ed3f9dbee8e9a917106a3dc49a0fdeead42e2be06ea6f5cc31117eda3da33` (313639 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-02
-- **Cited in:** `baud-domain/build/joining.rs`, `baud-domain/build/ucd.rs`, `baud-domain/build/width.rs`, `baud-domain/src/grapheme.rs`, `baud-font/build/presentation.rs`, `baud-render/build/stress.rs`, `baud-tablegen/src/error.rs`, `baud-tablegen/src/lib.rs`, `baud-tablegen/src/map.rs`, `baud-tablegen/src/source.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/build/joining.rs`, `crates/baud-domain/build/ucd.rs`, `crates/baud-domain/build/width.rs`, `crates/baud-domain/src/grapheme.rs`, `crates/baud-font/build/presentation.rs`, `crates/baud-render/build/stress.rs`, `crates/baud-tablegen/src/error.rs`, `crates/baud-tablegen/src/lib.rs`, `crates/baud-tablegen/src/map.rs`, `crates/baud-tablegen/src/source.rs`, `docs/vt-coverage.md`
 
 <a id="uax9-bidi"></a>
 ### uax9-bidi
@@ -9290,7 +9290,7 @@ UAX #9: Unicode Bidirectional Algorithm, revision 51 (Unicode 17.0.0). Unicode C
 - **URL:** <https://www.unicode.org/reports/tr9/tr9-51.html>
 - **sha256:** `25ebbc5bc05ec302677ace0e3118e454e12da5e1e7ebec386aabd6e585c8cebe` (187487 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-bench/benches/bidi_rows.rs`, `baud-domain/build/bidi.rs`, `baud-domain/src/bidi.rs`, `baud-domain/src/bidi/algorithm.rs`, `baud-domain/src/joining.rs`, `baud-domain/src/store.rs`, `baud-font/build/script.rs`, `baud-font/src/script.rs`, `baud-font/tests/script.rs`, `baud-font/tests/shape.rs`, `baud-present-macos/tests/cells.rs`, `baud-present-vulkan/tests/scenes_bidi.rs`, `baud-render/src/bidi.rs`, `baud-render/src/renderer.rs`, `baud-render/tests/bidi_order.rs`, `baud-render/tests/image_direction.rs`, `baud-render/tests/rtl_flag.rs`, `baud-render/tests/side_margins.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-bench/benches/bidi_rows.rs`, `crates/baud-domain/build/bidi.rs`, `crates/baud-domain/src/bidi.rs`, `crates/baud-domain/src/bidi/algorithm.rs`, `crates/baud-domain/src/joining.rs`, `crates/baud-domain/src/store.rs`, `crates/baud-font/build/script.rs`, `crates/baud-font/src/script.rs`, `crates/baud-font/tests/script.rs`, `crates/baud-font/tests/shape.rs`, `crates/baud-present-macos/tests/cells.rs`, `crates/baud-present-vulkan/tests/scenes_bidi.rs`, `crates/baud-render/src/bidi.rs`, `crates/baud-render/src/renderer.rs`, `crates/baud-render/tests/bidi_order.rs`, `crates/baud-render/tests/image_direction.rs`, `crates/baud-render/tests/rtl_flag.rs`, `crates/baud-render/tests/side_margins.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
 
 <a id="uax9-tr9-52"></a>
 ### uax9-tr9-52
@@ -9300,7 +9300,7 @@ UAX #9 revision 52 (Unicode 18.0.0) -- the explicit directional formatting chara
 - **URL:** <https://www.unicode.org/reports/tr9/tr9-52.html>
 - **sha256:** `3c281b38800bad85b16bf3a169b8cb693d8a2dbceb60903feb26e68a2659ee8a` (188933 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/link.rs`, `baud-app/src/paths.rs`, `baud-app/src/rules.rs`
+- **Cited in:** `crates/baud-app/src/link.rs`, `crates/baud-app/src/paths.rs`, `crates/baud-app/src/rules.rs`
 
 <a id="ucd18-emoji-data"></a>
 ### ucd18-emoji-data
@@ -9328,7 +9328,7 @@ ArabicShaping.txt, Unicode Character Database 17.0.0 -- Joining\_Type and Joinin
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/ArabicShaping.txt>
 - **sha256:** `39afa01e680e27d0fd10b67a9b27be13fbaa3d0efecfb5be45991de9a0d267d0` (41441 bytes)
 - **Copy:** [docs/research/sources/unicode-arabicshaping.txt](research/sources/unicode-arabicshaping.txt)
-- **Cited in:** `baud-domain/build/joining.rs`, `baud-domain/src/joining.rs`, `baud-domain/src/lib.rs`, `baud-domain/tests/joining.rs`, `baud-font/build/presentation.rs`, `baud-font/src/lib.rs`
+- **Cited in:** `crates/baud-domain/build/joining.rs`, `crates/baud-domain/src/joining.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/tests/joining.rs`, `crates/baud-font/build/presentation.rs`, `crates/baud-font/src/lib.rs`
 
 <a id="unicode-bidibrackets"></a>
 ### unicode-bidibrackets
@@ -9338,7 +9338,7 @@ BidiBrackets.txt, Unicode Character Database 17.0.0. The Unicode Consortium, 202
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/BidiBrackets.txt>
 - **sha256:** `dadbaf38a0d0246e5b805bf8725cb81b7c621f93d030595635f5ba2c2f179428` (8891 bytes)
 - **Copy:** [docs/research/sources/unicode-bidibrackets.txt](research/sources/unicode-bidibrackets.txt)
-- **Cited in:** `baud-domain/build/bidi.rs`, `baud-domain/src/lib.rs`, `baud-domain/tests/bidi_tables.rs`, `baud-font/build/script.rs`, `baud-font/src/script.rs`, `baud-font/tests/script.rs`
+- **Cited in:** `crates/baud-domain/build/bidi.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/tests/bidi_tables.rs`, `crates/baud-font/build/script.rs`, `crates/baud-font/src/script.rs`, `crates/baud-font/tests/script.rs`
 
 <a id="unicode-bidicharactertest"></a>
 ### unicode-bidicharactertest
@@ -9348,7 +9348,7 @@ BidiCharacterTest.txt, Unicode Character Database 17.0.0. The Unicode Consortium
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/BidiCharacterTest.txt>
 - **sha256:** `a3e6e905ab5afbe318a96df5401d0372a04cd73ef139ab5e3cf0ae241c255488` (6880771 bytes)
 - **Copy:** [docs/research/sources/unicode-bidicharactertest.txt](research/sources/unicode-bidicharactertest.txt)
-- **Cited in:** `baud-domain/tests/bidi.rs`
+- **Cited in:** `crates/baud-domain/tests/bidi.rs`
 
 <a id="unicode-bidimirroring"></a>
 ### unicode-bidimirroring
@@ -9358,7 +9358,7 @@ BidiMirroring.txt, Unicode Character Database 17.0.0. The Unicode Consortium, 20
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/BidiMirroring.txt>
 - **sha256:** `a2f16fb873ab4fcdf3221cb1a8a85a134ddd6ed03603181823ff5206af3741ce` (26827 bytes)
 - **Copy:** [docs/research/sources/unicode-bidimirroring.txt](research/sources/unicode-bidimirroring.txt)
-- **Cited in:** `baud-domain/build/bidi.rs`, `baud-domain/src/lib.rs`, `baud-domain/tests/bidi_tables.rs`, `baud-present-macos/tests/cells.rs`, `baud-present-vulkan/tests/scenes_bidi.rs`, `baud-render/src/bidi.rs`
+- **Cited in:** `crates/baud-domain/build/bidi.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/tests/bidi_tables.rs`, `crates/baud-present-macos/tests/cells.rs`, `crates/baud-present-vulkan/tests/scenes_bidi.rs`, `crates/baud-render/src/bidi.rs`
 
 <a id="unicode-biditest"></a>
 ### unicode-biditest
@@ -9368,7 +9368,7 @@ BidiTest.txt, Unicode Character Database 17.0.0. The Unicode Consortium, 2025, U
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/BidiTest.txt>
 - **sha256:** `888bdfc8090652272d1f859cdb00ae659e2dc6c26740be61ef1d03998a687620` (7959988 bytes)
 - **Copy:** [docs/research/sources/unicode-biditest.txt](research/sources/unicode-biditest.txt)
-- **Cited in:** `baud-domain/tests/bidi.rs`
+- **Cited in:** `crates/baud-domain/tests/bidi.rs`
 
 <a id="unicode-blocks"></a>
 ### unicode-blocks
@@ -9378,7 +9378,7 @@ Blocks.txt, Unicode Character Database 17.0.0. The Unicode Consortium, 2025, Uni
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/Blocks.txt>
 - **sha256:** `c0edefaf1a19771e830a82735472716af6bf3c3975f6c2a23ffbe2580fbbcb15` (11663 bytes)
 - **Copy:** [docs/research/sources/unicode-blocks.txt](research/sources/unicode-blocks.txt)
-- **Cited in:** `baud-font/build/indic.rs`, `baud-font/src/lib.rs`
+- **Cited in:** `crates/baud-font/build/indic.rs`, `crates/baud-font/src/lib.rs`
 
 <a id="unicode-casefolding"></a>
 ### unicode-casefolding
@@ -9388,7 +9388,7 @@ CaseFolding.txt, Unicode Character Database 17.0.0 -- the full (C, F) and simple
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/CaseFolding.txt>
 - **sha256:** `ff8d8fefbf123574205085d6714c36149eb946d717a0c585c27f0f4ef58c4183` (87539 bytes)
 - **Copy:** [docs/research/sources/unicode-casefolding.txt](research/sources/unicode-casefolding.txt)
-- **Cited in:** `baud-domain/build/caseless.rs`, `baud-domain/build/search.rs`, `baud-domain/build/ucd.rs`, `baud-domain/src/caseless.rs`, `baud-domain/src/lib.rs`, `baud-domain/src/search.rs`, `baud-domain/tests/caseless.rs`, `baud-domain/tests/search_key.rs`
+- **Cited in:** `crates/baud-domain/build/caseless.rs`, `crates/baud-domain/build/search.rs`, `crates/baud-domain/build/ucd.rs`, `crates/baud-domain/src/caseless.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/src/search.rs`, `crates/baud-domain/tests/caseless.rs`, `crates/baud-domain/tests/search_key.rs`
 
 <a id="unicode-ch12"></a>
 ### unicode-ch12
@@ -9399,7 +9399,7 @@ The Unicode Standard, Version 17.0 -- Chapter 12, South and Central Asia-I. The 
 - **sha256:** `c3bd1b8dfed8fef4b605f147563a8883631dd4385a9f4335a2d06f6bbf1250c9` (3477457 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-02
-- **Cited in:** `baud-font/src/indic.rs`
+- **Cited in:** `crates/baud-font/src/indic.rs`
 
 <a id="unicode-ch13"></a>
 ### unicode-ch13
@@ -9409,7 +9409,7 @@ The Unicode Standard, Version 17.0 -- Chapter 13, South and Central Asia-II. The
 - **URL:** <https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-13/>
 - **sha256:** `06925c42b87da1c93965c7d1e2349b9a16427c224ff7a5c8c11700c104830668` (1201253 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/bidi.rs`, `baud-render/tests/joining_layout.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/src/bidi.rs`, `crates/baud-render/tests/joining_layout.rs`, `docs/vt-coverage.md`
 
 <a id="unicode-ch14"></a>
 ### unicode-ch14
@@ -9419,7 +9419,7 @@ The Unicode Standard, Version 17.0 -- Chapter 14, South and Central Asia-III. Th
 - **URL:** <https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-14/>
 - **sha256:** `06f600a4686e8b9de880499f65939686f81d138f298767f2bcc8b2d5baebcc09` (531759 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/bidi.rs`, `baud-render/tests/joining_layout.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/src/bidi.rs`, `crates/baud-render/tests/joining_layout.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
 
 <a id="unicode-ch3"></a>
 ### unicode-ch3
@@ -9429,7 +9429,7 @@ The Unicode Standard, Version 17.0 — Chapter 3, Conformance. The Unicode Conso
 - **URL:** <https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-3/>
 - **sha256:** `69fef5215c021368a1880d91bc59d7935d13a5455f1373eda17b8818d41b7b41` (404354 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/graph.rs`, `baud-core/src/write.rs`, `baud-core/tests/encoding/maximal_subparts.rs`, `baud-core/tests/encoding/replacement_clusters.rs`, `baud-core/tests/encoding/utf8.rs`, `baud-core/tests/substitute_mark.rs`, `baud-core/tests/vt100/charsets.rs`, `baud-domain/src/cell.rs`, `baud-domain/src/decode.rs`, `baud-domain/src/scan.rs`, `baud-domain/tests/table_3_7.rs`, `baud-font/src/shape.rs`, `baud-font/tests/mark_order.rs`, `baud-font/tests/normalization.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/graph.rs`, `crates/baud-core/src/write.rs`, `crates/baud-core/tests/encoding/maximal_subparts.rs`, `crates/baud-core/tests/encoding/replacement_clusters.rs`, `crates/baud-core/tests/encoding/utf8.rs`, `crates/baud-core/tests/substitute_mark.rs`, `crates/baud-core/tests/vt100/charsets.rs`, `crates/baud-domain/src/cell.rs`, `crates/baud-domain/src/decode.rs`, `crates/baud-domain/src/scan.rs`, `crates/baud-domain/tests/table_3_7.rs`, `crates/baud-font/src/shape.rs`, `crates/baud-font/tests/mark_order.rs`, `crates/baud-font/tests/normalization.rs`, `docs/vt-coverage.md`
 
 <a id="unicode-ch9"></a>
 ### unicode-ch9
@@ -9439,7 +9439,7 @@ The Unicode Standard, Version 17.0 -- Chapter 9, Middle Eastern-I. The Unicode C
 - **URL:** <https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-9/>
 - **sha256:** `c8afd8fe51bb3773a4e852a7eaa4ae0c6cfc5045872920a3d6e557d2e7467d1e` (1191554 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/build/joining.rs`, `baud-domain/src/joining.rs`, `baud-domain/src/variants.rs`, `baud-domain/tests/joining.rs`, `baud-font/src/forms.rs`, `baud-font/src/layout.rs`, `baud-font/src/shape.rs`, `baud-font/tests/arabic.rs`, `baud-font/tests/hebrew_presentation.rs`, `baud-font/tests/shape.rs`, `baud-present-macos/tests/cells.rs`, `baud-render/src/bidi.rs`, `baud-render/src/overlay.rs`, `baud-render/src/renderer.rs`, `baud-render/tests/joining_layout.rs`, `baud-render/tests/presentation_variants.rs`, `docs/bidi.md`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/build/joining.rs`, `crates/baud-domain/src/joining.rs`, `crates/baud-domain/src/variants.rs`, `crates/baud-domain/tests/joining.rs`, `crates/baud-font/src/forms.rs`, `crates/baud-font/src/layout.rs`, `crates/baud-font/src/shape.rs`, `crates/baud-font/tests/arabic.rs`, `crates/baud-font/tests/hebrew_presentation.rs`, `crates/baud-font/tests/shape.rs`, `crates/baud-present-macos/tests/cells.rs`, `crates/baud-render/src/bidi.rs`, `crates/baud-render/src/overlay.rs`, `crates/baud-render/src/renderer.rs`, `crates/baud-render/tests/joining_layout.rs`, `crates/baud-render/tests/presentation_variants.rs`, `docs/bidi.md`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="unicode-data"></a>
 ### unicode-data
@@ -9449,7 +9449,7 @@ UnicodeData.txt, Unicode Character Database 17.0.0 -- canonical decomposition ma
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/UnicodeData.txt>
 - **sha256:** `2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c` (2198209 bytes)
 - **Copy:** [docs/research/sources/unicode-unicodedata.txt](research/sources/unicode-unicodedata.txt)
-- **Cited in:** `baud-app/src/embedded.rs`, `baud-domain/build/bidi.rs`, `baud-domain/build/search.rs`, `baud-domain/src/lib.rs`, `baud-domain/tests/bidi_tables.rs`, `baud-domain/tests/nrcs_dec.rs`, `baud-domain/tests/search_key.rs`, `baud-font/build/compose.rs`, `baud-font/build/presentation.rs`, `baud-font/build/script.rs`, `baud-font/src/forms.rs`, `baud-font/src/lib.rs`, `baud-font/src/shape.rs`, `baud-font/tests/hebrew_presentation.rs`, `baud-font/tests/mark_order.rs`, `baud-font/tests/normalization.rs`, `baud-font/tests/presentation.rs`, `baud-render/build/stress.rs`, `baud-render/src/cellmap.rs`, `baud-render/src/lib.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/embedded.rs`, `crates/baud-domain/build/bidi.rs`, `crates/baud-domain/build/search.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/tests/bidi_tables.rs`, `crates/baud-domain/tests/nrcs_dec.rs`, `crates/baud-domain/tests/search_key.rs`, `crates/baud-font/build/compose.rs`, `crates/baud-font/build/presentation.rs`, `crates/baud-font/build/script.rs`, `crates/baud-font/src/forms.rs`, `crates/baud-font/src/lib.rs`, `crates/baud-font/src/shape.rs`, `crates/baud-font/tests/hebrew_presentation.rs`, `crates/baud-font/tests/mark_order.rs`, `crates/baud-font/tests/normalization.rs`, `crates/baud-font/tests/presentation.rs`, `crates/baud-render/build/stress.rs`, `crates/baud-render/src/cellmap.rs`, `crates/baud-render/src/lib.rs`, `docs/vt-coverage.md`
 
 <a id="unicode-derivedbidiclass"></a>
 ### unicode-derivedbidiclass
@@ -9459,7 +9459,7 @@ DerivedBidiClass.txt, Unicode Character Database 17.0.0. The Unicode Consortium,
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/extracted/DerivedBidiClass.txt>
 - **sha256:** `4867b4b7f0731ed1bfcd34cc6251211ff1542541fce0734b6fbda139ee80b3a4` (173433 bytes)
 - **Copy:** [docs/research/sources/unicode-derivedbidiclass.txt](research/sources/unicode-derivedbidiclass.txt)
-- **Cited in:** `baud-domain/build/bidi.rs`, `baud-domain/src/lib.rs`, `baud-domain/tests/bidi_tables.rs`, `baud-font/build/script.rs`
+- **Cited in:** `crates/baud-domain/build/bidi.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/tests/bidi_tables.rs`, `crates/baud-font/build/script.rs`
 
 <a id="unicode-derivedjoiningtype"></a>
 ### unicode-derivedjoiningtype
@@ -9469,7 +9469,7 @@ DerivedJoiningType.txt, Unicode Character Database 17.0.0. The Unicode Consortiu
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/extracted/DerivedJoiningType.txt>
 - **sha256:** `f39ebe974825d6736aee15582250307aa532b2cfab3caf3f86bd23fddc9c5c4d` (40635 bytes)
 - **Copy:** [docs/research/sources/unicode-derivedjoiningtype.txt](research/sources/unicode-derivedjoiningtype.txt)
-- **Cited in:** `baud-domain/build/joining.rs`, `baud-domain/src/lib.rs`
+- **Cited in:** `crates/baud-domain/build/joining.rs`, `crates/baud-domain/src/lib.rs`
 
 <a id="unicode-dnp"></a>
 ### unicode-dnp
@@ -9479,7 +9479,7 @@ DerivedNormalizationProps.txt, Unicode Character Database 17.0.0 -- Full\_Compos
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/DerivedNormalizationProps.txt>
 - **sha256:** `71fd6a206a2c0cdd41feb6b7f656aa31091db45e9cedc926985d718397f9e488` (1377582 bytes)
 - **Copy:** [docs/research/sources/unicode-derivednormalizationprops.txt](research/sources/unicode-derivednormalizationprops.txt)
-- **Cited in:** `baud-font/build/compose.rs`, `baud-font/src/lib.rs`
+- **Cited in:** `crates/baud-font/build/compose.rs`, `crates/baud-font/src/lib.rs`
 
 <a id="unicode-faq-normalization"></a>
 ### unicode-faq-normalization
@@ -9490,7 +9490,7 @@ Unicode FAQ: Normalization. The Unicode Consortium, 2026, unicode.org/faq.
 - **sha256:** `7c53b44563d0db989842d2806d3edc5b5e35ed2662f2c3ee3be8d66a107408f4` (26199 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-13
-- **Cited in:** `baud-font/src/shape.rs`, `baud-font/tests/mark_order.rs`
+- **Cited in:** `crates/baud-font/src/shape.rs`, `crates/baud-font/tests/mark_order.rs`
 
 <a id="unicode-indicpositionalcategory"></a>
 ### unicode-indicpositionalcategory
@@ -9500,7 +9500,7 @@ IndicPositionalCategory.txt, Unicode Character Database 17.0.0. The Unicode Cons
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/IndicPositionalCategory.txt>
 - **sha256:** `68cedc29a7e57f984d90fe2c7712f2e6d0c717e253db219607daea8997d6c480` (52257 bytes)
 - **Copy:** [docs/research/sources/unicode-indicpositionalcategory.txt](research/sources/unicode-indicpositionalcategory.txt)
-- **Cited in:** `baud-font/build/indic.rs`, `baud-font/src/lib.rs`
+- **Cited in:** `crates/baud-font/build/indic.rs`, `crates/baud-font/src/lib.rs`
 
 <a id="unicode-indicsyllabiccategory"></a>
 ### unicode-indicsyllabiccategory
@@ -9510,7 +9510,7 @@ IndicSyllabicCategory.txt, Unicode Character Database 17.0.0. The Unicode Consor
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/IndicSyllabicCategory.txt>
 - **sha256:** `3fc122f4cf58b0c19268d5f810263b04ab4e1e67743386ec0e0ada9c76aec5be` (86695 bytes)
 - **Copy:** [docs/research/sources/unicode-indicsyllabiccategory.txt](research/sources/unicode-indicsyllabiccategory.txt)
-- **Cited in:** `baud-font/build/indic.rs`, `baud-font/src/lib.rs`
+- **Cited in:** `crates/baud-font/build/indic.rs`, `crates/baud-font/src/lib.rs`
 
 <a id="unicode-jis0201"></a>
 ### unicode-jis0201
@@ -9521,7 +9521,7 @@ JIS0201.TXT -- JIS X 0201 (1976) to Unicode 1.1 Table, an obsolete mapping. Unic
 - **sha256:** `3f26a4c8c083cb6303dcdfcac2b73e8119c1cc1a7da1736fc7435f6efbd037de` (7303 bytes)
 - **Copy:** [docs/research/sources/JIS0201.TXT](research/sources/JIS0201.TXT)
 - **Read:** 2026-10-08
-- **Cited in:** `baud-domain/build/dec_sets.rs`, `baud-domain/src/lib.rs`, `baud-domain/src/vt/charset.rs`, `baud-domain/tests/dec_sets.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/build/dec_sets.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/src/vt/charset.rs`, `crates/baud-domain/tests/dec_sets.rs`, `docs/vt-coverage.md`
 
 <a id="unicode-linebreak"></a>
 ### unicode-linebreak
@@ -9531,7 +9531,7 @@ LineBreak.txt, Unicode Character Database 17.0.0. The Unicode Consortium, 2025, 
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/LineBreak.txt>
 - **sha256:** `e6a18fa91f8f6a6f8e534b1d3f128c21ada45bfe152eb6b1bcc5e15fd8ac92e6` (263180 bytes)
 - **Copy:** [docs/research/sources/unicode-linebreak.txt](research/sources/unicode-linebreak.txt)
-- **Cited in:** `baud-domain/build/linebreak.rs`, `baud-domain/src/lib.rs`
+- **Cited in:** `crates/baud-domain/build/linebreak.rs`, `crates/baud-domain/src/lib.rs`
 
 <a id="unicode-linebreaktest"></a>
 ### unicode-linebreaktest
@@ -9541,7 +9541,7 @@ LineBreakTest.txt, Unicode Character Database 17.0.0. The Unicode Consortium, 20
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/auxiliary/LineBreakTest.txt>
 - **sha256:** `e69884e0dde6a8724873f885d68c52dc14518abf9ae4ca9e2283b8773db3b752` (3166819 bytes)
 - **Copy:** [docs/research/sources/unicode-linebreaktest.txt](research/sources/unicode-linebreaktest.txt)
-- **Cited in:** `baud-domain/tests/linebreak.rs`
+- **Cited in:** `crates/baud-domain/tests/linebreak.rs`
 
 <a id="unicode-normalizationtest"></a>
 ### unicode-normalizationtest
@@ -9552,7 +9552,7 @@ NormalizationTest.txt, Unicode Character Database 17.0.0 -- UAX #15's conformanc
 - **sha256:** `5019ffd530751a741900c849c0e010332f142a3612234639bd200b82138a87db` (2827429 bytes)
 - **Copy:** [docs/research/sources/unicode-normalizationtest.txt](research/sources/unicode-normalizationtest.txt)
 - **Read:** 2026-11-16
-- **Cited in:** `baud-font/tests/normalization.rs`
+- **Cited in:** `crates/baud-font/tests/normalization.rs`
 
 <a id="unicode-propertyvaluealiases"></a>
 ### unicode-propertyvaluealiases
@@ -9562,7 +9562,7 @@ PropertyValueAliases.txt, Unicode Character Database 17.0.0. The Unicode Consort
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/PropertyValueAliases.txt>
 - **sha256:** `64e9a5f76f7a1e8b5a47d6a1f9a26522a251208f5276bdfa1559dac7cf2e827a` (81858 bytes)
 - **Copy:** [docs/research/sources/unicode-propertyvaluealiases.txt](research/sources/unicode-propertyvaluealiases.txt)
-- **Cited in:** `baud-domain/build/bidi.rs`, `baud-domain/build/grapheme.rs`, `baud-domain/build/linebreak.rs`, `baud-domain/build/ucd.rs`, `baud-domain/src/lib.rs`, `baud-font/build/script.rs`, `baud-tablegen/src/values.rs`
+- **Cited in:** `crates/baud-domain/build/bidi.rs`, `crates/baud-domain/build/grapheme.rs`, `crates/baud-domain/build/linebreak.rs`, `crates/baud-domain/build/ucd.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-font/build/script.rs`, `crates/baud-tablegen/src/values.rs`
 
 <a id="unicode-proplist-17"></a>
 ### unicode-proplist-17
@@ -9572,7 +9572,7 @@ PropList.txt, Unicode 17.0.0 -- U+2028 and U+2029 are White\_Space. Unicode Cons
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/PropList.txt>
 - **sha256:** `130dcddcaadaf071008bdfce1e7743e04fdfbc910886f017d9f9ac931d8c64dd` (145465 bytes)
 - **Copy:** [docs/research/sources/unicode-proplist.txt](research/sources/unicode-proplist.txt)
-- **Cited in:** `baud-domain/build/width.rs`, `baud-domain/src/lib.rs`
+- **Cited in:** `crates/baud-domain/build/width.rs`, `crates/baud-domain/src/lib.rs`
 
 <a id="unicode-scriptextensions"></a>
 ### unicode-scriptextensions
@@ -9582,7 +9582,7 @@ ScriptExtensions.txt, Unicode Character Database 17.0.0. The Unicode Consortium,
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/ScriptExtensions.txt>
 - **sha256:** `ec2107e58825a1586acee8e0911ce18260394ac8b87e535ca325f1ccbeb06bc6` (20707 bytes)
 - **Copy:** [docs/research/sources/unicode-scriptextensions.txt](research/sources/unicode-scriptextensions.txt)
-- **Cited in:** `baud-font/build/script.rs`, `baud-font/src/script.rs`
+- **Cited in:** `crates/baud-font/build/script.rs`, `crates/baud-font/src/script.rs`
 
 <a id="unicode-scripts"></a>
 ### unicode-scripts
@@ -9592,7 +9592,7 @@ Scripts.txt, Unicode Character Database 17.0.0. The Unicode Consortium, 2025, Un
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/Scripts.txt>
 - **sha256:** `9f5e50d3abaee7d6ce09480f325c706f485ae3240912527e651954d2d6b035bf` (192460 bytes)
 - **Copy:** [docs/research/sources/unicode-scripts.txt](research/sources/unicode-scripts.txt)
-- **Cited in:** `baud-font/build/script.rs`, `baud-font/src/script.rs`
+- **Cited in:** `crates/baud-font/build/script.rs`, `crates/baud-font/src/script.rs`
 
 <a id="unicode17-ch3"></a>
 ### unicode17-ch3
@@ -9602,7 +9602,7 @@ The Unicode Standard, Version 17.0 -- Chapter 3, Conformance (no D57a-D57h: thos
 - **URL:** <https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-3/>
 - **sha256:** `69fef5215c021368a1880d91bc59d7935d13a5455f1373eda17b8818d41b7b41` (404354 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/search.rs`, `baud-domain/build/caseless.rs`, `baud-domain/build/search.rs`, `baud-domain/build/ucd.rs`, `baud-domain/src/caseless.rs`, `baud-domain/src/lib.rs`, `baud-domain/src/search.rs`, `baud-domain/tests/caseless.rs`, `baud-domain/tests/search_key.rs`, `baud-render/build/stress.rs`, `baud-render/src/cellmap.rs`, `baud-render/tests/decorations.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/search.rs`, `crates/baud-domain/build/caseless.rs`, `crates/baud-domain/build/search.rs`, `crates/baud-domain/build/ucd.rs`, `crates/baud-domain/src/caseless.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/src/search.rs`, `crates/baud-domain/tests/caseless.rs`, `crates/baud-domain/tests/search_key.rs`, `crates/baud-render/build/stress.rs`, `crates/baud-render/src/cellmap.rs`, `crates/baud-render/tests/decorations.rs`, `docs/vt-coverage.md`
 
 <a id="unicode18-ch22"></a>
 ### unicode18-ch22
@@ -9622,7 +9622,7 @@ The Unicode Standard, Version 18.0 -- Chapter 23, Special Areas and Format Chara
 - **URL:** <https://www.unicode.org/versions/Unicode18.0.0/core-spec/chapter-23/>
 - **sha256:** `6ac4cc43a45d8ccfbcbd39013149ff11328e1eb60c2c2e9d2cab454c43d8d782` (204196 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/variants.rs`
+- **Cited in:** `crates/baud-domain/src/variants.rs`
 
 <a id="unicode18-ch3"></a>
 ### unicode18-ch3
@@ -9632,7 +9632,7 @@ The Unicode Standard, Version 18.0 -- Chapter 3, Conformance (C5, C6, C7, D50, D
 - **URL:** <https://www.unicode.org/versions/Unicode18.0.0/core-spec/chapter-3/>
 - **sha256:** `f9e158a640c88cb0aebf60e5f724ea4f957eca539c620fb1e161cb6c8f8fb22e` (428731 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/paint.rs`, `baud-core/tests/defective_marks.rs`, `baud-core/tests/encoding/utf8.rs`, `baud-core/tests/syllable_columns.rs`, `baud-domain/src/cell.rs`, `baud-font/src/shape.rs`, `baud-font/tests/canonical.rs`, `baud-present-macos/tests/cells.rs`, `baud-present-vulkan/tests/scenes_fonts.rs`, `baud-render/src/overlay.rs`, `baud-render/src/stack.rs`, `baud-render/tests/mark_coverage.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/paint.rs`, `crates/baud-core/tests/defective_marks.rs`, `crates/baud-core/tests/encoding/utf8.rs`, `crates/baud-core/tests/syllable_columns.rs`, `crates/baud-domain/src/cell.rs`, `crates/baud-font/src/shape.rs`, `crates/baud-font/tests/canonical.rs`, `crates/baud-present-macos/tests/cells.rs`, `crates/baud-present-vulkan/tests/scenes_fonts.rs`, `crates/baud-render/src/overlay.rs`, `crates/baud-render/src/stack.rs`, `crates/baud-render/tests/mark_coverage.rs`, `docs/vt-coverage.md`
 
 <a id="unicode18-ch5"></a>
 ### unicode18-ch5
@@ -9642,7 +9642,7 @@ The Unicode Standard, Version 18.0 -- Chapter 5, Implementation Guidelines (5.3 
 - **URL:** <https://www.unicode.org/versions/Unicode18.0.0/core-spec/chapter-5/>
 - **sha256:** `53777cf08843ebe775e61a1eb32d1d2007aa5c300691fbf99c4761377f841fa0` (332557 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fallback.rs`, `baud-core/tests/defective_marks.rs`, `baud-font/src/shape.rs`, `baud-font/tests/canonical.rs`, `baud-render/src/stack.rs`, `baud-render/tests/defective_mark.rs`, `baud-render/tests/mark_coverage.rs`, `baud-render/tests/past_budget.rs`, `baud-render/tests/refused_glyph.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/fallback.rs`, `crates/baud-core/tests/defective_marks.rs`, `crates/baud-font/src/shape.rs`, `crates/baud-font/tests/canonical.rs`, `crates/baud-render/src/stack.rs`, `crates/baud-render/tests/defective_mark.rs`, `crates/baud-render/tests/mark_coverage.rs`, `crates/baud-render/tests/past_budget.rs`, `crates/baud-render/tests/refused_glyph.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
 
 <a id="unicode18-chart-2400"></a>
 ### unicode18-chart-2400
@@ -9653,7 +9653,7 @@ The Unicode Standard, Version 18.0 -- code chart and names list, Control Picture
 - **sha256:** `ce5ffdd324af22c1805b2765c1e75a06c1f24bcd57878d8e24508a4d0d594a96` (106336 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-09
-- **Cited in:** `baud-domain/src/nrcs_data.rs`, `baud-domain/tests/nrcs_dec.rs`
+- **Cited in:** `crates/baud-domain/src/nrcs_data.rs`, `crates/baud-domain/tests/nrcs_dec.rs`
 
 <a id="urxvt-command-c-5865a43"></a>
 ### urxvt-command-c-5865a43
@@ -9674,7 +9674,7 @@ rxvt-unicode 9.31, src/urxvt.pm -- on\_osc\_seq\_perl: ESC &#93; 777 ; prefix ; 
 - **URL:** <http://dist.schmorp.de/rxvt-unicode/rxvt-unicode-9.31.tar.bz2>
 - **sha256:** `d5bcca658fcf702b0f56331ba3ac21a1df5377c07fef360fbf0e74308e66f5ac` (70246 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/notify.rs`
+- **Cited in:** `crates/baud-domain/src/vt/notify.rs`
 
 <a id="usb-hid-usage-tables-1-6"></a>
 ### usb-hid-usage-tables-1-6
@@ -9685,7 +9685,7 @@ HID Usage Tables 1.6 -- section 10, Keyboard/Keypad page (0x07): usage 0x53 is o
 - **sha256:** `c2fbeeacdfdc813cae684d768aa5baf0a29b37216befca3b9218294d25f72c26` (4454166 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-app/src/app.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `docs/input-coverage.md`
 
 <a id="usr-courier-hs-1988"></a>
 ### usr-courier-hs-1988
@@ -9695,7 +9695,7 @@ U.S. Robotics Courier High Speed Modems User's Manual 1.015.282 -- front panel i
 - **URL:** <https://archive.org/download/usr-courier-hst-1988/US%20Robotics%20Courier%20HST-1.015.282-1988.pdf>
 - **sha256:** `72c952856ec0940d5a3ef46f9b9553aa14772ae363a27a4cd43205624075370a` (38999697 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/lights.rs`
+- **Cited in:** `crates/baud-render/src/lights.rs`
 
 <a id="usr-courier-v34-1994"></a>
 ### usr-courier-v34-1994
@@ -9705,7 +9705,7 @@ U.S. Robotics Courier V.34 manual (plain text, CP437) -- Appendix B, the twelve 
 - **URL:** <http://www.textfiles.com/computers/courierv34man.txt>
 - **sha256:** `ece44affcb2945b454eaa1fc9eb9d3d68fb7397a2d369521825c20002f62b0f0` (346655 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/lights.rs`
+- **Cited in:** `crates/baud-render/src/lights.rs`
 
 <a id="utf8-lookup"></a>
 ### utf8-lookup
@@ -9724,7 +9724,7 @@ UTR #36 Unicode Security Considerations, revision 15 (stabilized) -- 2.3 confusa
 - **URL:** <https://www.unicode.org/reports/tr36/tr36-15.html>
 - **sha256:** `8d4d95e2736f6370e41f871b1b44c31892b9db6695ad2aec338dd14a31e8b2f5` (189063 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/link.rs`
+- **Cited in:** `crates/baud-app/src/link.rs`
 
 <a id="uts10"></a>
 ### uts10
@@ -9734,7 +9734,7 @@ UTS #10, Unicode Collation Algorithm, revision 53 -- section 11, Searching and M
 - **URL:** <https://www.unicode.org/reports/tr10/tr10-53.html>
 - **sha256:** `591cd36fe073193fcc307c516ba95147af27a9b4d612fe2b35773e940c26fa1c` (301712 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/search.rs`, `baud-domain/src/search.rs`
+- **Cited in:** `crates/baud-core/tests/search.rs`, `crates/baud-domain/src/search.rs`
 
 <a id="uts51-emoji"></a>
 ### uts51-emoji
@@ -9744,7 +9744,7 @@ UTS #51: Unicode Emoji -- sequence classes (modifier, ZWJ, flag, keycap, tag) an
 - **URL:** <https://www.unicode.org/reports/tr51/tr51-29.html>
 - **sha256:** `3b648142de7a17bd66e4263c2ad584c826a893cd39083a41d9549c4c659279e1` (207556 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/build/sequence.rs`, `baud-domain/build/ucd.rs`, `baud-font/tests/shape.rs`, `baud-render/tests/rtl_flag.rs`
+- **Cited in:** `crates/baud-domain/build/sequence.rs`, `crates/baud-domain/build/ucd.rs`, `crates/baud-font/tests/shape.rs`, `crates/baud-render/tests/rtl_flag.rs`
 
 <a id="vello-fine"></a>
 ### vello-fine
@@ -9799,7 +9799,7 @@ Vulkan Memory Allocator: Recommended usage patterns. AMD / Adam Sawicki, 2026, g
 - **URL:** <https://gpuopen-librariesandsdks.github.io/VulkanMemoryAllocator/html/usage_patterns.html>
 - **sha256:** `45519f8822d0ffe30766a45e1d1984f8852af1e6d6a7ef24322ad15cebec7ce6` (38114 bytes)
 - **Copy:** [docs/research/sources/vma-usage-patterns.html](research/sources/vma-usage-patterns.html)
-- **Cited in:** `baud-present-vulkan/src/lend.rs`
+- **Cited in:** `crates/baud-present-vulkan/src/lend.rs`
 
 <a id="vscode-shell-integration"></a>
 ### vscode-shell-integration
@@ -9820,7 +9820,7 @@ VS Code ec01053, terminal/browser/terminalIcons.ts -- the command decorations' i
 - **URL:** <https://raw.githubusercontent.com/microsoft/vscode/ec010535075cfdf90e82862dfe0af2f508012c91/src/vs/workbench/contrib/terminal/browser/terminalIcons.ts>
 - **sha256:** `3678bac495e214d53470c061d180ede4b81e4df2885e534053e018f440527643` (2996 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/status.rs`
+- **Cited in:** `crates/baud-render/src/status.rs`
 
 <a id="vt100-ug-ch1"></a>
 ### vt100-ug-ch1
@@ -9842,7 +9842,7 @@ VT100 User Guide, EK-VT100-UG-003, chapter 3: Programmer Information -- Table 3-
 - **sha256:** `f2264dfbfc0277b7a59764284336ab509011ce229f322dd0d2a61724d914c7b2` (151667 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-08
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/src/paint.rs`, `baud-core/src/term.rs`, `baud-core/tests/keyboard_lights.rs`, `baud-core/tests/vt100/charsets.rs`, `baud-core/tests/vt100/scrolling.rs`, `baud-core/tests/vt420/reports.rs`, `baud-domain/build/dec_graphics.rs`, `baud-domain/build/dec_sets.rs`, `baud-domain/src/cell.rs`, `baud-domain/src/lib.rs`, `baud-domain/src/vt/charset.rs`, `baud-domain/src/vt/csi.rs`, `baud-domain/src/vt/mode.rs`, `baud-domain/src/vt/report.rs`, `baud-domain/tests/dec_sets.rs`, `docs/protocols/vt100.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/src/paint.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/tests/keyboard_lights.rs`, `crates/baud-core/tests/vt100/charsets.rs`, `crates/baud-core/tests/vt100/scrolling.rs`, `crates/baud-core/tests/vt420/reports.rs`, `crates/baud-domain/build/dec_graphics.rs`, `crates/baud-domain/build/dec_sets.rs`, `crates/baud-domain/src/cell.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/src/vt/charset.rs`, `crates/baud-domain/src/vt/csi.rs`, `crates/baud-domain/src/vt/mode.rs`, `crates/baud-domain/src/vt/report.rs`, `crates/baud-domain/tests/dec_sets.rs`, `docs/protocols/vt100.md`, `docs/vt-coverage.md`
 
 <a id="vt102-ug-ch3"></a>
 ### vt102-ug-ch3
@@ -9863,7 +9863,7 @@ VT102 User Guide, EK-VT102-UG-003, chapter 5: Programmer Information -- Tables 5
 - **URL:** <https://vt100.net/docs/vt102-ug/chapter5.html>
 - **sha256:** `8ce11bbe455c8c0817ab4ad6830ede66699b6131881d22ed6bb71d6d679c3655` (320358 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/vt100/charsets.rs`, `baud-core/tests/vt52/sequences.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/vt100/charsets.rs`, `crates/baud-core/tests/vt52/sequences.rs`, `docs/vt-coverage.md`
 
 <a id="vt220-pocket-guide"></a>
 ### vt220-pocket-guide
@@ -9874,7 +9874,7 @@ VT220 Programmer Pocket Guide, EK-VT220-HR-002 -- the NRC set tables, pp. 7-17, 
 - **sha256:** `3f848566750fd7f830e56bf98945fbcb8935b7a173234b1aeeaa06f8f4910041` (1761003 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-08
-- **Cited in:** `baud-domain/tests/nrcs_dec.rs`, `baud-domain/tests/nrcs_source.rs`
+- **Cited in:** `crates/baud-domain/tests/nrcs_dec.rs`, `crates/baud-domain/tests/nrcs_source.rs`
 
 <a id="vt220-rm-ch4"></a>
 ### vt220-rm-ch4
@@ -9885,7 +9885,7 @@ VT220 Programmer Reference Manual, chapter 4: Received Codes. Digital Equipment 
 - **sha256:** `dfa8e317c125cc489fd3a1562757dfd71449a6ca4a6df53054783a321b627599` (118425 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-30
-- **Cited in:** `baud-core/src/graph.rs`, `baud-core/src/ops.rs`, `baud-core/src/vt52.rs`, `baud-core/tests/conformance_level.rs`, `baud-core/tests/decrc_unsaved.rs`, `baud-core/tests/vt100/charsets.rs`, `baud-core/tests/xterm/soft_reset_scope.rs`, `baud-domain/src/substitute.rs`, `baud-domain/tests/nrcs_dec.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/graph.rs`, `crates/baud-core/src/ops.rs`, `crates/baud-core/src/vt52.rs`, `crates/baud-core/tests/conformance_level.rs`, `crates/baud-core/tests/decrc_unsaved.rs`, `crates/baud-core/tests/vt100/charsets.rs`, `crates/baud-core/tests/xterm/soft_reset_scope.rs`, `crates/baud-domain/src/substitute.rs`, `crates/baud-domain/tests/nrcs_dec.rs`, `docs/vt-coverage.md`
 
 <a id="vt320-uu-appe"></a>
 ### vt320-uu-appe
@@ -9896,7 +9896,7 @@ Installing and Using the VT320 Video Terminal, EK-VT320-UU-001, Appendix E: VT32
 - **sha256:** `5a5e40b0fd79f97f3432cc4904400edac781449027e36c18faf737537f448e2b` (399095 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-08
-- **Cited in:** `baud-domain/build/dec_sets.rs`
+- **Cited in:** `crates/baud-domain/build/dec_sets.rs`
 
 <a id="vt340test-background-select-2-png"></a>
 ### vt340test-background-select-2-png
@@ -9907,7 +9907,7 @@ vt340test, j4james/background\_select\_2.png -- that test on a VT340, captured b
 - **sha256:** `6b41c7234b2201a69c9b8778ee8c92f8ef31978244e7edc2412ee1470f75d7ae` (1725 bytes)
 - **Copy:** [docs/research/sources/vt340test-background_select_2.png](research/sources/vt340test-background_select_2.png)
 - **Read:** 2026-10-11
-- **Cited in:** `baud-core/src/hardcopy.rs`, `baud-render/src/renderer.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/hardcopy.rs`, `crates/baud-render/src/renderer.rs`, `docs/vt-coverage.md`
 
 <a id="vt340test-background-select-2-sh"></a>
 ### vt340test-background-select-2-sh
@@ -9958,7 +9958,7 @@ vt340test, colormap/colormap.md -- VT340 text attributes as colour map entries 0
 - **sha256:** `d61353a1ef97d6f1b218353cb73aefe6055034bf32072e771a8aa1b6b6cdadcf` (11935 bytes)
 - **Copy:** [docs/research/sources/vt340test-colormap.md](research/sources/vt340test-colormap.md)
 - **Read:** 2026-10-11
-- **Cited in:** `baud-domain/src/sixel.rs`
+- **Cited in:** `crates/baud-domain/src/sixel.rs`
 
 <a id="vt340test-errata"></a>
 ### vt340test-errata
@@ -9979,7 +9979,7 @@ vt340test, regis/faketextcolor.md -- ReGIS pixels over text on a real VT340+: 's
 - **sha256:** `16852a7dbcbccc8f26b8be0db0203971272bb41035a7fb428daf153d0e48f908` (2723 bytes)
 - **Copy:** [docs/research/sources/vt340test-faketextcolor.md](research/sources/vt340test-faketextcolor.md)
 - **Read:** 2026-10-21
-- **Cited in:** `baud-core/tests/graphics_erase.rs`, `baud-domain/src/image.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/graphics_erase.rs`, `crates/baud-domain/src/image.rs`, `docs/vt-coverage.md`
 
 <a id="vt340test-locator"></a>
 ### vt340test-locator
@@ -10020,7 +10020,7 @@ vt340test, locator/locatorprog.sh -- DECLBD on a real VT340: each key's press st
 - **sha256:** `b02bf9dd9ebc7424c75bc3aaf6b1aec8984f73ee6aca1d09ffb80fce4fa0a8b8` (8902 bytes)
 - **Copy:** [docs/research/sources/vt340test-locatorprog.sh](research/sources/vt340test-locatorprog.sh)
 - **Read:** 2026-10-21
-- **Cited in:** `baud-core/tests/regis_input.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/regis_input.rs`, `docs/vt-coverage.md`
 
 <a id="vt340test-p2effect-png"></a>
 ### vt340test-p2effect-png
@@ -10041,7 +10041,7 @@ vt340test, sixeltests/p2effect.sh -- a Sixel with P2 = 0 on a VT340: with raster
 - **sha256:** `efd4e33620ef2ad0433b0314212275b756239d2c16163e50cd3d70a3d0c311f0` (2155 bytes)
 - **Copy:** [docs/research/sources/vt340test-p2effect.sh](research/sources/vt340test-p2effect.sh)
 - **Read:** 2026-10-11
-- **Cited in:** `baud-core/src/sixel.rs`, `baud-core/tests/sixel_fill.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/sixel.rs`, `crates/baud-core/tests/sixel_fill.rs`, `docs/vt-coverage.md`
 
 <a id="vt340test-physicalsixels"></a>
 ### vt340test-physicalsixels
@@ -10052,7 +10052,7 @@ vt340test, physicalsixels.md -- the raster extent is the rectangle cleared to th
 - **sha256:** `7c08c25aa16bca0fde21afcc295cd6d5e89416826daaf1a388711e53e30412eb` (11732 bytes)
 - **Copy:** [docs/research/sources/vt340test-physicalsixels.md](research/sources/vt340test-physicalsixels.md)
 - **Read:** 2026-10-11
-- **Cited in:** `baud-domain/src/sixel.rs`
+- **Cited in:** `crates/baud-domain/src/sixel.rs`
 
 <a id="vt340test-readme"></a>
 ### vt340test-readme
@@ -10083,7 +10083,7 @@ vt340test, sixeltests/textcursor.sh -- the text cursor after a Sixel on a VT340:
 - **sha256:** `f750c22e19249efcfdca995f0903ae54686de7f8d8fae4e211dbf5e52dc3381f` (9605 bytes)
 - **Copy:** [docs/research/sources/vt340test-textcursor.sh](research/sources/vt340test-textcursor.sh)
 - **Read:** 2026-10-11
-- **Cited in:** `baud-core/src/sixel.rs`, `baud-core/tests/sixel.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/sixel.rs`, `crates/baud-core/tests/sixel.rs`, `docs/vt-coverage.md`
 
 <a id="vt382-rm"></a>
 ### vt382-rm
@@ -10094,7 +10094,7 @@ VT382 Kanji Display Terminal Programmer Reference Manual, EK-VT382-RM-001 -- §2
 - **sha256:** `5cab5255e776c7ffeb246924f740a18c587e037a197b46e206923348d802f9ae` (7102384 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-28
-- **Cited in:** `baud-core/tests/vt100/charsets.rs`, `baud-core/tests/wide_last_column.rs`, `baud-domain/build/dec_sets.rs`, `baud-domain/tests/dec_sets.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/vt100/charsets.rs`, `crates/baud-core/tests/wide_last_column.rs`, `crates/baud-domain/build/dec_sets.rs`, `crates/baud-domain/tests/dec_sets.rs`, `docs/vt-coverage.md`
 
 <a id="vt3xx-gp-002"></a>
 ### vt3xx-gp-002
@@ -10105,7 +10105,7 @@ VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Programming, second 
 - **sha256:** `e4b2a69d1425db5e216d372cd080c3cff6dd216dc8acbb47f58b699fa2338669` (28119061 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-11
-- **Cited in:** `baud-domain/src/regis/sem.rs`, `baud-domain/src/vt/mode.rs`, `baud-domain/src/vt/print.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/regis/sem.rs`, `crates/baud-domain/src/vt/mode.rs`, `crates/baud-domain/src/vt/print.rs`, `docs/vt-coverage.md`
 
 <a id="vt3xx-load"></a>
 ### vt3xx-load
@@ -10116,7 +10116,7 @@ Load Command (VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Progra
 - **sha256:** `a6e199ebaaf760d0f23401341547c54e85ac4071bbe151b4d6e7757db2c6d3e9` (28316 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-domain/src/regis/sem.rs`
+- **Cited in:** `crates/baud-domain/src/regis/sem.rs`
 
 <a id="vt3xx-locator"></a>
 ### vt3xx-locator
@@ -10127,7 +10127,7 @@ Using a Mouse or Tablet (VT330/VT340 Programmer Reference Manual, Volume 2: Grap
 - **sha256:** `a1992d21ba6779688b29d3495d65ab3890da7ef22c71f57505c38883ae98061e` (44310 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-app/src/gesture.rs`, `baud-core/src/regis.rs`, `baud-core/tests/regis_input.rs`, `baud-domain/src/regis/cursor.rs`, `baud-domain/src/vt/locator.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/gesture.rs`, `crates/baud-core/src/regis.rs`, `crates/baud-core/tests/regis_input.rs`, `crates/baud-domain/src/regis/cursor.rs`, `crates/baud-domain/src/vt/locator.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="vt3xx-macrographs"></a>
 ### vt3xx-macrographs
@@ -10138,7 +10138,7 @@ Macrographs (VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Program
 - **sha256:** `1e6715b154018520bd376fb1f436c6955585ac7fc94739dc10164d206e70c56c` (25623 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-domain/src/regis/mod.rs`
+- **Cited in:** `crates/baud-domain/src/regis/mod.rs`
 
 <a id="vt3xx-position"></a>
 ### vt3xx-position
@@ -10149,7 +10149,7 @@ Position Command (VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Pr
 - **sha256:** `33fcc026e9f41aca2d2fa2dae146370fb833c0f00e28f2a494e663a8c54b142b` (35782 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-core/src/regis.rs`, `baud-domain/src/regis/mod.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/regis.rs`, `crates/baud-domain/src/regis/mod.rs`, `docs/vt-coverage.md`
 
 <a id="vt3xx-regis-intro"></a>
 ### vt3xx-regis-intro
@@ -10160,7 +10160,7 @@ Introduction to ReGIS (VT330/VT340 Programmer Reference Manual, Volume 2: Graphi
 - **sha256:** `8de58c542f3fc300f40829143391a52cb3a8a21a42646e146778d7b2fb6a8455` (53091 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/src/regis.rs`, `baud-core/tests/regis.rs`, `baud-core/tests/regis_draw.rs`, `baud-core/tests/regis_input.rs`, `baud-core/tests/regis_screen.rs`, `baud-domain/src/regis/cursor.rs`, `baud-domain/src/regis/mod.rs`, `baud-domain/src/regis/sem.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/src/regis.rs`, `crates/baud-core/tests/regis.rs`, `crates/baud-core/tests/regis_draw.rs`, `crates/baud-core/tests/regis_input.rs`, `crates/baud-core/tests/regis_screen.rs`, `crates/baud-domain/src/regis/cursor.rs`, `crates/baud-domain/src/regis/mod.rs`, `crates/baud-domain/src/regis/sem.rs`, `docs/vt-coverage.md`
 
 <a id="vt3xx-report"></a>
 ### vt3xx-report
@@ -10171,7 +10171,7 @@ Report Command (VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Prog
 - **sha256:** `ccd635d00ca0a3ad490952cc4af805fb81323c45254f6a77535620d07b21571c` (33364 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-core/src/regis.rs`, `baud-core/tests/regis_input.rs`, `baud-domain/src/regis/cursor.rs`, `baud-domain/src/regis/mod.rs`, `baud-domain/src/regis/sem.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/regis.rs`, `crates/baud-core/tests/regis_input.rs`, `crates/baud-domain/src/regis/cursor.rs`, `crates/baud-domain/src/regis/mod.rs`, `crates/baud-domain/src/regis/sem.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="vt3xx-screen-control"></a>
 ### vt3xx-screen-control
@@ -10182,7 +10182,7 @@ Screen Control Command (VT330/VT340 Programmer Reference Manual, Volume 2: Graph
 - **sha256:** `43c93703998162fa47cba0fcf8dd831ecf0efd46f18ce24c021114c8c0a3433b` (67239 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-11
-- **Cited in:** `baud-core/tests/hardcopy.rs`, `baud-core/tests/regis_draw.rs`, `baud-core/tests/regis_input.rs`, `baud-core/tests/regis_screen.rs`, `baud-core/tests/sixel_modes.rs`, `baud-domain/src/image.rs`, `baud-domain/src/regis/canvas.rs`, `baud-domain/src/regis/color.rs`, `baud-domain/src/regis/cursor.rs`, `baud-domain/src/regis/mod.rs`, `baud-domain/src/regis/sem.rs`, `baud-domain/src/sixel.rs`, `baud-domain/src/sixel_dump.rs`, `baud-domain/src/vt/tsr.rs`, `baud-domain/tests/sixel_decode.rs`, `baud-domain/tests/sixel_dump.rs`, `baud-domain/tests/sixel_recolour.rs`, `baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/hardcopy.rs`, `crates/baud-core/tests/regis_draw.rs`, `crates/baud-core/tests/regis_input.rs`, `crates/baud-core/tests/regis_screen.rs`, `crates/baud-core/tests/sixel_modes.rs`, `crates/baud-domain/src/image.rs`, `crates/baud-domain/src/regis/canvas.rs`, `crates/baud-domain/src/regis/color.rs`, `crates/baud-domain/src/regis/cursor.rs`, `crates/baud-domain/src/regis/mod.rs`, `crates/baud-domain/src/regis/sem.rs`, `crates/baud-domain/src/sixel.rs`, `crates/baud-domain/src/sixel_dump.rs`, `crates/baud-domain/src/vt/tsr.rs`, `crates/baud-domain/tests/sixel_decode.rs`, `crates/baud-domain/tests/sixel_dump.rs`, `crates/baud-domain/tests/sixel_recolour.rs`, `crates/baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`
 
 <a id="vt3xx-sixel"></a>
 ### vt3xx-sixel
@@ -10192,7 +10192,7 @@ Sixel Graphics (VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Prog
 - **URL:** <https://vt100.net/docs/vt3xx-gp/chapter14.html>
 - **sha256:** `97be785d3f9997e33f0f3ee7c2d8cf59b76f4e6b85ea82bbddf9470e9689de48` (32784 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/hardcopy.rs`, `baud-core/src/osc.rs`, `baud-core/src/sixel.rs`, `baud-core/src/write.rs`, `baud-core/tests/hardcopy.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-core/tests/line_rendition.rs`, `baud-core/tests/sixel.rs`, `baud-core/tests/sixel_fill.rs`, `baud-core/tests/sixel_modes.rs`, `baud-core/tests/sixel_reuse.rs`, `baud-domain/src/image.rs`, `baud-domain/src/sixel.rs`, `baud-domain/src/vt/mode.rs`, `baud-domain/tests/sixel_decode.rs`, `baud-domain/tests/sixel_oracle.rs`, `baud-present-macos/tests/cells.rs`, `baud-render/src/color.rs`, `baud-render/src/renderer.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/hardcopy.rs`, `crates/baud-core/src/osc.rs`, `crates/baud-core/src/sixel.rs`, `crates/baud-core/src/write.rs`, `crates/baud-core/tests/hardcopy.rs`, `crates/baud-core/tests/kitty_graphics.rs`, `crates/baud-core/tests/line_rendition.rs`, `crates/baud-core/tests/sixel.rs`, `crates/baud-core/tests/sixel_fill.rs`, `crates/baud-core/tests/sixel_modes.rs`, `crates/baud-core/tests/sixel_reuse.rs`, `crates/baud-domain/src/image.rs`, `crates/baud-domain/src/sixel.rs`, `crates/baud-domain/src/vt/mode.rs`, `crates/baud-domain/tests/sixel_decode.rs`, `crates/baud-domain/tests/sixel_oracle.rs`, `crates/baud-present-macos/tests/cells.rs`, `crates/baud-render/src/color.rs`, `crates/baud-render/src/renderer.rs`, `docs/vt-coverage.md`
 
 <a id="vt3xx-text"></a>
 ### vt3xx-text
@@ -10203,7 +10203,7 @@ Text Command (VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Progra
 - **sha256:** `be64bc45e57a14192419c5f68c5a6358c71098a4b3176df8e14b1defd13a840c` (62925 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-app/src/regis_font.rs`, `baud-core/tests/regis_draw.rs`, `baud-domain/src/regis/mod.rs`, `baud-domain/src/regis/sem.rs`
+- **Cited in:** `crates/baud-app/src/regis_font.rs`, `crates/baud-core/tests/regis_draw.rs`, `crates/baud-domain/src/regis/mod.rs`, `crates/baud-domain/src/regis/sem.rs`
 
 <a id="vt3xx-tp"></a>
 ### vt3xx-tp
@@ -10214,7 +10214,7 @@ VT330/VT340 Programmer Reference Manual, Volume 1: Text Programming, EK-VT3XX-TP
 - **sha256:** `518676ad1188d4f75d0780e25f0a8fda2bb4a1a591902c6d62e1b9fde8042978` (36995838 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-15
-- **Cited in:** `baud-domain/src/vt/report.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/report.rs`, `docs/vt-coverage.md`
 
 <a id="vt3xx-tp-002"></a>
 ### vt3xx-tp-002
@@ -10225,7 +10225,7 @@ VT330/VT340 Programmer Reference Manual, Volume 1: Text Programming, second edit
 - **sha256:** `518676ad1188d4f75d0780e25f0a8fda2bb4a1a591902c6d62e1b9fde8042978` (36995838 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-11
-- **Cited in:** `baud-domain/src/vt/tsr.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/tsr.rs`, `docs/vt-coverage.md`
 
 <a id="vt3xx-write-control"></a>
 ### vt3xx-write-control
@@ -10236,7 +10236,7 @@ Write Control Command (VT330/VT340 Programmer Reference Manual, Volume 2: Graphi
 - **sha256:** `be62e7e9c025ecb5e290aa19f88c1b97d7e93ddca5626fa7cb501c670c056c87` (74795 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-domain/src/regis/canvas.rs`, `baud-domain/src/regis/mod.rs`
+- **Cited in:** `crates/baud-domain/src/regis/canvas.rs`, `crates/baud-domain/src/regis/mod.rs`
 
 <a id="vt420-rm"></a>
 ### vt420-rm
@@ -10247,7 +10247,7 @@ VT420 Programmer Reference Manual, EK-VT420-RM.002 -- Table 2-1, National Replac
 - **sha256:** `6edca845f10c8fc10be87f111d0ad95130d6aa15a09de578bbb8d5133511ecd2` (1610553 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-08
-- **Cited in:** `baud-core/src/dcs.rs`, `baud-core/src/ops.rs`, `baud-core/src/print.rs`, `baud-core/src/status.rs`, `baud-core/tests/conformance_level.rs`, `baud-core/tests/printing.rs`, `baud-core/tests/vt420/rect_ops.rs`, `baud-core/tests/vt420/status_line.rs`, `baud-domain/src/vt/csi.rs`, `baud-domain/src/vt/dcs.rs`, `baud-domain/src/vt/level.rs`, `baud-domain/src/vt/mode.rs`, `baud-domain/src/vt/print.rs`, `baud-domain/src/vt/rect.rs`, `baud-domain/src/vt/report.rs`, `baud-domain/src/vt/vt52.rs`, `baud-domain/tests/nrcs_source.rs`, `docs/protocols/vt52.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/dcs.rs`, `crates/baud-core/src/ops.rs`, `crates/baud-core/src/print.rs`, `crates/baud-core/src/status.rs`, `crates/baud-core/tests/conformance_level.rs`, `crates/baud-core/tests/printing.rs`, `crates/baud-core/tests/vt420/rect_ops.rs`, `crates/baud-core/tests/vt420/status_line.rs`, `crates/baud-domain/src/vt/csi.rs`, `crates/baud-domain/src/vt/dcs.rs`, `crates/baud-domain/src/vt/level.rs`, `crates/baud-domain/src/vt/mode.rs`, `crates/baud-domain/src/vt/print.rs`, `crates/baud-domain/src/vt/rect.rs`, `crates/baud-domain/src/vt/report.rs`, `crates/baud-domain/src/vt/vt52.rs`, `crates/baud-domain/tests/nrcs_source.rs`, `docs/protocols/vt52.md`, `docs/vt-coverage.md`
 
 <a id="vt420-uu-ch4"></a>
 ### vt420-uu-ch4
@@ -10258,7 +10258,7 @@ Installing and Using the VT420 Video Terminal, EK-VT420-UU-002, chapter 4: Using
 - **sha256:** `4cb6361b77c736b767093f3d25568758bfbbb94c7dd0692a79bbaa32474c841b` (49171 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-03
-- **Cited in:** `baud-core/src/status.rs`, `baud-core/tests/vt420/status_line.rs`, `baud-render/src/lights.rs`, `baud-render/src/renderer.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/status.rs`, `crates/baud-core/tests/vt420/status_line.rs`, `crates/baud-render/src/lights.rs`, `crates/baud-render/src/renderer.rs`, `docs/vt-coverage.md`
 
 <a id="vt420-uu-ch5"></a>
 ### vt420-uu-ch5
@@ -10269,7 +10269,7 @@ Installing and Using the VT420 Video Terminal, EK-VT420-UU-002, chapter 5: Using
 - **sha256:** `61b8f11a2ffc5652cdb717793ec1d9ff2bccbc25bff627b84c460b67c2c6dcd4` (78046 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-30
-- **Cited in:** `baud-core/src/term.rs`, `baud-core/tests/set_up.rs`, `baud-domain/src/vt/mode.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/term.rs`, `crates/baud-core/tests/set_up.rs`, `crates/baud-domain/src/vt/mode.rs`, `docs/vt-coverage.md`
 
 <a id="vt420-uu-ch9"></a>
 ### vt420-uu-ch9
@@ -10280,7 +10280,7 @@ Installing and Using the VT420 Video Terminal, EK-VT420-UU-002, chapter 9: VT420
 - **sha256:** `e4dbce344d4f051f0cd4255087d71e331d9297185b9f45ad69fe47f48664b1af` (116305 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-08
-- **Cited in:** `baud-core/tests/substitute_mark.rs`, `baud-domain/src/regis/mod.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/substitute_mark.rs`, `crates/baud-domain/src/regis/mod.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-ch7"></a>
 ### vt510-ch7
@@ -10291,7 +10291,7 @@ VT510 Video Terminal Programmer Information, chapter 7: Character Sets. Digital 
 - **sha256:** `7c6b113defce992d614fb758cb456a0c5dbff891e3318b1fd6f0f5e001cf096c` (28959 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-08
-- **Cited in:** `baud-core/src/graph.rs`, `baud-core/tests/encoding/utf8.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/graph.rs`, `crates/baud-core/tests/encoding/utf8.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-chapter4"></a>
 ### vt510-chapter4
@@ -10302,7 +10302,7 @@ VT510 Programmer Information, chapter 4 -- Table 4-1, the C0 controls (BS, HT). 
 - **sha256:** `90697715013394a6aafc5ee7363992cf0f5500ad04b991890e3d85446b881286` (149134 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-14
-- **Cited in:** `baud-core/src/hebrew_keys.rs`, `baud-core/tests/substitute_mark.rs`, `baud-domain/src/vt/mode.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/hebrew_keys.rs`, `crates/baud-core/tests/substitute_mark.rs`, `crates/baud-domain/src/vt/mode.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
 
 <a id="vt510-cht"></a>
 ### vt510-cht
@@ -10324,7 +10324,7 @@ CNL -- Cursor Next Line (VT510 Programmer Information). Digital Equipment Corpor
 - **sha256:** `3fc72b651271f79e614e2d6c2a4f589f59aa88cf48037f2fd92c44e3b65fd54b` (19268 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-15
-- **Cited in:** `baud-core/src/write.rs`, `baud-core/tests/vt420/line_starts.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/write.rs`, `crates/baud-core/tests/vt420/line_starts.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-cpl"></a>
 ### vt510-cpl
@@ -10334,7 +10334,7 @@ CPL -- Cursor Previous Line (VT510 Programmer Information). Digital Equipment Co
 - **URL:** <https://vt100.net/docs/vt510-rm/CPL.html>
 - **sha256:** `c53cc07bbebdc7ad20d6b64cd237d6b8f6a0922c13e8b6f86244e7b3ca5f1f70` (19297 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/write.rs`, `baud-core/tests/vt420/line_starts.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/write.rs`, `crates/baud-core/tests/vt420/line_starts.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-cuf"></a>
 ### vt510-cuf
@@ -10344,7 +10344,7 @@ CUF -- Cursor Forward (VT510 Programmer Information). Digital Equipment Corporat
 - **URL:** <https://vt100.net/docs/vt510-rm/CUF.html>
 - **sha256:** `6d6f8646eb5bd99e7ff9c11e384d1e0c6c03f8dff8d57447d0a19fa533b9eb41` (19216 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/ops.rs`
+- **Cited in:** `crates/baud-core/src/ops.rs`
 
 <a id="vt510-dch"></a>
 ### vt510-dch
@@ -10365,7 +10365,7 @@ DECALN — Screen Alignment Pattern (VT510 Programmer Information). Digital Equi
 - **URL:** <https://vt100.net/docs/vt510-rm/DECALN.html>
 - **sha256:** `7d209c9bb034495cf83f42962470e132bc32245fe8ab0171a340a3601a589ea4` (19404 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/sgr/rep_align.rs`, `baud-core/tests/vt420/decaln.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/sgr/rep_align.rs`, `crates/baud-core/tests/vt420/decaln.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-decanm"></a>
 ### vt510-decanm
@@ -10375,7 +10375,7 @@ DECANM — ANSI Mode / VT52 escape sequences (VT510 Programmer Information). Dig
 - **URL:** <https://vt100.net/docs/vt510-rm/DECANM.html>
 - **sha256:** `ecbd337390361787faf15e3ce7f6148f91b74c3690bd42d96786e55ff7d68566` (20751 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/decid.rs`, `baud-core/tests/vt52/main.rs`, `baud-core/tests/vt52/sequences.rs`, `baud-domain/src/vt/report.rs`, `baud-domain/src/vt/vt52.rs`, `docs/protocols/vt52.md`
+- **Cited in:** `crates/baud-core/tests/decid.rs`, `crates/baud-core/tests/vt52/main.rs`, `crates/baud-core/tests/vt52/sequences.rs`, `crates/baud-domain/src/vt/report.rs`, `crates/baud-domain/src/vt/vt52.rs`, `docs/protocols/vt52.md`
 
 <a id="vt510-decarm"></a>
 ### vt510-decarm
@@ -10385,7 +10385,7 @@ DECARM — Autorepeat Mode (VT510 Programmer Information). Digital Equipment Cor
 - **URL:** <https://vt100.net/docs/vt510-rm/DECARM.html>
 - **sha256:** `cbfe6f944d1d389653344c06f1a6348dee565d9595b916a765e65804c816089d` (20975 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/term.rs`, `baud-core/tests/key_encode.rs`, `baud-core/tests/vt100/private_modes.rs`, `baud-domain/src/vt/mode.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/term.rs`, `crates/baud-core/tests/key_encode.rs`, `crates/baud-core/tests/vt100/private_modes.rs`, `crates/baud-domain/src/vt/mode.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-decaupss"></a>
 ### vt510-decaupss
@@ -10396,7 +10396,7 @@ DECAUPSS—Assigning User-Preferred Supplemental Sets (VT510 Programmer Informat
 - **sha256:** `ebbf9c9e3c42630bceabee48900e7a54cdd3d11a4ee23294e216a8c251e9dca1` (20929 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-08
-- **Cited in:** `baud-core/src/term.rs`, `baud-domain/src/vt/charset.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/term.rs`, `crates/baud-domain/src/vt/charset.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-decawm"></a>
 ### vt510-decawm
@@ -10406,7 +10406,7 @@ DECAWM — Autowrap Mode (VT510 Programmer Information). Digital Equipment Corpo
 - **URL:** <https://vt100.net/docs/vt510-rm/DECAWM.html>
 - **sha256:** `c4cae82f72666e54bcb7f82df4ee1c9e6ce17fd8d969f29ffb36293a507dd36b` (19930 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/term.rs`, `baud-core/tests/margin_pin.rs`, `baud-core/tests/vt100/modes.rs`, `baud-core/tests/vt220/replies.rs`, `docs/protocols/vt100.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/term.rs`, `crates/baud-core/tests/margin_pin.rs`, `crates/baud-core/tests/vt100/modes.rs`, `crates/baud-core/tests/vt220/replies.rs`, `docs/protocols/vt100.md`, `docs/vt-coverage.md`
 
 <a id="vt510-decbkm"></a>
 ### vt510-decbkm
@@ -10416,7 +10416,7 @@ DECBKM — Backarrow Key Mode (VT510 Programmer Information). Digital Equipment 
 - **URL:** <https://vt100.net/docs/vt510-rm/DECBKM.html>
 - **sha256:** `1cfcae76c3033e5be7bbe626379e685a406ccedfcf3ac3cbda20427d6ace36ba` (19960 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/keyboard_modes.rs`, `baud-domain/src/vt/key.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/keyboard_modes.rs`, `crates/baud-domain/src/vt/key.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-deccir"></a>
 ### vt510-deccir
@@ -10427,7 +10427,7 @@ DECCIR—Cursor Information Report (Terminal to Host) (VT510 Programmer Informat
 - **sha256:** `8ab5e6b98cbe5992b0b4a0aba1e28e37091053ed8ed0816ed831ce704741bd99` (29767 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-08
-- **Cited in:** `baud-core/src/presentation.rs`, `baud-core/tests/vt420/presentation.rs`, `baud-domain/src/vt/presentation.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/presentation.rs`, `crates/baud-core/tests/vt420/presentation.rs`, `crates/baud-domain/src/vt/presentation.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-deccolm"></a>
 ### vt510-deccolm
@@ -10438,7 +10438,7 @@ DECCOLM — Select 80 or 132 Columns per Page (VT510 Programmer Information). Di
 - **sha256:** `f9be8bd29f3f2706323638d76f87356388522704d51021e8e78330a12153b300` (20429 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-14
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/vt420/status_line.rs`, `baud-core/tests/xterm/column_mode.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/vt420/status_line.rs`, `crates/baud-core/tests/xterm/column_mode.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-deccra"></a>
 ### vt510-deccra
@@ -10449,7 +10449,7 @@ DECCRA -- Copy Rectangular Area (VT510 Programmer Information). Digital Equipmen
 - **sha256:** `94eec059257122b4bbb7ba835061bf9575019e78c59c8bd5774c053847e3c80c` (21554 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-18
-- **Cited in:** `baud-app/src/paths.rs`, `baud-core/src/record.rs`
+- **Cited in:** `crates/baud-app/src/paths.rs`, `crates/baud-core/src/record.rs`
 
 <a id="vt510-decdc"></a>
 ### vt510-decdc
@@ -10459,7 +10459,7 @@ DECDC — Delete Column (VT510 Programmer Information). Digital Equipment Corpor
 - **URL:** <https://vt100.net/docs/vt510-rm/DECDC.html>
 - **sha256:** `046ada33ba8965e9dd42da546784c4166720e8c4ea6bb58e35b0e21a5ad271e8` (19614 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/vt420/side_margins.rs`, `baud-domain/src/vt/csi.rs`, `docs/protocols/vt420.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/vt420/side_margins.rs`, `crates/baud-domain/src/vt/csi.rs`, `docs/protocols/vt420.md`
 
 <a id="vt510-decdhl"></a>
 ### vt510-decdhl
@@ -10470,7 +10470,7 @@ DECDHL — Double-Width, Double-Height Line (VT510 Programmer Information). Digi
 - **sha256:** `009e113be6110d4d753231fc1d270f4b31aaa3f534300d3aec713c2c67495959` (19925 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-18
-- **Cited in:** `baud-core/src/paint.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/paint.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-decdwl"></a>
 ### vt510-decdwl
@@ -10481,7 +10481,7 @@ DECDWL — Double-Width, Single-Height Line (VT510 Programmer Information). Digi
 - **sha256:** `1559e0df686d015271854a5bfea9dbf4fd616bbce50041bcb737a56cc43907b8` (19245 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-17
-- **Cited in:** `baud-core/src/paint.rs`, `baud-present-macos/tests/cells.rs`, `baud-present-vulkan/tests/scenes_bidi.rs`, `baud-render/src/bidi.rs`, `baud-render/tests/bidi_order.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/paint.rs`, `crates/baud-present-macos/tests/cells.rs`, `crates/baud-present-vulkan/tests/scenes_bidi.rs`, `crates/baud-render/src/bidi.rs`, `crates/baud-render/tests/bidi_order.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-decfra"></a>
 ### vt510-decfra
@@ -10492,7 +10492,7 @@ DECFRA — Fill Rectangular Area (VT510 Programmer Information). Digital Equipme
 - **sha256:** `fa0ec27c6a36315f4b254baa89842e711e7e42677087b1deb0e5f054966bd6ec` (20969 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-core/tests/vt420/rect_ops.rs`
+- **Cited in:** `crates/baud-core/tests/vt420/rect_ops.rs`
 
 <a id="vt510-dechebm"></a>
 ### vt510-dechebm
@@ -10502,7 +10502,7 @@ DECHEBM — Hebrew/N-A Keyboard Mapping (VT510 Programmer Information). Digital 
 - **URL:** <https://vt100.net/docs/vt510-rm/DECHEBM.html>
 - **sha256:** `9f97bc416ffedec7a7379efe8d2739606a2c97f7ad1763ca45bf0e26352885f6` (20694 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/layouts.rs`, `baud-core/src/hebrew_keys.rs`, `baud-core/tests/hebrew_keyboard.rs`, `baud-domain/src/vt/hebrew_keys.rs`, `baud-domain/src/vt/mode.rs`, `docs/bidi.md`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/layouts.rs`, `crates/baud-core/src/hebrew_keys.rs`, `crates/baud-core/tests/hebrew_keyboard.rs`, `crates/baud-domain/src/vt/hebrew_keys.rs`, `crates/baud-domain/src/vt/mode.rs`, `docs/bidi.md`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="vt510-dechem"></a>
 ### vt510-dechem
@@ -10512,7 +10512,7 @@ DECHEM — Hebrew Encoding Mode (VT510 Programmer Information). Digital Equipmen
 - **URL:** <https://vt100.net/docs/vt510-rm/DECHEM.html>
 - **sha256:** `ec7b0897bd7059d03d5773a97df9ef1de4b8dc20faa8cec01374cdc3e365565e` (19780 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/hebrew_modes.rs`, `baud-domain/src/vt/mode.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/hebrew_modes.rs`, `crates/baud-domain/src/vt/mode.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
 
 <a id="vt510-decic"></a>
 ### vt510-decic
@@ -10522,7 +10522,7 @@ DECIC — Insert Column (VT510 Programmer Information). Digital Equipment Corpor
 - **URL:** <https://vt100.net/docs/vt510-rm/DECIC.html>
 - **sha256:** `0197e93263aaf7e342a07187b12266eceed0e8ae71fbb1fa0e3085f934327724` (19569 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/vt420/side_margins.rs`, `baud-domain/src/vt/csi.rs`, `docs/protocols/vt420.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/vt420/side_margins.rs`, `crates/baud-domain/src/vt/csi.rs`, `docs/protocols/vt420.md`, `docs/vt-coverage.md`
 
 <a id="vt510-deckpam"></a>
 ### vt510-deckpam
@@ -10533,7 +10533,7 @@ DECKPAM—Keypad Application Mode (VT510 Programmer Information). Digital Equipm
 - **sha256:** `62ca4ee7ca6560a2e41c8a36655c207bac5928bfff212ee890c5423aa208c3f6` (19391 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-30
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/src/term.rs`, `baud-core/tests/set_up.rs`, `baud-domain/src/vt/mode.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/tests/set_up.rs`, `crates/baud-domain/src/vt/mode.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-decncsm"></a>
 ### vt510-decncsm
@@ -10544,7 +10544,7 @@ DECNCSM — Set/Reset No Clearing Screen On Column Change (VT510 Programmer Info
 - **sha256:** `0bad959a9709a60c14dbd02c17d2b2f0fa1b7b8e686ac7b08792b5c124a422ce` (19969 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-14
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/src/term.rs`, `baud-core/tests/xterm/column_mode.rs`, `baud-domain/src/vt/mode.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/tests/xterm/column_mode.rs`, `crates/baud-domain/src/vt/mode.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-decnkm"></a>
 ### vt510-decnkm
@@ -10554,7 +10554,7 @@ DECNKM — Numeric Keypad Mode (VT510 Programmer Information). Digital Equipment
 - **URL:** <https://vt100.net/docs/vt510-rm/DECNKM.html>
 - **sha256:** `a846039f8f4e44d91d8c110af8f4bc4c7ed62f24bc0490c532c2253be0ee02ed` (19713 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/keyboard_modes.rs`, `baud-domain/src/vt/mode.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/keyboard_modes.rs`, `crates/baud-domain/src/vt/mode.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-decom"></a>
 ### vt510-decom
@@ -10564,7 +10564,7 @@ DECOM — Origin Mode (VT510 Programmer Information). Digital Equipment Corporat
 - **URL:** <https://vt100.net/docs/vt510-rm/DECOM.html>
 - **sha256:** `81f22ba36088e8a311b26157bdc59d0dac6d0ea94a2a24d6b1cf165d21f7faf8` (20140 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/src/query.rs`, `baud-core/src/write.rs`, `baud-core/tests/reverse_wrap.rs`, `baud-core/tests/vt100/modes.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/src/query.rs`, `crates/baud-core/src/write.rs`, `crates/baud-core/tests/reverse_wrap.rs`, `crates/baud-core/tests/vt100/modes.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-decpccm"></a>
 ### vt510-decpccm
@@ -10586,7 +10586,7 @@ DECRC—Restore Cursor (VT510 Programmer Information). Digital Equipment Corpora
 - **sha256:** `1b09546c594abf1eeb0bea18221579080fc5b81ae257f6f6f8ed2f995e400a80` (19639 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-08
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/decrc_unsaved.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/decrc_unsaved.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-decrlcm"></a>
 ### vt510-decrlcm
@@ -10596,7 +10596,7 @@ DECRLCM — Right-to-Left Copy (VT510 Programmer Information). Digital Equipment
 - **URL:** <https://vt100.net/docs/vt510-rm/DECRLCM.html>
 - **sha256:** `0765bb1b2df0a2c9eefd713b89a0951c66406e11b5bc6d51c1c2179a4b5990e2` (20014 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/src/term.rs`, `baud-core/tests/hebrew_modes.rs`, `baud-domain/src/vt/mode.rs`, `baud-render/src/select.rs`, `baud-render/tests/select.rs`, `baud-render/tests/word_wrap_edges.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/tests/hebrew_modes.rs`, `crates/baud-domain/src/vt/mode.rs`, `crates/baud-render/src/select.rs`, `crates/baud-render/tests/select.rs`, `crates/baud-render/tests/word_wrap_edges.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
 
 <a id="vt510-decrlm"></a>
 ### vt510-decrlm
@@ -10607,7 +10607,7 @@ DECRLM — Cursor Right to Left Mode (VT510 Programmer Information). Digital Equ
 - **sha256:** `7405344c8262e7a76e82ab850369f3c6b769890e8f7cdb677c503f1dd04ec998` (22324 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-26
-- **Cited in:** `baud-core/src/leftward.rs`, `baud-core/tests/cursor_right_to_left.rs`, `baud-core/tests/pending_wrap.rs`, `baud-domain/src/store.rs`, `baud-domain/src/vt/mode.rs`, `baud-present-macos/tests/cells.rs`, `baud-present-vulkan/tests/scenes_bidi.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/leftward.rs`, `crates/baud-core/tests/cursor_right_to_left.rs`, `crates/baud-core/tests/pending_wrap.rs`, `crates/baud-domain/src/store.rs`, `crates/baud-domain/src/vt/mode.rs`, `crates/baud-present-macos/tests/cells.rs`, `crates/baud-present-vulkan/tests/scenes_bidi.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
 
 <a id="vt510-decrqpsr"></a>
 ### vt510-decrqpsr
@@ -10618,7 +10618,7 @@ DECRQPSR—Request Presentation State Report (VT510 Programmer Information). Dig
 - **sha256:** `cab03a6d4116fae7199d3989a4c131d23975ea148b8a63e877e5ce632a96e425` (19611 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-core/src/presentation.rs`, `baud-core/tests/vt420/presentation.rs`, `baud-domain/src/vt/csi.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/presentation.rs`, `crates/baud-core/tests/vt420/presentation.rs`, `crates/baud-domain/src/vt/csi.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-decrsps"></a>
 ### vt510-decrsps
@@ -10629,7 +10629,7 @@ DECRSPS—Restore Presentation State (VT510 Programmer Information). Digital Equ
 - **sha256:** `41d6a9aa8e458ff56fc650f8c8e4f2b831f2300911fb0fd882e2add211839c6c` (21185 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-core/src/presentation.rs`, `baud-core/tests/vt420/presentation.rs`, `baud-domain/src/vt/presentation.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/presentation.rs`, `crates/baud-core/tests/vt420/presentation.rs`, `crates/baud-domain/src/vt/presentation.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-decsc"></a>
 ### vt510-decsc
@@ -10639,7 +10639,7 @@ DECSC — Save Cursor (VT510 Programmer Information). Digital Equipment Corporat
 - **URL:** <https://vt100.net/docs/vt510-rm/DECSC.html>
 - **sha256:** `d2248cd54e7fb96fa7360f7ac201ab02212a5a1594df67729081de1737739de1` (19369 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/src/term.rs`, `baud-core/tests/pending_wrap.rs`, `baud-core/tests/text.rs`, `baud-core/tests/vt100/charsets.rs`, `baud-core/tests/vt220/selective_erase.rs`, `baud-core/tests/vt220/shifts.rs`, `baud-domain/src/vt/esc.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/tests/pending_wrap.rs`, `crates/baud-core/tests/text.rs`, `crates/baud-core/tests/vt100/charsets.rs`, `crates/baud-core/tests/vt220/selective_erase.rs`, `crates/baud-core/tests/vt220/shifts.rs`, `crates/baud-domain/src/vt/esc.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-decsca"></a>
 ### vt510-decsca
@@ -10649,7 +10649,7 @@ DECSCA — Select Character Protection Attribute (VT510 Programmer Information).
 - **URL:** <https://vt100.net/docs/vt510-rm/DECSCA.html>
 - **sha256:** `d13269d969d16e07fa02c9ef9a2d5d72e9f722e2ac243602c0da3775bd6c9b00` (19921 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/vt220/selective_erase.rs`, `baud-core/tests/xterm/erase_saved_lines.rs`, `baud-domain/src/cell.rs`, `baud-domain/src/style.rs`, `baud-domain/src/vt/csi.rs`, `baud-domain/src/vt/mode.rs`, `docs/protocols/vt220.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/vt220/selective_erase.rs`, `crates/baud-core/tests/xterm/erase_saved_lines.rs`, `crates/baud-domain/src/cell.rs`, `crates/baud-domain/src/style.rs`, `crates/baud-domain/src/vt/csi.rs`, `crates/baud-domain/src/vt/mode.rs`, `docs/protocols/vt220.md`, `docs/vt-coverage.md`
 
 <a id="vt510-decscl"></a>
 ### vt510-decscl
@@ -10660,7 +10660,7 @@ DECSCL—Select Conformance Level (VT510 Programmer Information). Digital Equipm
 - **sha256:** `73666ec72d634a98c71fc65ac433a5501a5c3121bb56663d6b125dbdbeaf2ed0` (21494 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-08
-- **Cited in:** `baud-core/tests/conformance_level.rs`, `baud-domain/src/vt/level.rs`, `baud-domain/src/vt/mode.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/conformance_level.rs`, `crates/baud-domain/src/vt/level.rs`, `crates/baud-domain/src/vt/mode.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-decscpp"></a>
 ### vt510-decscpp
@@ -10670,7 +10670,7 @@ DECSCPP — Select Columns Per Page (VT510 Programmer Information). Digital Equi
 - **URL:** <https://vt100.net/docs/vt510-rm/DECSCPP.html>
 - **sha256:** `6a84f639349a1d4eb937a60a70276089f70d049e62f248c4269bd6077ca44bce` (21216 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/term.rs`, `baud-core/tests/xterm/column_mode.rs`, `baud-domain/src/vt/csi.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/term.rs`, `crates/baud-core/tests/xterm/column_mode.rs`, `crates/baud-domain/src/vt/csi.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-decsed"></a>
 ### vt510-decsed
@@ -10680,7 +10680,7 @@ DECSED — Selective Erase in Display (VT510 Programmer Information). Digital Eq
 - **URL:** <https://vt100.net/docs/vt510-rm/DECSED.html>
 - **sha256:** `1640ec7b3293ef6d32956df583928a8cabd0c1964de8c8cf83ea4f7ee8fc786c` (19794 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/vt220/selective_erase.rs`, `docs/protocols/vt220.md`
+- **Cited in:** `crates/baud-core/tests/vt220/selective_erase.rs`, `docs/protocols/vt220.md`
 
 <a id="vt510-decsel"></a>
 ### vt510-decsel
@@ -10690,7 +10690,7 @@ DECSEL — Selective Erase in Line (VT510 Programmer Information). Digital Equip
 - **URL:** <https://vt100.net/docs/vt510-rm/DECSEL.html>
 - **sha256:** `d5897c6bade88ce7f03d2933a04eab5d5bc9bff712ac0a298222990497ccdbc2` (19795 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/vt220/selective_erase.rs`, `docs/protocols/vt220.md`
+- **Cited in:** `crates/baud-core/tests/vt220/selective_erase.rs`, `docs/protocols/vt220.md`
 
 <a id="vt510-decslpp"></a>
 ### vt510-decslpp
@@ -10711,7 +10711,7 @@ DECSLRM — Set Left and Right Margins (VT510 Programmer Information). Digital E
 - **URL:** <https://vt100.net/docs/vt510-rm/DECSLRM.html>
 - **sha256:** `96b803e7c14bcd5929b9d36af3c696564e82373d18a69f30a50a57ca85e76d7a` (20318 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/src/paint.rs`, `baud-core/tests/vt420/side_margins.rs`, `baud-core/tests/wrapped_at.rs`, `baud-domain/src/store.rs`, `baud-domain/src/vt/csi.rs`, `baud-present-vulkan/tests/scenes_bidi.rs`, `baud-render/src/bidi.rs`, `baud-render/tests/side_margins.rs`, `bench-others/ghostty-oracle/src/main.rs`, `docs/bidi.md`, `docs/protocols/vt420.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/src/paint.rs`, `crates/baud-core/tests/vt420/side_margins.rs`, `crates/baud-core/tests/wrapped_at.rs`, `crates/baud-domain/src/store.rs`, `crates/baud-domain/src/vt/csi.rs`, `crates/baud-present-vulkan/tests/scenes_bidi.rs`, `crates/baud-render/src/bidi.rs`, `crates/baud-render/tests/side_margins.rs`, `docs/bidi.md`, `docs/protocols/vt420.md`, `docs/vt-coverage.md`, `tools/bench-others/ghostty-oracle/src/main.rs`
 
 <a id="vt510-decst8c"></a>
 ### vt510-decst8c
@@ -10721,7 +10721,7 @@ DECST8C — Set Tab at Every 8 Columns (VT510 Programmer Information). Digital E
 - **URL:** <https://vt100.net/docs/vt510-rm/DECST8C.html>
 - **sha256:** `67b5b73fe4e7922a663f12942825e2f4e5a179938a059ff9ab47a47f093feb98` (19354 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/csi.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/csi.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-decstbm"></a>
 ### vt510-decstbm
@@ -10732,7 +10732,7 @@ DECSTBM — Set Top and Bottom Margins (VT510 Programmer Information). Digital E
 - **sha256:** `f063db59d171132c5b4008a685fec3e9d71a25e8e59e932d8dd535f01ac4da0b` (19851 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-13
-- **Cited in:** `baud-core/tests/vt100/scrolling.rs`, `baud-domain/src/vt/csi.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/vt100/scrolling.rs`, `crates/baud-domain/src/vt/csi.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-decstr"></a>
 ### vt510-decstr
@@ -10742,7 +10742,7 @@ DECSTR — Soft Terminal Reset (VT510 Programmer Information). Digital Equipment
 - **URL:** <https://vt100.net/docs/vt510-rm/DECSTR.html>
 - **sha256:** `ba3f2f9584a3a9cbf64ee4d1a992b32fded053bc13f92383fce6a2c328c0e065` (21048 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/held.rs`, `baud-core/src/ops.rs`, `baud-core/src/term.rs`, `baud-core/tests/encoding/latin1.rs`, `baud-core/tests/hebrew_keyboard.rs`, `baud-core/tests/hebrew_modes.rs`, `baud-core/tests/ris_power_on.rs`, `baud-core/tests/vt220/selective_erase.rs`, `baud-core/tests/xterm/mouse.rs`, `baud-core/tests/xterm/soft_reset_scope.rs`, `baud-domain/src/vt/key.rs`, `baud-domain/src/vt/mode.rs`, `docs/bidi.md`, `docs/input-coverage.md`, `docs/protocols/vt220.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/held.rs`, `crates/baud-core/src/ops.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/tests/encoding/latin1.rs`, `crates/baud-core/tests/hebrew_keyboard.rs`, `crates/baud-core/tests/hebrew_modes.rs`, `crates/baud-core/tests/ris_power_on.rs`, `crates/baud-core/tests/vt220/selective_erase.rs`, `crates/baud-core/tests/xterm/mouse.rs`, `crates/baud-core/tests/xterm/soft_reset_scope.rs`, `crates/baud-domain/src/vt/key.rs`, `crates/baud-domain/src/vt/mode.rs`, `docs/bidi.md`, `docs/input-coverage.md`, `docs/protocols/vt220.md`, `docs/vt-coverage.md`
 
 <a id="vt510-decswl"></a>
 ### vt510-decswl
@@ -10752,7 +10752,7 @@ DECSWL — Single-Width, Single-Height Line (VT510 Programmer Information). Digi
 - **URL:** <https://vt100.net/docs/vt510-rm/DECSWL.html>
 - **sha256:** `5814d0c2d34a6672f1f543011487751bbef63d052957b44d5c70338669f3c25f` (19189 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/paint.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/paint.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-dectabsr"></a>
 ### vt510-dectabsr
@@ -10763,7 +10763,7 @@ DECTABSR—Tab Stop Report (VT510 Programmer Information). Digital Equipment Cor
 - **sha256:** `0a3f220995bf55e02667aacf135ac2b082a3e490dffeede49dd488d06c1e1986` (20489 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-core/src/presentation.rs`, `baud-core/tests/vt420/presentation.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/presentation.rs`, `crates/baud-core/tests/vt420/presentation.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-dl"></a>
 ### vt510-dl
@@ -10773,7 +10773,7 @@ DL -- Delete Line (VT510 Programmer Information). Digital Equipment Corporation,
 - **URL:** <https://vt100.net/docs/vt510-rm/DL.html>
 - **sha256:** `9669db2c747843d395820b32841d81d8d1212aeb65c2a099c15357407558f2f8` (19590 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/vt420/rect_scroll.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/vt420/rect_scroll.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-dsr"></a>
 ### vt510-dsr
@@ -10784,7 +10784,7 @@ DSR—Device Status Reports (VT510 Programmer Information). Digital Equipment Co
 - **sha256:** `6bccefc6d824b0a8b2b75414ffdafd8496f2e196d8c84b7d64a1cd2b109965c0` (20263 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-domain/src/vt/report.rs`
+- **Cited in:** `crates/baud-domain/src/vt/report.rs`
 
 <a id="vt510-dsr-kbd"></a>
 ### vt510-dsr-kbd
@@ -10795,7 +10795,7 @@ DSR—Keyboard (VT510 Programmer Information). Digital Equipment Corporation, tr
 - **sha256:** `e85634c690c1b478e8dfaaa6c720c919ab365ed9777bc279df5738e40b4bc45d` (21969 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-core/tests/vt420/reports.rs`, `baud-domain/src/vt/report.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/vt420/reports.rs`, `crates/baud-domain/src/vt/report.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-dsr-xcpr"></a>
 ### vt510-dsr-xcpr
@@ -10806,7 +10806,7 @@ DSR—Extended Cursor Position Report (DECXCPR) (VT510 Programmer Information). 
 - **sha256:** `9f05127505b58d8ab845faee3bf024135671e0a4898f4e478aceba301e8758dd` (19590 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-core/tests/vt420/reports.rs`, `baud-domain/src/vt/report.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/vt420/reports.rs`, `crates/baud-domain/src/vt/report.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-el"></a>
 ### vt510-el
@@ -10816,7 +10816,7 @@ EL — Erase in Line (VT510 Programmer Information). Digital Equipment Corporati
 - **URL:** <https://vt100.net/docs/vt510-rm/EL.html>
 - **sha256:** `7613de1cba154a391b60bb797bad4bfb43b11bc62b621722473b08db47237100` (19580 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/vt420/erase_colour.rs`
+- **Cited in:** `crates/baud-core/tests/vt420/erase_colour.rs`
 
 <a id="vt510-hpr"></a>
 ### vt510-hpr
@@ -10826,7 +10826,7 @@ HPR -- Horizontal Position Relative (VT510 Programmer Information). Digital Equi
 - **URL:** <https://vt100.net/docs/vt510-rm/HPR.html>
 - **sha256:** `1c0abd0c4a77cb566fbc73013c34e261acc2f41f4b8978709b7e875c7e309e86` (19438 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/write.rs`, `baud-core/tests/vt420/line_starts.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/write.rs`, `crates/baud-core/tests/vt420/line_starts.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-ich"></a>
 ### vt510-ich
@@ -10847,7 +10847,7 @@ IL -- Insert Line (VT510 Programmer Information). Digital Equipment Corporation,
 - **URL:** <https://vt100.net/docs/vt510-rm/IL.html>
 - **sha256:** `13739e9aa876f0e1795826d80fe0e2e3efc16e4e0201c37ff461b6df798acfa0` (19354 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/vt420/rect_scroll.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/vt420/rect_scroll.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-kam"></a>
 ### vt510-kam
@@ -10857,7 +10857,7 @@ KAM — Keyboard Action Mode (VT510 Programmer Information). Digital Equipment C
 - **URL:** <https://vt100.net/docs/vt510-rm/KAM.html>
 - **sha256:** `f3099aecca3a0f5393861a07b1327173f22067c888bdba8a63c3dd9752a6e4d0` (19824 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/term.rs`, `baud-core/tests/keyboard_modes.rs`, `baud-core/tests/vt420/status_line.rs`, `baud-domain/src/vt/mode.rs`, `baud-domain/src/vt/tcap.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/term.rs`, `crates/baud-core/tests/keyboard_modes.rs`, `crates/baud-core/tests/vt420/status_line.rs`, `crates/baud-domain/src/vt/mode.rs`, `crates/baud-domain/src/vt/tcap.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-nel"></a>
 ### vt510-nel
@@ -10867,7 +10867,7 @@ NEL -- Next Line (VT510 Programmer Information). Digital Equipment Corporation, 
 - **URL:** <https://vt100.net/docs/vt510-rm/NEL.html>
 - **sha256:** `440b12ecaa9c5b3f2d6844234bbc1c0f3b85470e48406aad5c43e71bbf29ab3d` (19013 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/write.rs`
+- **Cited in:** `crates/baud-core/src/write.rs`
 
 <a id="vt510-np"></a>
 ### vt510-np
@@ -10878,7 +10878,7 @@ NP — Next Page (VT510 Programmer Information). Digital Equipment Corporation, 
 - **sha256:** `bdfa110408ada4b37d21201c434df54c372b4cc960aa07e3963e62d84f245a02` (19510 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-27
-- **Cited in:** `baud-core/src/page.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/page.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-pp"></a>
 ### vt510-pp
@@ -10933,7 +10933,7 @@ RIS—Reset to Initial State (VT510 Programmer Information). Digital Equipment C
 - **sha256:** `69667122d050a6c30479ad3168f9fc5dff6dd8567e2a112d560193d13c3a6f7e` (20406 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-08
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/src/term.rs`, `baud-core/tests/set_up.rs`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/tests/set_up.rs`
 
 <a id="vt510-rm-b"></a>
 ### vt510-rm-b
@@ -10944,7 +10944,7 @@ VT510 Video Terminal Programmer Information, EK-VT510-RM.B01 -- DEC's PDF, of wh
 - **sha256:** `440bbee110eb75027a06b5b375683fbc87cb739edac32899005ad46981c7d514` (3378497 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-18
-- **Cited in:** `baud-app/src/title.rs`, `baud-core/src/graph.rs`, `baud-core/src/margin.rs`, `baud-core/src/ops.rs`, `baud-core/tests/bell_volume.rs`, `baud-core/tests/control_strings.rs`, `baud-domain/src/vt/key/keyboards.rs`, `baud-domain/src/vt/mode.rs`, `baud-domain/src/vt/print.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/title.rs`, `crates/baud-core/src/graph.rs`, `crates/baud-core/src/margin.rs`, `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/bell_volume.rs`, `crates/baud-core/tests/control_strings.rs`, `crates/baud-domain/src/vt/key/keyboards.rs`, `crates/baud-domain/src/vt/mode.rs`, `crates/baud-domain/src/vt/print.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-s8c1t"></a>
 ### vt510-s8c1t
@@ -10955,7 +10955,7 @@ S8C1T—Send C1 Control Character to the Host (VT510 Programmer Information). Di
 - **sha256:** `4d4662b10ac1cd60a05f3b3ef8df48fb3b8bbf6b585cb9f20038234920cfd915` (19617 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-08
-- **Cited in:** `baud-core/tests/key_encode.rs`
+- **Cited in:** `crates/baud-core/tests/key_encode.rs`
 
 <a id="vt510-scs"></a>
 ### vt510-scs
@@ -10966,7 +10966,7 @@ SCS—Select Character Set (VT510 Programmer Information). Digital Equipment Cor
 - **sha256:** `8230cc1dd962e5894735613e19e27f5f4f61b9e41a39ce273d6d828f5ae5de01` (21404 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-08
-- **Cited in:** `baud-domain/src/vt/charset.rs`
+- **Cited in:** `crates/baud-domain/src/vt/charset.rs`
 
 <a id="vt510-srm"></a>
 ### vt510-srm
@@ -10976,7 +10976,7 @@ SRM — Local Echo: Send/Receive Mode (VT510 Programmer Information). Digital Eq
 - **URL:** <https://vt100.net/docs/vt510-rm/SRM.html>
 - **sha256:** `ac32a356647d3a4a3baefd3075a71d5e51fa92145e422ffe3649fb68e3ebae9d` (20049 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/term.rs`, `baud-core/tests/keyboard_modes.rs`, `baud-domain/src/vt/mode.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/term.rs`, `crates/baud-core/tests/keyboard_modes.rs`, `crates/baud-domain/src/vt/mode.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-tbc"></a>
 ### vt510-tbc
@@ -10986,7 +10986,7 @@ TBC — Tab Clear (VT510 Programmer Information). Digital Equipment Corporation,
 - **URL:** <https://vt100.net/docs/vt510-rm/TBC.html>
 - **sha256:** `ce52e8c48f10e3826024a7e19df95cf43558950d3dd26bd89ee793386828a9b6` (19343 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/csi.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/csi.rs`, `docs/vt-coverage.md`
 
 <a id="vt520-rm"></a>
 ### vt520-rm
@@ -10997,7 +10997,7 @@ VT520/VT525 Video Terminal Programmer Information, EK-VT520-RM.A01. Digital Equi
 - **sha256:** `7f46fe770fc4ef9273bc4e1228862cb444967964c1dc2bb1d7c2f71f909017f2` (4654400 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-core/src/dcs.rs`, `baud-core/src/margin.rs`, `baud-core/src/ops.rs`, `baud-core/src/tsr.rs`, `baud-core/tests/bell_volume.rs`, `baud-core/tests/conformance_level.rs`, `baud-core/tests/vt420/erase_colour.rs`, `baud-core/tests/vt420/reports.rs`, `baud-core/tests/xterm_keyboards.rs`, `baud-domain/src/vt/charset.rs`, `baud-domain/src/vt/csi.rs`, `baud-domain/src/vt/key/keyboards.rs`, `baud-domain/src/vt/mode.rs`, `docs/input-coverage.md`, `docs/protocols/vt52.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/dcs.rs`, `crates/baud-core/src/margin.rs`, `crates/baud-core/src/ops.rs`, `crates/baud-core/src/tsr.rs`, `crates/baud-core/tests/bell_volume.rs`, `crates/baud-core/tests/conformance_level.rs`, `crates/baud-core/tests/vt420/erase_colour.rs`, `crates/baud-core/tests/vt420/reports.rs`, `crates/baud-core/tests/xterm_keyboards.rs`, `crates/baud-domain/src/vt/charset.rs`, `crates/baud-domain/src/vt/csi.rs`, `crates/baud-domain/src/vt/key/keyboards.rs`, `crates/baud-domain/src/vt/mode.rs`, `docs/input-coverage.md`, `docs/protocols/vt52.md`, `docs/vt-coverage.md`
 
 <a id="vte-0-80-0-widget"></a>
 ### vte-0-80-0-widget
@@ -11008,7 +11008,7 @@ VTE 0.80.0, src/widget.cc -- key\_event\_translate\_ctrlkey: with Control and a 
 - **sha256:** `8667ac14859adb7797505854b1f928f8a778fd1af1403f296402c2bdf90b0548` (80707 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-present-wayland/src/keys.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-present-wayland/src/keys.rs`, `docs/input-coverage.md`
 
 <a id="vte-0-80-vte-cc"></a>
 ### vte-0-80-vte-cc
@@ -11019,7 +11019,7 @@ VTE 0.80.0, src/vte.cc -- im\_retrieve\_surrounding and im\_delete\_surrounding 
 - **sha256:** `955c55e456afc1a46d23dc1478473fc62f6be1d6f9490611123c533622ba8363` (427878 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-present-wayland/src/ime.rs`
+- **Cited in:** `crates/baud-present-wayland/src/ime.rs`
 
 <a id="vte-bidi-cc-56bad78"></a>
 ### vte-bidi-cc-56bad78
@@ -11041,7 +11041,7 @@ VTE 0.84.1, minifont.cc -- draw\_graphic: a box glyph drawn at cell\_width \* co
 - **sha256:** `d2116f15e1c2df82d0856a096be28eadc760c7e9f74db867e4cf714805990b0f` (128357 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-25
-- **Cited in:** `baud-render/src/boxes.rs`
+- **Cited in:** `crates/baud-render/src/boxes.rs`
 
 <a id="vte-modes-56bad78"></a>
 ### vte-modes-56bad78
@@ -11072,7 +11072,7 @@ Fedora vte291, vte291-cntnr-precmd-preexec-scroll.patch -- 'Add sequences and si
 - **URL:** <https://src.fedoraproject.org/rpms/vte291/raw/effdc88925f27e048c767ea2ca951ef453d4c4b2/f/vte291-cntnr-precmd-preexec-scroll.patch>
 - **sha256:** `4e0dc098681f78241178f8aa33b6a59adf78bb13686540f0664285e080301b5b` (47509 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/notify.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/notify.rs`, `docs/vt-coverage.md`
 
 <a id="vte-vteseq-cc-56bad78"></a>
 ### vte-vteseq-cc-56bad78
@@ -11115,7 +11115,7 @@ Vulkan Specification, chapter: Devices and Queues. The Khronos Group, 2026, docs
 - **URL:** <https://docs.vulkan.org/spec/latest/chapters/devsandqueues.html>
 - **sha256:** `8904ac3fc8a41aaf1198b2b53f0a0b1e9e9999dc4e4adf20a4234862b5520259` (512045 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/gpu_fallback.rs`, `baud-present-vulkan/src/frame.rs`
+- **Cited in:** `crates/baud-app/src/gpu_fallback.rs`, `crates/baud-present-vulkan/src/frame.rs`
 
 <a id="vulkan-synchronization"></a>
 ### vulkan-synchronization
@@ -11125,7 +11125,7 @@ Vulkan specification, chapters/synchronization.adoc -- semaphores, fences, and t
 - **URL:** <https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/f7de774cace1509af0f10b8d859c973b5354ff62/chapters/synchronization.adoc>
 - **sha256:** `947a3efa7d85935ce57a0ffe4e3479363631148dd2c08bafdce388ca412cf7fe` (393588 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-vulkan/src/frame.rs`, `baud-present-vulkan/src/vk.rs`
+- **Cited in:** `crates/baud-present-vulkan/src/frame.rs`, `crates/baud-present-vulkan/src/vk.rs`
 
 <a id="vulkan-vk-ext-external-memory-dma-buf"></a>
 ### vulkan-vk-ext-external-memory-dma-buf
@@ -11189,7 +11189,7 @@ Compositing and Blending Level 1 -- W3C Candidate Recommendation Draft, 21 March
 - **URL:** <https://www.w3.org/TR/2024/CRD-compositing-1-20240321/>
 - **sha256:** `0fb91119308e706a5e4df368a91fa3b43cd5fe8cd8f192418b2df0a30ba8a62b` (234781 bytes)
 - **Copy:** [docs/research/sources/w3c-compositing-1-20240321.html](research/sources/w3c-compositing-1-20240321.html)
-- **Cited in:** `baud-present-macos/tests/cells.rs`, `baud-render/src/composite.rs`, `baud-render/tests/image.rs`, `baud-render/tests/kitty_draw.rs`, `baud-render/tests/reverse_raise.rs`
+- **Cited in:** `crates/baud-present-macos/tests/cells.rs`, `crates/baud-render/src/composite.rs`, `crates/baud-render/tests/image.rs`, `crates/baud-render/tests/kitty_draw.rs`, `crates/baud-render/tests/reverse_raise.rs`
 
 <a id="w3c-css-text-3"></a>
 ### w3c-css-text-3
@@ -11200,7 +11200,7 @@ CSS Text Module Level 3 -- W3C Candidate Recommendation Draft, 14 August 2026. E
 - **sha256:** `17c26f1b41455947f106dac81736944b12da328ee4892c7c5b601f5b65ced55a` (540326 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-03
-- **Cited in:** `baud-render/src/bidi.rs`, `baud-render/tests/devanagari_words.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/src/bidi.rs`, `crates/baud-render/tests/devanagari_words.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
 
 <a id="w3c-png-2003"></a>
 ### w3c-png-2003
@@ -11210,7 +11210,7 @@ Portable Network Graphics (PNG) Specification (Second Edition) -- W3C Recommenda
 - **URL:** <https://www.w3.org/TR/2003/REC-PNG-20031110/>
 - **sha256:** `65b50834b63dffd30eea76b0bc81e9ef07539a842fca970f6274245958e488d6` (318600 bytes)
 - **Copy:** [docs/research/sources/w3c-png-2003.html](research/sources/w3c-png-2003.html)
-- **Cited in:** `baud-domain/src/image.rs`, `baud-domain/src/png.rs`, `baud-domain/tests/image_store.rs`, `baud-font/tests/bitmap.rs`, `baud-render/src/composite.rs`
+- **Cited in:** `crates/baud-domain/src/image.rs`, `crates/baud-domain/src/png.rs`, `crates/baud-domain/tests/image_store.rs`, `crates/baud-font/tests/bitmap.rs`, `crates/baud-render/src/composite.rs`
 
 <a id="wayland"></a>
 ### wayland
@@ -11220,7 +11220,7 @@ wayland.xml -- the core Wayland protocol (wl\_shm, wl\_surface, wl\_buffer, wl\_
 - **URL:** <https://gitlab.freedesktop.org/wayland/wayland/-/raw/main/protocol/wayland.xml>
 - **sha256:** `cc860987e54f8d85c940e97fa1270c69b6e4ad31fbcf5a7f00107ce1157f5e07` (168656 bytes)
 - **Copy:** [docs/research/sources/wayland.xml](research/sources/wayland.xml)
-- **Cited in:** `baud-app/src/hide.rs`, `baud-app/src/pressed.rs`, `baud-app/src/seat.rs`, `baud-app/src/timed.rs`, `baud-domain/src/premultiply.rs`, `baud-domain/src/time.rs`, `baud-present-wayland/src/clip.rs`, `baud-present-wayland/src/cursor.rs`, `baud-present-wayland/src/damage.rs`, `baud-present-wayland/src/pointer.rs`, `baud-present-wayland/src/scale.rs`, `baud-present-wayland/src/timing.rs`, `baud-present-wayland/src/window.rs`, `baud-present-wayland/tests/handshake.rs`, `baud-wayland/src/lib.rs`, `baud-wayland/src/wire.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/hide.rs`, `crates/baud-app/src/pressed.rs`, `crates/baud-app/src/seat.rs`, `crates/baud-app/src/timed.rs`, `crates/baud-domain/src/premultiply.rs`, `crates/baud-domain/src/time.rs`, `crates/baud-present-wayland/src/clip.rs`, `crates/baud-present-wayland/src/cursor.rs`, `crates/baud-present-wayland/src/damage.rs`, `crates/baud-present-wayland/src/pointer.rs`, `crates/baud-present-wayland/src/scale.rs`, `crates/baud-present-wayland/src/timing.rs`, `crates/baud-present-wayland/src/window.rs`, `crates/baud-present-wayland/tests/handshake.rs`, `crates/baud-wayland/src/lib.rs`, `crates/baud-wayland/src/wire.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="wayland-backend-socket"></a>
 ### wayland-backend-socket
@@ -11230,7 +11230,7 @@ wayland-backend rs/socket.rs -- the socket and SCM\_RIGHTS fd passing. Smithay c
 - **URL:** <https://raw.githubusercontent.com/Smithay/wayland-rs/master/wayland-backend/src/rs/socket.rs>
 - **sha256:** `5887ed23d3e5c6491438c9d10444421613158dac1411475633501a60da12618b` (20784 bytes)
 - **Copy:** [docs/research/sources/wayland-backend-socket.rs](research/sources/wayland-backend-socket.rs)
-- **Cited in:** `baud-wayland/src/lib.rs`
+- **Cited in:** `crates/baud-wayland/src/lib.rs`
 
 <a id="wayland-backend-wire"></a>
 ### wayland-backend-wire
@@ -11240,7 +11240,7 @@ wayland-backend rs/wire.rs -- a pure-Rust Wayland wire encoder/decoder. Smithay 
 - **URL:** <https://raw.githubusercontent.com/Smithay/wayland-rs/master/wayland-backend/src/rs/wire.rs>
 - **sha256:** `ffc8aea6210c9c51b92fcb9177c562cf58b60ed408a3e67f5a23c9aafa354882` (10409 bytes)
 - **Copy:** [docs/research/sources/wayland-backend-wire.rs](research/sources/wayland-backend-wire.rs)
-- **Cited in:** `baud-wayland/src/lib.rs`
+- **Cited in:** `crates/baud-wayland/src/lib.rs`
 
 <a id="wayland-copying"></a>
 ### wayland-copying
@@ -11259,7 +11259,7 @@ Web Content Accessibility Guidelines (WCAG) 2.2, W3C Recommendation 12 December 
 - **URL:** <https://www.w3.org/TR/2024/REC-WCAG22-20241212/>
 - **sha256:** `6e3c5fe397257cae509a2fb4752b73062cf8cbeb92c2cec618989b17e4cf7057` (512457 bytes)
 - **Copy:** [docs/research/sources/wcag22-20241212.html](research/sources/wcag22-20241212.html)
-- **Cited in:** `MEASUREMENTS.md`, `assets/logo/README.md`, `assets/readme/README.md`, `baud-app/src/app.rs`, `baud-app/src/caret.rs`, `baud-app/src/effects.rs`, `baud-app/src/line_tip.rs`, `baud-app/src/logo_film.rs`, `baud-bench/src/flash.rs`, `baud-bench/tests/bell_flashes.rs`, `baud-bench/tests/blink_flashes.rs`, `baud-bench/tests/fireworks_flashes.rs`, `baud-bench/tests/readme_logo_flashes.rs`, `baud-bench/tests/session_flashes.rs`, `baud-bench/tests/slide_flashes.rs`, `baud-bench/tests/splash_flashes.rs`, `baud-bench/tests/trail_flashes.rs`, `baud-bench/tests/trailer_flashes.rs`, `baud-bench/tests/ufo_logo_flashes.rs`, `baud-domain/src/vt/scheme.rs`, `baud-present-macos/src/about.rs`, `baud-render/src/bell.rs`, `baud-render/src/cellmap.rs`, `baud-render/src/color.rs`, `baud-render/src/flash.rs`, `baud-render/src/lights.rs`, `baud-render/src/linked.rs`, `baud-render/src/message.rs`, `baud-render/src/tip.rs`, `baud-render/src/transition.rs`, `baud-render/src/wrapmark.rs`, `baud-render/tests/activity_lights.rs`, `baud-render/tests/al_observed.rs`, `baud-render/tests/cursor_amber.rs`, `baud-render/tests/flash_bound.rs`, `baud-render/tests/lights_line.rs`, `baud-render/tests/link_amber.rs`, `baud-render/tests/readable_defaults.rs`, `baud-render/tests/reverse_raise.rs`, `baud-render/tests/translucent.rs`, `docs/cursor.md`, `docs/vt-coverage.md`, `tools/baud-pictures/src/logo.rs`
+- **Cited in:** `MEASUREMENTS.md`, `crates/baud-app/src/app.rs`, `crates/baud-app/src/caret.rs`, `crates/baud-app/src/effects.rs`, `crates/baud-app/src/line_tip.rs`, `crates/baud-app/src/logo_film.rs`, `crates/baud-bench/src/flash.rs`, `crates/baud-bench/tests/bell_flashes.rs`, `crates/baud-bench/tests/blink_flashes.rs`, `crates/baud-bench/tests/fireworks_flashes.rs`, `crates/baud-bench/tests/readme_logo_flashes.rs`, `crates/baud-bench/tests/session_flashes.rs`, `crates/baud-bench/tests/slide_flashes.rs`, `crates/baud-bench/tests/splash_flashes.rs`, `crates/baud-bench/tests/trail_flashes.rs`, `crates/baud-bench/tests/trailer_flashes.rs`, `crates/baud-bench/tests/ufo_logo_flashes.rs`, `crates/baud-domain/src/vt/scheme.rs`, `crates/baud-present-macos/src/about.rs`, `crates/baud-render/src/bell.rs`, `crates/baud-render/src/cellmap.rs`, `crates/baud-render/src/color.rs`, `crates/baud-render/src/flash.rs`, `crates/baud-render/src/lights.rs`, `crates/baud-render/src/linked.rs`, `crates/baud-render/src/message.rs`, `crates/baud-render/src/tip.rs`, `crates/baud-render/src/transition.rs`, `crates/baud-render/src/wrapmark.rs`, `crates/baud-render/tests/activity_lights.rs`, `crates/baud-render/tests/al_observed.rs`, `crates/baud-render/tests/cursor_amber.rs`, `crates/baud-render/tests/flash_bound.rs`, `crates/baud-render/tests/lights_line.rs`, `crates/baud-render/tests/link_amber.rs`, `crates/baud-render/tests/readable_defaults.rs`, `crates/baud-render/tests/reverse_raise.rs`, `crates/baud-render/tests/translucent.rs`, `docs/assets/logo/README.md`, `docs/assets/readme/README.md`, `docs/cursor.md`, `docs/vt-coverage.md`, `tools/baud-pictures/src/logo.rs`
 
 <a id="wcag22-errata"></a>
 ### wcag22-errata
@@ -11278,7 +11278,7 @@ Technique F83: Failure of SC 1.4.3 and 1.4.6 due to using background images that
 - **URL:** <https://www.w3.org/WAI/WCAG22/Techniques/failures/F83>
 - **sha256:** `1bcc293b14ed0a9fde55aa5058a905283d8bcefd37541a931622e40f67105613` (30406 bytes)
 - **Copy:** [docs/research/sources/wcag22-technique-f83.html](research/sources/wcag22-technique-f83.html)
-- **Cited in:** `baud-render/src/color.rs`, `baud-render/tests/reverse_raise.rs`
+- **Cited in:** `crates/baud-render/src/color.rs`, `crates/baud-render/tests/reverse_raise.rs`
 
 <a id="wcag22-technique-g145"></a>
 ### wcag22-technique-g145
@@ -11384,7 +11384,7 @@ Understanding SC 1.4.11 Non-text Contrast -- graphical objects, 'required for un
 - **URL:** <https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html>
 - **sha256:** `2f48093e72b1070c07a7d4aa9e9c5c07815607e8af7c46da9b292cd40086bb7a` (203097 bytes)
 - **Copy:** [docs/research/sources/wcag22-understanding-non-text-contrast.html](research/sources/wcag22-understanding-non-text-contrast.html)
-- **Cited in:** `MEASUREMENTS.md`, `baud-render/src/color.rs`, `docs/cursor.md`
+- **Cited in:** `MEASUREMENTS.md`, `crates/baud-render/src/color.rs`, `docs/cursor.md`
 
 <a id="wcag22-understanding-non-text-contrast-2026-11-16"></a>
 ### wcag22-understanding-non-text-contrast-2026-11-16
@@ -11404,7 +11404,7 @@ Understanding SC 2.2.2 Pause, Stop, Hide -- why five seconds; 'starts automatica
 - **URL:** <https://www.w3.org/WAI/WCAG22/Understanding/pause-stop-hide.html>
 - **sha256:** `151b081b266ccb1df3818bcab210d6016145c3a2edb298fb597d7dae02c8f528` (61685 bytes)
 - **Copy:** [docs/research/sources/wcag22-understanding-pause-stop-hide.html](research/sources/wcag22-understanding-pause-stop-hide.html)
-- **Cited in:** `baud-present-macos/src/about.rs`, `tools/baud-pictures/src/logo.rs`
+- **Cited in:** `crates/baud-present-macos/src/about.rs`, `tools/baud-pictures/src/logo.rs`
 
 <a id="wcag22-understanding-seizures"></a>
 ### wcag22-understanding-seizures
@@ -11441,7 +11441,7 @@ Guidance on Applying WCAG 2 to Non-Web Information and Communications Technologi
 - **URL:** <https://www.w3.org/TR/2025/NOTE-wcag2ict-22-20251211/>
 - **sha256:** `265077c096b19d21d9f6b29ce60604d1cf88f8cf4a8663312ee46490a2c9b2e7` (536627 bytes)
 - **Copy:** [docs/research/sources/wcag2ict-22-20251211.html](research/sources/wcag2ict-22-20251211.html)
-- **Cited in:** `baud-render/src/bell.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-render/src/bell.rs`, `docs/vt-coverage.md`
 
 <a id="wcag3-wd"></a>
 ### wcag3-wd
@@ -11461,7 +11461,7 @@ weston 16.0.0, libweston/compositor.c -- weston\_output\_latch applies the ready
 - **sha256:** `f840f480a3402c654b4da2de2059aa2f723d1e25e06a3d1cb707540f67f1bd45` (332296 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-31
-- **Cited in:** `baud-present-wayland/src/timing.rs`
+- **Cited in:** `crates/baud-present-wayland/src/timing.rs`
 
 <a id="wezterm-20240203-config-lib"></a>
 ### wezterm-20240203-config-lib
@@ -11471,7 +11471,7 @@ wezterm 20240203-110809-5046fc22, config/src/lib.rs -- watch\_path (a 200 ms gra
 - **URL:** <https://raw.githubusercontent.com/wezterm/wezterm/20240203-110809-5046fc22/config/src/lib.rs>
 - **sha256:** `bddf0adbb812cf00fb023bd54b05ca1decdf0b4d40a60bf756843d145cf16b9e` (25592 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/reload.rs`
+- **Cited in:** `crates/baud-app/src/reload.rs`
 
 <a id="wezterm-3725482-commands"></a>
 ### wezterm-3725482-commands
@@ -11482,7 +11482,7 @@ wezterm 3725482, wezterm-gui/src/commands.rs -- Shift+Insert pastes the primary,
 - **sha256:** `a72cc3660d73d5b87abbba42cda75611967f88f057351044245091fd37fc184f` (84231 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-present-wayland/src/keys.rs`
+- **Cited in:** `crates/baud-present-wayland/src/keys.rs`
 
 <a id="wezterm-b09b56c-get-cwd-md"></a>
 ### wezterm-b09b56c-get-cwd-md
@@ -11520,7 +11520,7 @@ wezterm e2a98e1, wezterm-gui/src/overlay/copy.rs -- the search row in reverse vi
 - **sha256:** `4253926418182a0b1848a8cdbe387e03d6bb7b30636fc1fafe58329c254a854e` (72202 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-render/src/renderer.rs`
+- **Cited in:** `crates/baud-render/src/renderer.rs`
 
 <a id="wezterm-e2a98e1-terminalstate"></a>
 ### wezterm-e2a98e1-terminalstate
@@ -11540,7 +11540,7 @@ wezterm, term/src/screen.rs -- Screen::resize and rewrap\_lines; scroll\_up keep
 - **URL:** <https://raw.githubusercontent.com/wezterm/wezterm/b09b56c29c1e367e598b60ca266e2cc9038751e0/term/src/screen.rs>
 - **sha256:** `2d3b9e1985ab1f9d5bb1c5002f47062846488f30c886771e1a285faf5d56cbb4` (41786 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/scrollback.rs`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/scrollback.rs`
 
 <a id="wezterm-screen-line"></a>
 ### wezterm-screen-line
@@ -11560,7 +11560,7 @@ WezTerm e2a98e1, docs/shell-integration.md -- OSC 133 per the semantic-prompts p
 - **sha256:** `84f21c12d991d034b8e9fc2e635ed4d588709da7c03763c51ff5b30e53e01cf5` (7703 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-domain/src/vt/semantic.rs`
+- **Cited in:** `crates/baud-domain/src/vt/semantic.rs`
 
 <a id="whatwg-html-dom-dir"></a>
 ### whatwg-html-dom-dir
@@ -11582,7 +11582,7 @@ WHATWG HTML Living Standard, 13.5 Named character references -- the list as JSON
 - **sha256:** `d741d877ac77c4194c4ad526b5b4a19aef8dfe411ab840a466891cdbb9f362e6` (145897 bytes)
 - **Copy:** [docs/research/sources/whatwg-html-entities.json](research/sources/whatwg-html-entities.json)
 - **Read:** 2026-11-05
-- **Cited in:** `xtask/src/html.rs`
+- **Cited in:** `crates/xtask/src/html.rs`
 
 <a id="whatwg-url"></a>
 ### whatwg-url
@@ -11593,7 +11593,7 @@ WHATWG URL Standard, commit snapshot fde3f74 -- 'URL code points': ASCII alphanu
 - **sha256:** `eeb362524eb76f1fdf85f1c8a856d5b76cfc8edb66e5d9a658fc332233be0fff` (741151 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-18
-- **Cited in:** `baud-app/src/link.rs`
+- **Cited in:** `crates/baud-app/src/link.rs`
 
 <a id="wikipedia-cielab-1370652355"></a>
 ### wikipedia-cielab-1370652355
@@ -11604,7 +11604,7 @@ CIELAB color space, revision 1370652355 -- From CIELAB to CIEXYZ: f^-1(t) = t^3 
 - **sha256:** `bed2781299bde3294b44e20ae45e4d446a8500f1375c340ddf58b266cd2ce39b` (22798 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-25
-- **Cited in:** `baud-domain/src/themefile/oklab.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/oklab.rs`
 
 <a id="williams"></a>
 ### williams
@@ -11614,7 +11614,7 @@ A parser for DEC's ANSI-compatible video terminals. Paul Flo Williams, 2004, vt1
 - **URL:** <https://vt100.net/emu/dec_ansi_parser>
 - **sha256:** `72db5905ebd81bb4f3da420db66db390bfa6693704bc5e24aec74290d2ce691d` (90287 bytes)
 - **Copy:** [docs/research/sources/williams-dec-ansi-parser.html](research/sources/williams-dec-ansi-parser.html)
-- **Cited in:** `baud-app/src/film/mpv/capture.rs`, `baud-core/src/graph.rs`, `baud-core/src/osc.rs`, `baud-core/src/placed.rs`, `baud-core/src/write.rs`, `baud-core/tests/clipboard.rs`, `baud-core/tests/control_string_end.rs`, `baud-core/tests/control_strings.rs`, `baud-core/tests/csi_decline.rs`, `baud-core/tests/encoding/graphemes.rs`, `baud-core/tests/encoding/latin1.rs`, `baud-core/tests/encoding/utf8.rs`, `baud-core/tests/esc_abandons.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-core/tests/kitty_string_end.rs`, `baud-core/tests/properties.rs`, `baud-core/tests/sixel.rs`, `baud-core/tests/vt100/charsets.rs`, `baud-core/tests/vt220/dcs.rs`, `baud-core/tests/vt220/main.rs`, `baud-core/tests/xterm/keypad_version.rs`, `baud-core/tests/xterm/osc.rs`, `baud-difftest/tests/alacritty.rs`, `baud-domain/src/decode.rs`, `baud-domain/src/sixel.rs`, `baud-domain/src/sniff.rs`, `baud-domain/src/vt/charset.rs`, `baud-domain/src/vt/csi.rs`, `baud-domain/src/vt/esc.rs`, `baud-domain/src/vt/param.rs`, `baud-domain/src/vt/report.rs`, `baud-sfte-difftest/patches/0001-bel-terminates-an-osc-only.md`, `baud-sfte-difftest/tests/sfte.rs`, `docs/protocols/vt100.md`, `docs/protocols/vt220.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/film/mpv/capture.rs`, `crates/baud-core/src/graph.rs`, `crates/baud-core/src/osc.rs`, `crates/baud-core/src/placed.rs`, `crates/baud-core/src/write.rs`, `crates/baud-core/tests/clipboard.rs`, `crates/baud-core/tests/control_string_end.rs`, `crates/baud-core/tests/control_strings.rs`, `crates/baud-core/tests/csi_decline.rs`, `crates/baud-core/tests/encoding/graphemes.rs`, `crates/baud-core/tests/encoding/latin1.rs`, `crates/baud-core/tests/encoding/utf8.rs`, `crates/baud-core/tests/esc_abandons.rs`, `crates/baud-core/tests/kitty_graphics.rs`, `crates/baud-core/tests/kitty_string_end.rs`, `crates/baud-core/tests/properties.rs`, `crates/baud-core/tests/sixel.rs`, `crates/baud-core/tests/vt100/charsets.rs`, `crates/baud-core/tests/vt220/dcs.rs`, `crates/baud-core/tests/vt220/main.rs`, `crates/baud-core/tests/xterm/keypad_version.rs`, `crates/baud-core/tests/xterm/osc.rs`, `crates/baud-difftest/tests/alacritty.rs`, `crates/baud-domain/src/decode.rs`, `crates/baud-domain/src/sixel.rs`, `crates/baud-domain/src/sniff.rs`, `crates/baud-domain/src/vt/charset.rs`, `crates/baud-domain/src/vt/csi.rs`, `crates/baud-domain/src/vt/esc.rs`, `crates/baud-domain/src/vt/param.rs`, `crates/baud-domain/src/vt/report.rs`, `crates/baud-sfte-difftest/patches/0001-bel-terminates-an-osc-only.md`, `crates/baud-sfte-difftest/tests/sfte.rs`, `docs/protocols/vt100.md`, `docs/protocols/vt220.md`, `docs/vt-coverage.md`
 
 <a id="windows-terminal-colorscheme-9fd41b2"></a>
 ### windows-terminal-colorscheme-9fd41b2
@@ -11625,7 +11625,7 @@ microsoft/terminal 9fd41b2, src/cascadia/TerminalSettingsModel/ColorScheme.cpp -
 - **sha256:** `4e1b16e71640aa88587fba8bea066e379ac0bbda9924e9aaa892ffe9200e0485` (6089 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/detect.rs`, `baud-domain/src/themefile/iterm.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/detect.rs`, `crates/baud-domain/src/themefile/iterm.rs`
 
 <a id="windows-terminal-jsonutils-9fd41b2"></a>
 ### windows-terminal-jsonutils-9fd41b2
@@ -11636,7 +11636,7 @@ microsoft/terminal 9fd41b2, src/cascadia/TerminalSettingsModel/JsonUtils.h -- Ge
 - **sha256:** `312cdca95ee09427db673370ca2c5a6ede7bdadb02218b86378ebd0f7d510566` (34636 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/iterm.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/iterm.rs`
 
 <a id="windows-terminal-utils-9fd41b2"></a>
 ### windows-terminal-utils-9fd41b2
@@ -11647,7 +11647,7 @@ microsoft/terminal 9fd41b2, src/types/utils.cpp -- ColorFromHexString: #rgb each
 - **sha256:** `f336dca77e5e2c65ddd718a19213f0217c3ef77151e6a7ba0c56f0e2eb4b172f` (51345 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/iterm.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/iterm.rs`
 
 <a id="wlr-screencopy-unstable-v1"></a>
 ### wlr-screencopy-unstable-v1
@@ -11695,7 +11695,7 @@ cursor-shape-v1 -- named cursor shapes. Wayland contributors, 2026, wayland-prot
 - **URL:** <https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/staging/cursor-shape/cursor-shape-v1.xml>
 - **sha256:** `bb57d91e53a79dadab7c612dab87c233393cee73673feefa7442cfbfdd9aed2f` (9142 bytes)
 - **Copy:** [docs/research/sources/wp-cursor-shape-v1.xml](research/sources/wp-cursor-shape-v1.xml)
-- **Cited in:** `baud-present-wayland/src/cursor.rs`, `baud-present-wayland/tests/handshake.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-present-wayland/src/cursor.rs`, `crates/baud-present-wayland/tests/handshake.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="wp-fifo-v1"></a>
 ### wp-fifo-v1
@@ -11705,7 +11705,7 @@ fifo-v1 -- FIFO commit constraints. Wayland contributors, 2026, wayland-protocol
 - **URL:** <https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/staging/fifo/fifo-v1.xml>
 - **sha256:** `0b6c31dfe6bca19b712745c9de7a4a398558cfa1087b1938e96fd3b10ffc1069` (6268 bytes)
 - **Copy:** [docs/research/sources/wp-fifo-v1.xml](research/sources/wp-fifo-v1.xml)
-- **Cited in:** `baud-present-wayland/src/window.rs`
+- **Cited in:** `crates/baud-present-wayland/src/window.rs`
 
 <a id="wp-fractional-scale-v1"></a>
 ### wp-fractional-scale-v1
@@ -11715,7 +11715,7 @@ fractional-scale-v1 -- preferred fractional scale. Wayland contributors, 2026, w
 - **URL:** <https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/staging/fractional-scale/fractional-scale-v1.xml>
 - **sha256:** `5941de5d28f427ecdadddc8623a6f6af0a30b0ab4726847236ba7a7652b81316` (4636 bytes)
 - **Copy:** [docs/research/sources/wp-fractional-scale-v1.xml](research/sources/wp-fractional-scale-v1.xml)
-- **Cited in:** `baud-app/src/surface.rs`, `baud-present-wayland/src/scale.rs`, `baud-present-wayland/src/window.rs`, `baud-present-wayland/tests/handshake.rs`
+- **Cited in:** `crates/baud-app/src/surface.rs`, `crates/baud-present-wayland/src/scale.rs`, `crates/baud-present-wayland/src/window.rs`, `crates/baud-present-wayland/tests/handshake.rs`
 
 <a id="wp-linux-dmabuf-v1"></a>
 ### wp-linux-dmabuf-v1
@@ -11725,7 +11725,7 @@ linux-dmabuf-v1 -- dmabuf buffers, format/modifier tranches (v5). Wayland contri
 - **URL:** <https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/stable/linux-dmabuf/linux-dmabuf-v1.xml>
 - **sha256:** `29ce3ece4fb86e00c6e7f07332274bcb9ceb0eb8b1380d3635c1a67bbde830ab` (30999 bytes)
 - **Copy:** [docs/research/sources/wp-linux-dmabuf-v1.xml](research/sources/wp-linux-dmabuf-v1.xml)
-- **Cited in:** `baud-present-vulkan/src/choose.rs`, `baud-present-wayland/src/dmabuf.rs`
+- **Cited in:** `crates/baud-present-vulkan/src/choose.rs`, `crates/baud-present-wayland/src/dmabuf.rs`
 
 <a id="wp-linux-drm-syncobj-v1"></a>
 ### wp-linux-drm-syncobj-v1
@@ -11735,7 +11735,7 @@ linux-drm-syncobj-v1 -- explicit synchronisation. Wayland contributors, 2026, wa
 - **URL:** <https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/staging/linux-drm-syncobj/linux-drm-syncobj-v1.xml>
 - **sha256:** `5ede41a56eced6aa635caa7ab2996066bff9fd211620dbf9f73aafab740bec71` (12655 bytes)
 - **Copy:** [docs/research/sources/wp-linux-drm-syncobj-v1.xml](research/sources/wp-linux-drm-syncobj-v1.xml)
-- **Cited in:** `baud-present-vulkan/src/frame.rs`, `baud-present-vulkan/src/sys.rs`, `baud-present-wayland/src/dmabuf.rs`
+- **Cited in:** `crates/baud-present-vulkan/src/frame.rs`, `crates/baud-present-vulkan/src/sys.rs`, `crates/baud-present-wayland/src/dmabuf.rs`
 
 <a id="wp-presentation-time"></a>
 ### wp-presentation-time
@@ -11745,7 +11745,7 @@ presentation-time -- presentation feedback and the zero\_copy flag. Wayland cont
 - **URL:** <https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/stable/presentation-time/presentation-time.xml>
 - **sha256:** `dffac93bcb2bb1d8c385e72b8a8c2c0d4d79a336866322f3ba886dce2b27b1e2` (12890 bytes)
 - **Copy:** [docs/research/sources/wp-presentation-time.xml](research/sources/wp-presentation-time.xml)
-- **Cited in:** `baud-present-wayland/src/timing.rs`
+- **Cited in:** `crates/baud-present-wayland/src/timing.rs`
 
 <a id="wp-primary-selection-unstable-v1"></a>
 ### wp-primary-selection-unstable-v1
@@ -11766,7 +11766,7 @@ tearing-control-v1 -- opting into tearing presentation. Wayland contributors, 20
 - **URL:** <https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/staging/tearing-control/tearing-control-v1.xml>
 - **sha256:** `846895b4a90ba1ddd75673cefc596480beef318f1694ec7dbca0fec54bb27043` (5655 bytes)
 - **Copy:** [docs/research/sources/wp-tearing-control-v1.xml](research/sources/wp-tearing-control-v1.xml)
-- **Cited in:** `baud-present-wayland/src/window.rs`
+- **Cited in:** `crates/baud-present-wayland/src/window.rs`
 
 <a id="wp-text-input-unstable-v3"></a>
 ### wp-text-input-unstable-v3
@@ -11776,7 +11776,7 @@ text-input-unstable-v3 -- input method text input. Wayland contributors, 2026, w
 - **URL:** <https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/unstable/text-input/text-input-unstable-v3.xml>
 - **sha256:** `160815cda13c285a30df1971d8f0a5b3aac07071537df59916d2f748b18e4f59` (28120 bytes)
 - **Copy:** [docs/research/sources/wp-text-input-unstable-v3.xml](research/sources/wp-text-input-unstable-v3.xml)
-- **Cited in:** `baud-app/src/marked.rs`, `baud-app/src/surface.rs`, `baud-present-wayland/tests/handshake.rs`, `baud-render/src/overlay.rs`, `baud-render/tests/composition.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/marked.rs`, `crates/baud-app/src/surface.rs`, `crates/baud-present-wayland/tests/handshake.rs`, `crates/baud-render/src/overlay.rs`, `crates/baud-render/tests/composition.rs`, `docs/input-coverage.md`
 
 <a id="wp-viewporter"></a>
 ### wp-viewporter
@@ -11786,7 +11786,7 @@ viewporter -- surface cropping and scaling. Wayland contributors, 2026, wayland-
 - **URL:** <https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/stable/viewporter/viewporter.xml>
 - **sha256:** `dcb12279a03746301fe490aaed4b38a403485a925abfce2ccfceb644e104fe71` (8133 bytes)
 - **Copy:** [docs/research/sources/wp-viewporter.xml](research/sources/wp-viewporter.xml)
-- **Cited in:** `baud-present-wayland/src/window.rs`
+- **Cited in:** `crates/baud-present-wayland/src/window.rs`
 
 <a id="wp-xdg-decoration-unstable-v1"></a>
 ### wp-xdg-decoration-unstable-v1
@@ -11796,7 +11796,7 @@ xdg-decoration-unstable-v1 -- server-side decorations. Wayland contributors, 202
 - **URL:** <https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/unstable/xdg-decoration/xdg-decoration-unstable-v1.xml>
 - **sha256:** `68753c4a85a28659e3aa1fe0f138329a8bf3dff0b4789f4663a2c7fedbfecf2f` (8240 bytes)
 - **Copy:** [docs/research/sources/wp-xdg-decoration-unstable-v1.xml](research/sources/wp-xdg-decoration-unstable-v1.xml)
-- **Cited in:** `baud-domain/src/decoration.rs`, `baud-present-wayland/tests/handshake.rs`
+- **Cited in:** `crates/baud-domain/src/decoration.rs`, `crates/baud-present-wayland/tests/handshake.rs`
 
 <a id="wp-xdg-shell"></a>
 ### wp-xdg-shell
@@ -11806,7 +11806,7 @@ xdg-shell -- toplevel windows, configure/ack, decorations. Wayland contributors,
 - **URL:** <https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/stable/xdg-shell/xdg-shell.xml>
 - **sha256:** `7ba7f9c8473deee674cb1f154a18abd0bb0cc072604fc055b0c15e459fc4c7df` (63846 bytes)
 - **Copy:** [docs/research/sources/wp-xdg-shell.xml](research/sources/wp-xdg-shell.xml)
-- **Cited in:** `baud-app/src/title.rs`, `baud-app/src/winops.rs`, `baud-present-wayland/src/window.rs`, `baud-present-wayland/tests/handshake.rs`, `baud-render/src/tip.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/title.rs`, `crates/baud-app/src/winops.rs`, `crates/baud-present-wayland/src/window.rs`, `crates/baud-present-wayland/tests/handshake.rs`, `crates/baud-render/src/tip.rs`, `docs/vt-coverage.md`
 
 <a id="wt-adapt-dispatch"></a>
 ### wt-adapt-dispatch
@@ -11826,7 +11826,7 @@ Windows Terminal 703ef7f, adaptDispatch.cpp -- \_InsertDeleteCharacterHelper: th
 - **URL:** <https://raw.githubusercontent.com/microsoft/terminal/703ef7f969d90d3f7e132b9a5f51a8815e77d586/src/terminal/adapter/adaptDispatch.cpp>
 - **sha256:** `b7751f0a40b76301fe39882293c3b9064aa3d2b26505b0623511ed2cb39da03b` (194621 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/vt420/side_margins.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/vt420/side_margins.rs`, `docs/vt-coverage.md`
 
 <a id="wt-c91793f-adaptdispatch"></a>
 ### wt-c91793f-adaptdispatch
@@ -11877,7 +11877,7 @@ margins.py -- an automated DECSLRM margins test, read back with DECRQCRA. j4jame
 - **URL:** <https://gist.githubusercontent.com/j4james/2eae626e461175cfcc29a304e066ae87/raw/49c35704b9bf0f2419f903590bf56722d056c701/margins.py>
 - **sha256:** `7816064962726fbd4f6c04761979a9b9a3c02b3077c9df08276bc371ab506ef9` (71177 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/outside_rows.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/outside_rows.rs`, `docs/vt-coverage.md`
 
 <a id="wt-margins-vt420-log"></a>
 ### wt-margins-vt420-log
@@ -11888,7 +11888,7 @@ margins.vt420.log -- j4james's DECSLRM margins test run on a real VT420. al20878
 - **sha256:** `c5cd70c7f8b6b58664f25df0fb12b5337d9a6218b2fb68a57090bfc8a1973d48` (13743 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-02
-- **Cited in:** `baud-core/tests/outside_rows.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/outside_rows.rs`, `docs/vt-coverage.md`
 
 <a id="wt-margins-vt520-log"></a>
 ### wt-margins-vt520-log
@@ -11898,7 +11898,7 @@ margins.vt520.log -- the same test run on a real VT520. al20878 (run), j4james (
 - **URL:** <https://github.com/microsoft/terminal/files/10899670/margins.vt520.log>
 - **sha256:** `da8d54144d7417eed4b097e507132d8d0b023ba2624c5790d81f53770f65107c` (13474 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/outside_rows.rs`, `baud-core/tests/vt420/side_margins.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/outside_rows.rs`, `crates/baud-core/tests/vt420/side_margins.rs`, `docs/vt-coverage.md`
 
 <a id="wt-pr-15084"></a>
 ### wt-pr-15084
@@ -11928,7 +11928,7 @@ Windows Terminal, SixelParser.cpp -- a P2 0 fill goes on as the image scrolls pa
 - **sha256:** `bd8018f0099d9911f1d734528c720c24487675b364e1f64eff3c8c1868f5c470` (41019 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-22
-- **Cited in:** `baud-core/tests/sixel_fill.rs`, `baud-domain/src/sixel.rs`, `baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/sixel_fill.rs`, `crates/baud-domain/src/sixel.rs`, `crates/baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`
 
 <a id="x11rb-rust-connection-mod"></a>
 ### x11rb-rust-connection-mod
@@ -11993,7 +11993,7 @@ xdg-activation-v1 -- a token asked for a surface, and activate: the compositor d
 - **sha256:** `d8418be2d5738d50aff788bef1c7574f33f26659aa045447ff2ef9b78c58fe01` (9016 bytes)
 - **Copy:** [docs/research/sources/xdg-activation-v1.xml](research/sources/xdg-activation-v1.xml)
 - **Read:** 2026-10-21
-- **Cited in:** `baud-app/src/bell.rs`, `baud-app/src/linux.rs`, `baud-domain/src/vt/activation_token.rs`, `baud-domain/src/vt/notice_plan.rs`, `baud-present-wayland/src/window.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/bell.rs`, `crates/baud-app/src/linux.rs`, `crates/baud-domain/src/vt/activation_token.rs`, `crates/baud-domain/src/vt/notice_plan.rs`, `crates/baud-present-wayland/src/window.rs`, `docs/vt-coverage.md`
 
 <a id="xdg-basedir-0-8"></a>
 ### xdg-basedir-0-8
@@ -12003,7 +12003,7 @@ XDG Base Directory Specification 0.8 -- $XDG\_STATE\_HOME, default $HOME/.local/
 - **URL:** <https://specifications.freedesktop.org/basedir-spec/0.8/>
 - **sha256:** `87baabbcfb63f544bde60c461f327497704e6de61cb16337635cde80ed19fd73` (19688 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/config.rs`, `baud-app/src/default_config.rs`, `baud-app/src/discover.rs`, `baud-app/src/shell.rs`
+- **Cited in:** `crates/baud-app/src/config.rs`, `crates/baud-app/src/default_config.rs`, `crates/baud-app/src/discover.rs`, `crates/baud-app/src/shell.rs`
 
 <a id="xdg-foreign-unstable-v2"></a>
 ### xdg-foreign-unstable-v2
@@ -12014,18 +12014,18 @@ xdg-foreign-unstable-v2 -- zxdg\_exporter\_v2.export\_toplevel, and the exported
 - **sha256:** `625d83fbb068f48e69e739eafde507f10cdfe7480146f3ac10af9a2ddf551c80` (9206 bytes)
 - **Copy:** [docs/research/sources/xdg-foreign-unstable-v2.xml](research/sources/xdg-foreign-unstable-v2.xml)
 - **Read:** 2026-11-16
-- **Cited in:** `baud-domain/src/foreign.rs`, `baud-domain/tests/foreign.rs`
+- **Cited in:** `crates/baud-domain/src/foreign.rs`, `crates/baud-domain/tests/foreign.rs`
 
 <a id="xdg-open-1"></a>
 ### xdg-open-1
 
-xdg-utils 1.2.1, scripts/desc/xdg-open.xml -- xdg-open(1): opens a file or URL in the user's preferred application; cannot handle an argument beginning with -; may run for a very long time. Kevin Krammer, Jeremy White and the xdg-utils contributors, 2024, gitlab.freedesktop.org/xdg/xdg-utils @ 356c380a (v1.2.1).
+xdg-utils 1.2.1, tools/scripts/desc/xdg-open.xml -- xdg-open(1): opens a file or URL in the user's preferred application; cannot handle an argument beginning with -; may run for a very long time. Kevin Krammer, Jeremy White and the xdg-utils contributors, 2024, gitlab.freedesktop.org/xdg/xdg-utils @ 356c380a (v1.2.1).
 
 - **URL:** <https://gitlab.freedesktop.org/xdg/xdg-utils/-/raw/356c380ad6fecc9ce6bea1f6a77986ba67402c80/scripts/desc/xdg-open.xml>
 - **sha256:** `7925599e57cb95bd21a87e8e028541c0f7390b48f2d2cc3df3ffab927a2e5c8b` (6770 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-app/src/opener.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/opener.rs`, `docs/input-coverage.md`
 
 <a id="xdg-portal-print"></a>
 ### xdg-portal-print
@@ -12036,7 +12036,7 @@ xdg-desktop-portal ee298d1, data/org.freedesktop.portal.Print.xml -- version 4: 
 - **sha256:** `6b9e2ba951cab511bb8af5b1ee6d9eed117cc6542718c95f6596869de7295497` (10146 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-16
-- **Cited in:** `baud-app/src/bus.rs`, `baud-app/src/linux.rs`, `baud-domain/src/dbus/portal.rs`, `baud-domain/src/vt/print.rs`, `baud-domain/tests/dbus_portal.rs`
+- **Cited in:** `crates/baud-app/src/bus.rs`, `crates/baud-app/src/linux.rs`, `crates/baud-domain/src/dbus/portal.rs`, `crates/baud-domain/src/vt/print.rs`, `crates/baud-domain/tests/dbus_portal.rs`
 
 <a id="xdg-portal-request"></a>
 ### xdg-portal-request
@@ -12047,7 +12047,7 @@ xdg-desktop-portal ee298d1, data/org.freedesktop.portal.Request.xml -- the Reque
 - **sha256:** `fb6ce15cb23073a3d1f5ec6bd297a60edc3cb93f1a094c2bdd732fc93f736a8d` (3003 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-16
-- **Cited in:** `baud-app/src/bus.rs`, `baud-domain/src/dbus/portal.rs`
+- **Cited in:** `crates/baud-app/src/bus.rs`, `crates/baud-domain/src/dbus/portal.rs`
 
 <a id="xdg-portal-settings-v2"></a>
 ### xdg-portal-settings-v2
@@ -12057,7 +12057,7 @@ xdg-desktop-portal ee298d1, org.freedesktop.portal.Settings.xml -- version 2: or
 - **URL:** <https://raw.githubusercontent.com/flatpak/xdg-desktop-portal/ee298d1817fed18c208c9ddb638a4aef7bcecc9b/data/org.freedesktop.portal.Settings.xml>
 - **sha256:** `48d1eb73c7f2d13fa3ff82952048e5337c117dd92278b8db6e026f66b8abcbfb` (4575 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/appearance.rs`, `baud-app/src/bus.rs`
+- **Cited in:** `crates/baud-app/src/appearance.rs`, `crates/baud-app/src/bus.rs`
 
 <a id="xdg-portal-window-identifiers"></a>
 ### xdg-portal-window-identifiers
@@ -12068,7 +12068,7 @@ xdg-desktop-portal ee298d1, doc/window-identifiers.rst -- under Wayland a parent
 - **sha256:** `ea202f5205360da57dc9fb5e598eae3741bbe3328c6aab17279d1b68fdab8881` (1083 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-16
-- **Cited in:** `baud-domain/src/dbus/portal.rs`, `baud-domain/tests/foreign.rs`, `baud-present-wayland/src/window.rs`
+- **Cited in:** `crates/baud-domain/src/dbus/portal.rs`, `crates/baud-domain/tests/foreign.rs`, `crates/baud-present-wayland/src/window.rs`
 
 <a id="xdg-system-bell-v1"></a>
 ### xdg-system-bell-v1
@@ -12079,7 +12079,7 @@ xdg-system-bell-v1 -- a client rings the system bell, as the compositor implemen
 - **sha256:** `863c5efcb1a19961c019d23b9875ab84a158da802f5622f5ecc30522c6019330` (2698 bytes)
 - **Copy:** [docs/research/sources/xdg-system-bell-v1.xml](research/sources/xdg-system-bell-v1.xml)
 - **Read:** 2026-10-21
-- **Cited in:** `baud-present-wayland/src/window.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-present-wayland/src/window.rs`, `docs/vt-coverage.md`
 
 <a id="xf86-input-libinput-btn"></a>
 ### xf86-input-libinput-btn
@@ -12090,7 +12090,7 @@ xf86-input-libinput 1.5.0, src/xf86libinput.c -- btn\_linux2xorg, the kernel's b
 - **sha256:** `1b97307fa2d83e39fd3feee79898304281b16dd23689924c5bffbd3889e9c7bb` (187576 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-29
-- **Cited in:** `baud-domain/src/vt/mouse.rs`, `baud-present-wayland/src/pointer.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/mouse.rs`, `crates/baud-present-wayland/src/pointer.rs`, `docs/vt-coverage.md`
 
 <a id="xkb-keymap-text-format"></a>
 ### xkb-keymap-text-format
@@ -12100,7 +12100,7 @@ The XKB keymap text format, V1 and V2 (libxkbcommon doc/keymap-text-format-v1-v2
 - **URL:** <https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/doc/keymap-text-format-v1-v2.md>
 - **sha256:** `2926ee55203e5951c9bb03be382acf3ab6a5d463a9f0766274054f61d5429acc` (135888 bytes)
 - **Copy:** [docs/research/sources/xkb-keymap-text-format-v1-v2.md](research/sources/xkb-keymap-text-format-v1-v2.md)
-- **Cited in:** `baud-xkb/src/lex.rs`, `baud-xkb/src/lib.rs`, `baud-xkb/src/parse.rs`
+- **Cited in:** `crates/baud-xkb/src/lex.rs`, `crates/baud-xkb/src/lib.rs`, `crates/baud-xkb/src/parse.rs`
 
 <a id="xkb-symbols-il-2ec770a"></a>
 ### xkb-symbols-il-2ec770a
@@ -12111,7 +12111,7 @@ xkeyboard-config symbols/il -- xkb\_symbols "basic", 'an implemetation of the Is
 - **sha256:** `f42072a57f056b3bfe05c781f24d913d9cf18a604f5a7e53008e3416fe270aff` (16122 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-26
-- **Cited in:** `baud-core/tests/hebrew_keyboard.rs`, `baud-domain/src/vt/hebrew_keys.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/hebrew_keyboard.rs`, `crates/baud-domain/src/vt/hebrew_keys.rs`, `docs/vt-coverage.md`
 
 <a id="xkbcommon-compose-h"></a>
 ### xkbcommon-compose-h
@@ -12121,7 +12121,7 @@ xkbcommon-compose.h -- the Compose table and state machine API: the format, conf
 - **URL:** <https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/include/xkbcommon/xkbcommon-compose.h>
 - **sha256:** `6e2d985b3653c3674df87731931b98a68e4dcb72d5ff90e457708e8e16ce818d` (19358 bytes)
 - **Copy:** [docs/research/sources/xkbcommon-compose.h](research/sources/xkbcommon-compose.h)
-- **Cited in:** `baud-present-wayland/src/compose.rs`, `baud-xkb/src/compose.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-present-wayland/src/compose.rs`, `crates/baud-xkb/src/compose.rs`, `docs/input-coverage.md`
 
 <a id="xkbcommon-h"></a>
 ### xkbcommon-h
@@ -12131,7 +12131,7 @@ xkbcommon.h -- the library's API and its keymap/state model (libxkbcommon 1.13.2
 - **URL:** <https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/include/xkbcommon/xkbcommon.h>
 - **sha256:** `17e58db5edc299d13b4365adce6c6d805e16642977ffaacf98d9be0c4c7071ff` (88598 bytes)
 - **Copy:** [docs/research/sources/xkbcommon.h](research/sources/xkbcommon.h)
-- **Cited in:** `baud-xkb/src/keysym.rs`, `baud-xkb/src/state.rs`
+- **Cited in:** `crates/baud-xkb/src/keysym.rs`, `crates/baud-xkb/src/state.rs`
 
 <a id="xkbcommon-keysyms"></a>
 ### xkbcommon-keysyms
@@ -12141,7 +12141,7 @@ xkbcommon-keysyms.h -- the keysym definitions (libxkbcommon 1.13.2). libxkbcommo
 - **URL:** <https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/include/xkbcommon/xkbcommon-keysyms.h>
 - **sha256:** `13023369f65a17411606084e3e09557b4886aeb15f89affba4aaa86490a463f3` (264502 bytes)
 - **Copy:** [docs/research/sources/xkbcommon-keysyms.h](research/sources/xkbcommon-keysyms.h)
-- **Cited in:** `baud-domain/tests/input.rs`, `baud-present-wayland/src/keys.rs`, `baud-present-wayland/tests/keypad.rs`, `baud-xkb/build.rs`, `baud-xkb/src/keysym.rs`
+- **Cited in:** `crates/baud-domain/tests/input.rs`, `crates/baud-present-wayland/src/keys.rs`, `crates/baud-present-wayland/tests/keypad.rs`, `crates/baud-xkb/build.rs`, `crates/baud-xkb/src/keysym.rs`
 
 <a id="xkbproto-control"></a>
 ### xkbproto-control
@@ -12163,7 +12163,7 @@ xkeyboard-config 193cc6c, symbols/de -- the German basic layout includes kpdl(co
 - **sha256:** `6a67c83d10e13651d15028d5b64ff55af48d486ff0cca6bc92dccdd70f647d65` (101707 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-app/src/app.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`
 
 <a id="xkeyboard-config-kpdl-193cc6c"></a>
 ### xkeyboard-config-kpdl-193cc6c
@@ -12174,7 +12174,7 @@ xkeyboard-config 193cc6c, symbols/kpdl -- the keypad decimal key: "comma" makes 
 - **sha256:** `b81ef8aa7cfa4b3272986272150fd445b8effeff986c2097cd88fba880fed1bb` (3398 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-app/src/app.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `docs/input-coverage.md`
 
 <a id="xkeyboard-config-numpad-193cc6c"></a>
 ### xkeyboard-config-numpad-193cc6c
@@ -12185,7 +12185,7 @@ xkeyboard-config 193cc6c, types/numpad -- the keypad types by variant; pc, the X
 - **sha256:** `9d92a9c8f13860f8e4fed8407679d22267b983773d7c96b6d682f024fbe0dc1e` (13678 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-30
-- **Cited in:** `baud-domain/src/vt/key.rs`, `baud-present-wayland/tests/keypad.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/key.rs`, `crates/baud-present-wayland/tests/keypad.rs`, `docs/input-coverage.md`
 
 <a id="xlib-ch06-b8d5a70"></a>
 ### xlib-ch06-b8d5a70
@@ -12196,7 +12196,7 @@ Xlib - C Language X Interface, chapter 6, Color Management Functions (libX11 b8d
 - **sha256:** `18213161b274510036749e262e80137b6ee5348b5b67ddaccc562988f78c81c1` (222727 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-18
-- **Cited in:** `baud-domain/src/themefile/xresources.rs`, `baud-domain/src/vt/osc.rs`, `baud-domain/src/vt/xcms.rs`, `baud-domain/tests/x_parse_color.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/themefile/xresources.rs`, `crates/baud-domain/src/vt/osc.rs`, `crates/baud-domain/src/vt/xcms.rs`, `crates/baud-domain/tests/x_parse_color.rs`, `docs/vt-coverage.md`
 
 <a id="xml-1-0-5e"></a>
 ### xml-1-0-5e
@@ -12207,7 +12207,7 @@ Extensible Markup Language (XML) 1.0 (Fifth Edition), W3C Recommendation 26 Nove
 - **sha256:** `f58a4b9e1e5b8bac13fb55c4e5c7c8c5e2c176aa45ee68e2f1ab2498511927ec` (219926 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/iterm.rs`, `baud-domain/tests/themeiterm.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/iterm.rs`, `crates/baud-domain/tests/themeiterm.rs`
 
 <a id="xnu-8796-mach-loader"></a>
 ### xnu-8796-mach-loader
@@ -12217,7 +12217,7 @@ XNU xnu-8796.141.3 (macOS 13.5), bsd/kern/mach\_loader.c -- LC\_BUILD\_VERSION's
 - **URL:** <https://raw.githubusercontent.com/apple-oss-distributions/xnu/1b191cb58250d0705d8a51287127505aa4bc0789/bsd/kern/mach_loader.c>
 - **sha256:** `58a36847003e7eaf0bc5e2cc76cd206e0152ec601253888504a2a9f65dec7486` (107426 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/app.rs`
+- **Cited in:** `crates/baud-app/src/app.rs`
 
 <a id="xnu-errno-h"></a>
 ### xnu-errno-h
@@ -12228,7 +12228,7 @@ XNU xnu-12377.121.6, bsd/sys/errno.h -- EREDRIVEOPEN (-6), an internal code. App
 - **sha256:** `b16e5eb195f153793b14c3826e6b04db945e9ed6a37c5a9046196555bded6906` (14075 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-24
-- **Cited in:** `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/sys.rs`
 
 <a id="xnu-kern-exit"></a>
 ### xnu-kern-exit
@@ -12238,7 +12238,7 @@ XNU xnu-12377.121.6, bsd/kern/kern\_exit.c -- proc\_exit, a session leader's exi
 - **URL:** <https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/kern_exit.c>
 - **sha256:** `3bf5d40cf482254ec47626108c760e0879fac2e41145bd63566d13f9acab311a` (125873 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `MEASUREMENTS.md`, `baud-app/src/fg.rs`, `baud-bench/src/capture/pty.rs`, `baud-bench/tests/capture.rs`
+- **Cited in:** `MEASUREMENTS.md`, `crates/baud-app/src/fg.rs`, `crates/baud-bench/src/capture/pty.rs`, `crates/baud-bench/tests/capture.rs`
 
 <a id="xnu-kern-mman-c"></a>
 ### xnu-kern-mman-c
@@ -12249,7 +12249,7 @@ XNU xnu-12377.121.6, bsd/kern/kern\_mman.c -- mincore, the page query's disposit
 - **sha256:** `cf8c0d8923c718bd80ec1cc569d57ea5b45f0d895123c4e1b48a51b5de2cada3` (51778 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-08
-- **Cited in:** `baud-app/src/heap.rs`
+- **Cited in:** `crates/baud-app/src/heap.rs`
 
 <a id="xnu-kern-sysctl"></a>
 ### xnu-kern-sysctl
@@ -12259,7 +12259,7 @@ XNU xnu-12377.121.6, bsd/kern/kern\_sysctl.c -- sysctl\_procargsx: KERN\_PROCARG
 - **URL:** <https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/kern_sysctl.c>
 - **sha256:** `e9afd60d06752d2eaa7fada1316f293c342c3666f54d3c7e94d82d5ab55c851a` (237186 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fg.rs`
+- **Cited in:** `crates/baud-app/src/fg.rs`
 
 <a id="xnu-libproc-c"></a>
 ### xnu-libproc-c
@@ -12269,7 +12269,7 @@ XNU xnu-12377.121.6, libsyscall/wrappers/libproc/libproc.c -- proc\_listpgrppids
 - **URL:** <https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/libsyscall/wrappers/libproc/libproc.c>
 - **sha256:** `5c8a771427e04c5e1d55c4cdf5a077f3b52c5be4a091683b970084bfdda76df2` (28996 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/fg.rs`, `baud-app/src/front.rs`, `baud-app/src/inherited.rs`, `baud-app/src/pty.rs`, `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/fg.rs`, `crates/baud-app/src/front.rs`, `crates/baud-app/src/inherited.rs`, `crates/baud-app/src/pty.rs`, `crates/baud-app/src/sys.rs`
 
 <a id="xnu-proc-info-c"></a>
 ### xnu-proc-info-c
@@ -12279,7 +12279,7 @@ XNU xnu-12377.121.6, bsd/kern/proc\_info.c -- proc\_pidfdlist lists at most buff
 - **URL:** <https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/proc_info.c>
 - **sha256:** `dc99b9a8105fc1376ba0b7d14de1aa6e065c7b13899ac9ede2fb1dccab649178` (106345 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/inherited.rs`
+- **Cited in:** `crates/baud-app/src/inherited.rs`
 
 <a id="xnu-spec-vnops"></a>
 ### xnu-spec-vnops
@@ -12289,7 +12289,7 @@ XNU xnu-12377.121.6, bsd/miscfs/specfs/spec\_vnops.c -- spec\_close\_internal, a
 - **URL:** <https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/miscfs/specfs/spec_vnops.c>
 - **sha256:** `ab793e5aa1a332e8f10731b6d628eb76d2c4606fc86c7cb936571da043aac2f2` (90091 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `MEASUREMENTS.md`, `baud-bench/src/capture/pty.rs`
+- **Cited in:** `MEASUREMENTS.md`, `crates/baud-bench/src/capture/pty.rs`
 
 <a id="xnu-tty"></a>
 ### xnu-tty
@@ -12299,7 +12299,7 @@ XNU xnu-12377.121.6, bsd/kern/tty.c -- ttymalloc, ttread, ttwrite and ttsetwater
 - **URL:** <https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/tty.c>
 - **sha256:** `de57a5a52aa5dba2e484eb65a53fbc1ef70c567589490066e134b325a7145d35` (87549 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `MEASUREMENTS.md`, `baud-app/src/pty.rs`, `baud-app/src/sys.rs`, `baud-bench/src/capture/pty.rs`, `baud-domain/src/source.rs`
+- **Cited in:** `MEASUREMENTS.md`, `crates/baud-app/src/pty.rs`, `crates/baud-app/src/sys.rs`, `crates/baud-bench/src/capture/pty.rs`, `crates/baud-domain/src/source.rs`
 
 <a id="xnu-tty-dev"></a>
 ### xnu-tty-dev
@@ -12309,7 +12309,7 @@ XNU xnu-12377.121.6, bsd/kern/tty\_dev.c -- ptcread and ptcwrite, the pty master
 - **URL:** <https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/tty_dev.c>
 - **sha256:** `a9bd50db11211d42f368654b26212d04d93ae2affceee0d7abc6e4eb7e06fd9e` (30096 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `MEASUREMENTS.md`, `baud-app/src/pty.rs`, `baud-app/src/sys.rs`, `baud-bench/src/capture/pty.rs`
+- **Cited in:** `MEASUREMENTS.md`, `crates/baud-app/src/pty.rs`, `crates/baud-app/src/sys.rs`, `crates/baud-bench/src/capture/pty.rs`
 
 <a id="xnu-tty-dev-c"></a>
 ### xnu-tty-dev-c
@@ -12320,7 +12320,7 @@ XNU xnu-12377.121.6, bsd/kern/tty\_dev.c -- ptcopen returns EREDRIVEOPEN when th
 - **sha256:** `a9bd50db11211d42f368654b26212d04d93ae2affceee0d7abc6e4eb7e06fd9e` (30096 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-08
-- **Cited in:** `baud-app/src/pty.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`
 
 <a id="xnu-tty-h"></a>
 ### xnu-tty-h
@@ -12330,7 +12330,7 @@ XNU xnu-12377.121.6, bsd/sys/tty.h -- TTYCLSIZE, TTYHOG, IBUFSIZ, OBUFSIZ and th
 - **URL:** <https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/sys/tty.h>
 - **sha256:** `7da03a971feb8dd30e3e02e1249bf3fe9d7b7b8ff3904def08ce0615b750f8ed` (14134 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `MEASUREMENTS.md`, `baud-core/src/storage.rs`, `baud-domain/src/source.rs`, `baud-render/src/lights.rs`
+- **Cited in:** `MEASUREMENTS.md`, `crates/baud-core/src/storage.rs`, `crates/baud-domain/src/source.rs`, `crates/baud-render/src/lights.rs`
 
 <a id="xnu-tty-ptmx-c"></a>
 ### xnu-tty-ptmx-c
@@ -12341,7 +12341,7 @@ XNU xnu-12377.121.6, bsd/kern/tty\_ptmx.c -- ptmx\_clone and ptmx\_get\_ioctl, t
 - **sha256:** `15e1f42f430754e7843e83c669ada1a69a793c32cc637a1cae6eff9516d63b14` (25725 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-24
-- **Cited in:** `baud-app/src/pty.rs`, `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`, `crates/baud-app/src/sys.rs`
 
 <a id="xnu-vfs-syscalls-c"></a>
 ### xnu-vfs-syscalls-c
@@ -12352,7 +12352,7 @@ XNU xnu-12377.121.6, bsd/vfs/vfs\_syscalls.c -- open1 sets FP\_CLOEXEC from O\_C
 - **sha256:** `67cfe165523ac4375504241a418d3cebbb46a4a10b77b22c5d590a31ebd0235d` (390984 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-08
-- **Cited in:** `baud-app/src/pty.rs`, `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`, `crates/baud-app/src/sys.rs`
 
 <a id="xnu-vfs-vnops-c"></a>
 ### xnu-vfs-vnops-c
@@ -12363,7 +12363,7 @@ XNU xnu-12377.121.6, bsd/vfs/vfs\_vnops.c -- vn\_open\_auth's bounded retry on E
 - **sha256:** `d45d4bf1d4e1e8079e1fb6c7275eb73e211833619c0b3f08ed3d637dc3d3e05a` (62215 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-24
-- **Cited in:** `baud-app/src/sys.rs`
+- **Cited in:** `crates/baud-app/src/sys.rs`
 
 <a id="xorg-dri3proto"></a>
 ### xorg-dri3proto
@@ -12383,7 +12383,7 @@ keysymdef.h -- the X keysym values, each with its Unicode codepoint (xorgproto 2
 - **sha256:** `292e94a8493c78d32d32f9c56c2db803a214189313093e57aebd7506ebf0cc47` (187223 bytes)
 - **Copy:** [docs/research/sources/xorg-keysymdef.h](research/sources/xorg-keysymdef.h)
 - **Read:** 2026-10-08
-- **Cited in:** `baud-domain/build/nrcs.rs`, `baud-domain/src/nrcs_data.rs`, `baud-domain/tests/input.rs`, `baud-domain/tests/nrcs_source.rs`
+- **Cited in:** `crates/baud-domain/build/nrcs.rs`, `crates/baud-domain/src/nrcs_data.rs`, `crates/baud-domain/tests/input.rs`, `crates/baud-domain/tests/nrcs_source.rs`
 
 <a id="xorg-presentproto"></a>
 ### xorg-presentproto
@@ -12403,7 +12403,7 @@ X.Org app/rgb 0d2caec, rgb.txt -- the X11 colour names an X server answers today
 - **sha256:** `f8e3a7bea17acc0b91e6285c5d32001db27d84c4461c655afdbce9dbeb4fb6f0` (17780 bytes)
 - **Copy:** [docs/research/sources/xorg-rgb-0d2caec.txt](research/sources/xorg-rgb-0d2caec.txt)
 - **Read:** 2026-10-18
-- **Cited in:** `baud-core/tests/xterm/osc.rs`, `baud-domain/build/colour_names.rs`, `baud-domain/src/vt/mod.rs`, `baud-domain/src/vt/osc.rs`, `baud-domain/tests/x_colour_names.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/xterm/osc.rs`, `crates/baud-domain/build/colour_names.rs`, `crates/baud-domain/src/vt/mod.rs`, `crates/baud-domain/src/vt/osc.rs`, `crates/baud-domain/tests/x_colour_names.rs`, `docs/vt-coverage.md`
 
 <a id="xorg-rgb-749182c"></a>
 ### xorg-rgb-749182c
@@ -12413,27 +12413,27 @@ X.Org app/rgb 749182c, rgb.txt -- the X11 colour names and values. The Open Grou
 - **URL:** <https://gitlab.freedesktop.org/xorg/app/rgb/-/raw/749182c37cb455939ba327e9420dd652c0ff58a1/rgb.txt>
 - **sha256:** `8c10879038a8ed4fbc1e0de93d2e4ea679efb7662975595cffcfad7c696aae24` (17315 bytes)
 - **Copy:** [docs/research/sources/xorg-rgb-749182c.txt](research/sources/xorg-rgb-749182c.txt)
-- **Cited in:** `baud-domain/build/colour_names.rs`, `baud-domain/src/themefile.rs`, `baud-tablegen/tests/perfect_hash.rs`
+- **Cited in:** `crates/baud-domain/build/colour_names.rs`, `crates/baud-domain/src/themefile.rs`, `crates/baud-tablegen/tests/perfect_hash.rs`
 
 <a id="xparsecolor-obs-rgb-out"></a>
 ### xparsecolor-obs-rgb-out
 
 The probe's output for the rgb: and # specs (the manual's examples, prefix case, every 1- and 2-digit value, a stride of 3- and 4-digit values, malformed forms): spec, XParseColor's 16-bit value, the 24-bit TrueColor pixel, XAllocColor's value. baud research, 2026, local capture or measurement.
 
-- **URL:** the specs rgb-specs.py printed (git blob 23c5314e), now computed by baud-domain/tests/x\_parse\_color\_specs.rs and held to this file's first column, through a C probe of XParseColor and XAllocColor, built with clang against nixpkgs libX11 1.8.13 and xorgproto 2025.1, run on Xvfb 21.1.24 -screen 0 1024x768x24 at DISPLAY=:85, 2026-10-18; the visual reported depth 24, bits\_per\_rgb 8, TrueColor
+- **URL:** the specs rgb-specs.py printed (git blob 23c5314e), now computed by crates/baud-domain/tests/x\_parse\_color\_specs.rs and held to this file's first column, through a C probe of XParseColor and XAllocColor, built with clang against nixpkgs libX11 1.8.13 and xorgproto 2025.1, run on Xvfb 21.1.24 -screen 0 1024x768x24 at DISPLAY=:85, 2026-10-18; the visual reported depth 24, bits\_per\_rgb 8, TrueColor
 - **sha256:** `163172f16939b0368c878e95a8ac0048a628597d3175ba98ddcc804d3fa3a879` (29964 bytes)
 - **Copy:** [docs/research/sources/xparsecolor-observed/rgb.out](research/sources/xparsecolor-observed/rgb.out)
-- **Cited in:** `baud-domain/src/vt/osc.rs`, `baud-domain/tests/x_parse_color.rs`, `baud-domain/tests/x_parse_color_specs.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/osc.rs`, `crates/baud-domain/tests/x_parse_color.rs`, `crates/baud-domain/tests/x_parse_color_specs.rs`, `docs/vt-coverage.md`
 
 <a id="xparsecolor-obs-xcms-out"></a>
 ### xparsecolor-obs-xcms-out
 
 The probe's output for the rgbi: and device-independent specs (the manual's examples, prefix case, grids in each space, axis and wrap cases, malformed forms): libX11 1.8.13's value and pixel through its default Tektronix CRT characterisation. baud research, 2026, local capture or measurement.
 
-- **URL:** the specs xcms-specs.py printed (git blob cc086db0), now computed by baud-domain/tests/x\_parse\_color\_specs.rs and held to this file's first column, through a C probe of XParseColor and XAllocColor, built with clang against nixpkgs libX11 1.8.13 and xorgproto 2025.1, run on Xvfb 21.1.24 -screen 0 1024x768x24 at DISPLAY=:85, 2026-10-18; Xvfb at depth 24 sets no XDCCC property
+- **URL:** the specs xcms-specs.py printed (git blob cc086db0), now computed by crates/baud-domain/tests/x\_parse\_color\_specs.rs and held to this file's first column, through a C probe of XParseColor and XAllocColor, built with clang against nixpkgs libX11 1.8.13 and xorgproto 2025.1, run on Xvfb 21.1.24 -screen 0 1024x768x24 at DISPLAY=:85, 2026-10-18; Xvfb at depth 24 sets no XDCCC property
 - **sha256:** `1d3b42eec18d496f170523047099bb419302f87e131e0c732a633dca2e9ac259` (52082 bytes)
 - **Copy:** [docs/research/sources/xparsecolor-observed/xcms.out](research/sources/xparsecolor-observed/xcms.out)
-- **Cited in:** `baud-domain/src/vt/xcms/tests.rs`, `baud-domain/tests/x_parse_color.rs`, `baud-domain/tests/x_parse_color_specs.rs`
+- **Cited in:** `crates/baud-domain/src/vt/xcms/tests.rs`, `crates/baud-domain/tests/x_parse_color.rs`, `crates/baud-domain/tests/x_parse_color_specs.rs`
 
 <a id="xquartz-x11application"></a>
 ### xquartz-x11application
@@ -12444,7 +12444,7 @@ xorg-server 21.1.13, hw/xquartz/X11Application.m -- AppKit's buttonNumber as X's
 - **sha256:** `58c8c26febfc709aaf68008c399b5a42d0689d27bcf321afb2d2efe1320d1e06` (45647 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-29
-- **Cited in:** `baud-app/src/app.rs`, `baud-domain/src/vt/mouse.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/app.rs`, `crates/baud-domain/src/vt/mouse.rs`, `docs/vt-coverage.md`
 
 <a id="xrdb-c-aaf6f3d"></a>
 ### xrdb-c-aaf6f3d
@@ -12455,7 +12455,7 @@ xrdb aaf6f3d, xrdb.c -- runs cpp -P with its -D symbols (COLOR on a colour visua
 - **sha256:** `3a6cfafb19ef9fe351baada71e28cf88b26a494f9f4af703a3820c9763ac52d9` (45194 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/xresources.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/xresources.rs`
 
 <a id="xrdb-man-aaf6f3d"></a>
 ### xrdb-man-aaf6f3d
@@ -12466,7 +12466,7 @@ xrdb aaf6f3d, man/xrdb.man -- the input is passed through cpp by default, with C
 - **sha256:** `ea384be3b42afcc7fb3e11382470c93f347cb0503a736cd7132c4c6aa4bce9e6` (12656 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/xresources.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/xresources.rs`
 
 <a id="xserver-fbcmap-mi-98aed9d"></a>
 ### xserver-fbcmap-mi-98aed9d
@@ -12477,7 +12477,7 @@ xserver 98aed9d, fb/fbcmap\_mi.c -- fbResolveColor is miResolveColor. The X.Org 
 - **sha256:** `3ed3e467298e3a4ad1ba3d3ff9b9b3e17ba09ae890718963fbba8ac444758711` (4157 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/xresources.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/xresources.rs`
 
 <a id="xserver-fbscreen-98aed9d"></a>
 ### xserver-fbscreen-98aed9d
@@ -12488,7 +12488,7 @@ xserver 98aed9d, fb/fbscreen.c -- the fb screen resolves a colour with fbResolve
 - **sha256:** `fc10253b7e2dac98cbba8d54dd8f02b724dbcfc7b5812d5856eded28b06b37c0` (7047 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/xresources.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/xresources.rs`
 
 <a id="xserver-micmap-98aed9d"></a>
 ### xserver-micmap-98aed9d
@@ -12499,7 +12499,7 @@ xserver 98aed9d, mi/micmap.c -- miInitializeColormap fills an 8-bit TrueColor ma
 - **sha256:** `e0e91c3c1d7acfc87fefe33ed3a4abb67d04f1b47d305d8f1141664d42044904` (17704 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/xresources.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/xresources.rs`
 
 <a id="xserver-oscolor-98aed9d"></a>
 ### xserver-oscolor-98aed9d
@@ -12510,7 +12510,7 @@ xserver 98aed9d, os/oscolor.c -- the X server's built-in colour names, which OsL
 - **sha256:** `95d6dbcf862944e5dcfcc6bb685a3053862dbc832a12cc425cfb27a015c57f58` (41951 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-core/tests/xterm/osc.rs`, `baud-domain/build/colour_names.rs`, `baud-domain/src/vt/mod.rs`, `baud-domain/src/vt/osc.rs`, `baud-domain/tests/x_colour_names.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/xterm/osc.rs`, `crates/baud-domain/build/colour_names.rs`, `crates/baud-domain/src/vt/mod.rs`, `crates/baud-domain/src/vt/osc.rs`, `crates/baud-domain/tests/x_colour_names.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-411-util-c"></a>
 ### xterm-411-util-c
@@ -12521,7 +12521,7 @@ xterm 411 util.c -- the missing-glyph box and its width for a combining characte
 - **sha256:** `3c3bc4ccc9c11e0946ad84b256fd180db7410256cac568a5a8635cdc902da2b1` (166853 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-core/tests/row_watch.rs`
+- **Cited in:** `crates/baud-core/tests/row_watch.rs`
 
 <a id="xterm-button"></a>
 ### xterm-button
@@ -12531,7 +12531,7 @@ xterm patch #411, button.c -- SaveText, a cell holding 0 copied as a space. Thom
 - **URL:** <https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/button.c>
 - **sha256:** `243be0fe1e1882420e3eaade87134c0c475ff685e46c6040caaa9628d1524f11` (162096 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/gesture.rs`, `baud-app/src/keep.rs`, `baud-app/src/paste.rs`, `baud-app/src/readline.rs`, `baud-app/src/seat.rs`, `baud-app/src/sys.rs`, `baud-app/src/wheel.rs`, `baud-core/src/term.rs`, `baud-core/tests/xterm/mouse.rs`, `baud-domain/src/vt/clipboard.rs`, `baud-domain/src/vt/mouse.rs`, `baud-domain/src/vt/report.rs`, `baud-present-wayland/src/clip.rs`, `baud-render/src/select.rs`, `docs/input-coverage.md`, `docs/protocols/xterm.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/gesture.rs`, `crates/baud-app/src/keep.rs`, `crates/baud-app/src/paste.rs`, `crates/baud-app/src/readline.rs`, `crates/baud-app/src/seat.rs`, `crates/baud-app/src/sys.rs`, `crates/baud-app/src/wheel.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/tests/xterm/mouse.rs`, `crates/baud-domain/src/vt/clipboard.rs`, `crates/baud-domain/src/vt/mouse.rs`, `crates/baud-domain/src/vt/report.rs`, `crates/baud-present-wayland/src/clip.rs`, `crates/baud-render/src/select.rs`, `docs/input-coverage.md`, `docs/protocols/xterm.md`, `docs/vt-coverage.md`
 
 <a id="xterm-button-c"></a>
 ### xterm-button-c
@@ -12542,7 +12542,7 @@ xterm patch #411, button.c -- the ?1001 highlight-tracking press (TrackDown), an
 - **sha256:** `243be0fe1e1882420e3eaade87134c0c475ff685e46c6040caaa9628d1524f11` (162096 bytes)
 - **Copy:** [docs/research/sources/xterm-button.c](research/sources/xterm-button.c)
 - **Read:** 2026-10-11
-- **Cited in:** `baud-app/src/gesture.rs`, `baud-app/src/paste.rs`, `baud-app/src/seat.rs`, `baud-app/src/wheel.rs`, `baud-core/src/locator.rs`, `baud-core/tests/locator.rs`, `baud-domain/src/time.rs`, `baud-domain/src/vt/locator.rs`, `baud-domain/src/vt/mouse.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/gesture.rs`, `crates/baud-app/src/paste.rs`, `crates/baud-app/src/seat.rs`, `crates/baud-app/src/wheel.rs`, `crates/baud-core/src/locator.rs`, `crates/baud-core/tests/locator.rs`, `crates/baud-domain/src/time.rs`, `crates/baud-domain/src/vt/locator.rs`, `crates/baud-domain/src/vt/mouse.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="xterm-charproc-c-bccd466"></a>
 ### xterm-charproc-c-bccd466
@@ -12553,7 +12553,7 @@ xterm charproc.c at patch 412 -- resource defaults: assumeAllChars, showMissingG
 - **sha256:** `f3e838a4494c1093d831246a0cb0ed301d1af14e52aa5ab8f66e6a8bb0db63a0` (413144 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-core/tests/vt100/mode_lists.rs`, `baud-core/tests/xterm/xres.rs`, `baud-domain/src/vt/xres.rs`
+- **Cited in:** `crates/baud-core/tests/vt100/mode_lists.rs`, `crates/baud-core/tests/xterm/xres.rs`, `crates/baud-domain/src/vt/xres.rs`
 
 <a id="xterm-charsets"></a>
 ### xterm-charsets
@@ -12563,7 +12563,7 @@ xterm patch #411, charsets.h -- the NRCS mapping macros, and the DEC Special Gra
 - **URL:** <https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/charsets.h>
 - **sha256:** `a6c3be7bb162c771a73108a57522ea7af33e7539d1474384ddc5cd6204dc10b6` (124637 bytes)
 - **Copy:** [docs/research/sources/xterm-charsets.h](research/sources/xterm-charsets.h)
-- **Cited in:** `baud-core/tests/vt100/charsets.rs`, `baud-domain/build/dec_graphics.rs`, `baud-domain/build/dec_sets.rs`, `baud-domain/build/nrcs.rs`, `baud-domain/build/xterm.rs`, `baud-domain/src/lib.rs`, `baud-domain/src/nrcs_data.rs`, `baud-domain/src/vt/charset.rs`, `baud-domain/src/vt/hebrew_keys.rs`, `baud-domain/tests/dec_sets.rs`, `baud-domain/tests/nrcs_source.rs`, `docs/protocols/vt100.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/vt100/charsets.rs`, `crates/baud-domain/build/dec_graphics.rs`, `crates/baud-domain/build/dec_sets.rs`, `crates/baud-domain/build/nrcs.rs`, `crates/baud-domain/build/xterm.rs`, `crates/baud-domain/src/lib.rs`, `crates/baud-domain/src/nrcs_data.rs`, `crates/baud-domain/src/vt/charset.rs`, `crates/baud-domain/src/vt/hebrew_keys.rs`, `crates/baud-domain/tests/dec_sets.rs`, `crates/baud-domain/tests/nrcs_source.rs`, `docs/protocols/vt100.md`, `docs/vt-coverage.md`
 
 <a id="xterm-charsets-c"></a>
 ### xterm-charsets-c
@@ -12573,7 +12573,7 @@ xterm patch #411, charsets.c -- xtermCharSetOut, DEC Special Graphics 0x5F store
 - **URL:** <https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/charsets.c>
 - **sha256:** `87f1bb0b23c7078ffa983a81ff230abf2bfc1cea9d3f26a9b721556ae9d7056b` (18292 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/tests/vt420/rect_ops.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/vt420/rect_ops.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-cursor-c"></a>
 ### xterm-cursor-c
@@ -12583,7 +12583,7 @@ xterm 411, cursor.c -- CursorSave2 and CursorRestoreFlags: what DECSC saves and 
 - **URL:** <https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/cursor.c>
 - **sha256:** `3caf38bdfb855243a79ceabd0203be078e1eedacde37d29b646b20702eddfbb8` (15889 bytes)
 - **Copy:** [docs/research/sources/xterm-cursor.c](research/sources/xterm-cursor.c)
-- **Cited in:** `baud-core/src/bounds.rs`, `baud-core/src/ops.rs`, `baud-core/src/paint.rs`, `baud-core/src/status.rs`, `baud-core/src/term.rs`, `baud-core/src/write.rs`, `baud-core/tests/backward_moves.rs`, `baud-core/tests/pending_wrap.rs`, `baud-core/tests/saved_cursor_per_screen.rs`, `baud-core/tests/vt100/cuu_cud.rs`, `baud-core/tests/vt420/line_starts.rs`, `baud-core/tests/vt420/origin.rs`, `baud-core/tests/vt420/rect_scroll.rs`, `baud-core/tests/vt420/tab_backspace.rs`, `baud-core/tests/xterm/alt_screen.rs`, `baud-core/tests/xterm_resources.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/bounds.rs`, `crates/baud-core/src/ops.rs`, `crates/baud-core/src/paint.rs`, `crates/baud-core/src/status.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/src/write.rs`, `crates/baud-core/tests/backward_moves.rs`, `crates/baud-core/tests/pending_wrap.rs`, `crates/baud-core/tests/saved_cursor_per_screen.rs`, `crates/baud-core/tests/vt100/cuu_cud.rs`, `crates/baud-core/tests/vt420/line_starts.rs`, `crates/baud-core/tests/vt420/origin.rs`, `crates/baud-core/tests/vt420/rect_scroll.rs`, `crates/baud-core/tests/vt420/tab_backspace.rs`, `crates/baud-core/tests/xterm/alt_screen.rs`, `crates/baud-core/tests/xterm_resources.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-doublechr"></a>
 ### xterm-doublechr
@@ -12594,7 +12594,7 @@ xterm 411, doublechr.c -- repaint\_line, xterm\_DECDHL, xterm\_DECDWL, xterm\_DE
 - **sha256:** `b0b62d501ea623e843c714bf8abd9f36b35a05ff2ec180dca5d96a057fdb070a` (9329 bytes)
 - **Copy:** [docs/research/sources/xterm-doublechr.c](research/sources/xterm-doublechr.c)
 - **Read:** 2026-10-18
-- **Cited in:** `baud-core/src/paint.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/paint.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-faq"></a>
 ### xterm-faq
@@ -12604,7 +12604,7 @@ The XTerm FAQ -- 'Why can't my program read the window title?'; DECSWT and DECSI
 - **URL:** <https://invisible-island.net/xterm/xterm.faq.html>
 - **sha256:** `1f40b887fc671ca431bc50886800d57a894cede49eed744347a75d592062d749` (495945 bytes)
 - **Copy:** [docs/research/sources/xterm-faq.html](research/sources/xterm-faq.html)
-- **Cited in:** `baud-core/tests/conformance/terminfo.rs`, `baud-core/tests/xterm/osc.rs`
+- **Cited in:** `crates/baud-core/tests/conformance/terminfo.rs`, `crates/baud-core/tests/xterm/osc.rs`
 
 <a id="xterm-fontutils"></a>
 ### xterm-fontutils
@@ -12614,7 +12614,7 @@ xterm patch #411, fontutils.c -- dec2ucs, the VT100 and VT52 graphics tables. Th
 - **URL:** <https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/fontutils.c>
 - **sha256:** `5d0eef284c20dbbc5aa31ad1ed334cee6593861f71e88cd32d0ff14fdec82371` (165828 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/paste.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/paste.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-graphics-c"></a>
 ### xterm-graphics-c
@@ -12625,7 +12625,7 @@ xterm 411, graphics.c -- scroll\_displayed\_graphics, and the slot a new graphic
 - **sha256:** `447846c4a6120d24962f97b653538794df888a88b25b4c74a1c5ac5a5d0019c0` (51358 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-18
-- **Cited in:** `baud-core/src/sixel.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-core/tests/line_rendition.rs`, `baud-domain/src/image.rs`, `baud-domain/src/sixel.rs`, `baud-render/src/renderer.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/sixel.rs`, `crates/baud-core/tests/kitty_graphics.rs`, `crates/baud-core/tests/line_rendition.rs`, `crates/baud-domain/src/image.rs`, `crates/baud-domain/src/sixel.rs`, `crates/baud-render/src/renderer.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-graphics-regis"></a>
 ### xterm-graphics-regis
@@ -12646,7 +12646,7 @@ xterm 411, graphics\_sixel.c -- parse\_sixel\_char: white space skipped, NUL ski
 - **sha256:** `3f6234e71ded3d816d6b2e7792b3a4860ecaf8c3c104d2284f0a44f31c726c96` (27474 bytes)
 - **Copy:** [docs/research/sources/xterm-graphics_sixel.c](research/sources/xterm-graphics_sixel.c)
 - **Read:** 2026-10-10
-- **Cited in:** `baud-core/src/osc.rs`, `baud-core/src/sixel.rs`, `baud-core/tests/sixel.rs`, `baud-core/tests/sixel_modes.rs`, `baud-domain/src/sixel.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/osc.rs`, `crates/baud-core/src/sixel.rs`, `crates/baud-core/tests/sixel.rs`, `crates/baud-core/tests/sixel_modes.rs`, `crates/baud-domain/src/sixel.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-input"></a>
 ### xterm-input
@@ -12657,7 +12657,7 @@ xterm patch #411, input.c -- Input, every CSI and SS3 key reply written through 
 - **sha256:** `8b78c08a8b0ed1598185b5aebe0d48c166bc09ab2033cafa453e461ba7af5905` (62870 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-10
-- **Cited in:** `baud-core/src/term.rs`, `baud-core/tests/key_encode.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/term.rs`, `crates/baud-core/tests/key_encode.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-input-c"></a>
 ### xterm-input-c
@@ -12667,7 +12667,7 @@ xterm 411, input.c -- lookupKeyData under tc\_query\_code, KAM's early return, x
 - **URL:** <https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/input.c>
 - **sha256:** `8b78c08a8b0ed1598185b5aebe0d48c166bc09ab2033cafa453e461ba7af5905` (62870 bytes)
 - **Copy:** [docs/research/sources/xterm-input.c](research/sources/xterm-input.c)
-- **Cited in:** `baud-core/tests/key_encode.rs`, `baud-core/tests/key_modifiers.rs`, `baud-core/tests/keyboard_modes.rs`, `baud-domain/build/tcap.rs`, `baud-domain/build/termcap_keys.rs`, `baud-domain/src/input.rs`, `baud-domain/src/vt/key.rs`, `baud-domain/src/vt/key/keyboards.rs`, `baud-domain/src/vt/tcap.rs`, `baud-present-wayland/src/keys.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/key_encode.rs`, `crates/baud-core/tests/key_modifiers.rs`, `crates/baud-core/tests/keyboard_modes.rs`, `crates/baud-domain/build/tcap.rs`, `crates/baud-domain/build/termcap_keys.rs`, `crates/baud-domain/src/input.rs`, `crates/baud-domain/src/vt/key.rs`, `crates/baud-domain/src/vt/key/keyboards.rs`, `crates/baud-domain/src/vt/tcap.rs`, `crates/baud-present-wayland/src/keys.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="xterm-keysym2ucs-c"></a>
 ### xterm-keysym2ucs-c
@@ -12677,7 +12677,7 @@ xterm 411, keysym2ucs.c -- keysym2ucs: the table first, then 0xfd00-0xffff less 
 - **URL:** <https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/keysym2ucs.c>
 - **sha256:** `2c7aed6964be78d1052d90f3fcbb7f8dc5d9a1e23f3adb9217b2de89d0b8fd57` (131837 bytes)
 - **Copy:** [docs/research/sources/xterm-keysym2ucs.c](research/sources/xterm-keysym2ucs.c)
-- **Cited in:** `baud-core/tests/key_modifiers.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/key_modifiers.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-log-bccd466"></a>
 ### xterm-log-bccd466
@@ -12697,7 +12697,7 @@ xterm patch #411, main.h -- DEF\_TITLE\_MODES 0. Thomas E. Dickey, 2026, xterm.
 - **URL:** <https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/main.h>
 - **sha256:** `6cde71bb5780e01529965ec40773798cb96b10194329ec3d90c6a0d2bc1b4c82` (7611 bytes)
 - **Copy:** [docs/research/sources/xterm-main.h](research/sources/xterm-main.h)
-- **Cited in:** `baud-domain/src/vt/stack.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/stack.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-man"></a>
 ### xterm-man
@@ -12707,7 +12707,7 @@ xterm patch #411, xterm.man -- allowTitleOps, allowWindowOps, disallowedWindowOp
 - **URL:** <https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/xterm.man>
 - **sha256:** `6d3bdddbf3f8e26937276eaf19355372413e075851dad132f2b441e77fc40800` (333772 bytes)
 - **Copy:** [docs/research/sources/xterm-xterm.man](research/sources/xterm-xterm.man)
-- **Cited in:** `baud-app/src/bell.rs`, `baud-app/src/hide.rs`, `baud-app/src/keep.rs`, `baud-app/src/paste.rs`, `baud-app/src/seat.rs`, `baud-bench/tests/bell_flashes.rs`, `baud-core/src/ops.rs`, `baud-core/src/rect.rs`, `baud-core/tests/checksum_extension.rs`, `baud-core/tests/encoding/width.rs`, `baud-core/tests/key_modifiers.rs`, `baud-core/tests/more_fix.rs`, `baud-core/tests/row_watch.rs`, `baud-core/tests/xterm/pointer_mode.rs`, `baud-domain/src/themefile/detect.rs`, `baud-domain/src/vt/clipboard.rs`, `baud-domain/src/vt/key.rs`, `baud-domain/src/vt/key/keyboards.rs`, `baud-domain/src/vt/mode.rs`, `baud-domain/src/vt/mouse.rs`, `baud-domain/src/vt/osc.rs`, `baud-domain/src/vt/window.rs`, `baud-present-wayland/src/keys.rs`, `baud-present-wayland/src/pointer.rs`, `baud-render/src/bell.rs`, `baud-render/tests/special_colors.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/bell.rs`, `crates/baud-app/src/hide.rs`, `crates/baud-app/src/keep.rs`, `crates/baud-app/src/paste.rs`, `crates/baud-app/src/seat.rs`, `crates/baud-bench/tests/bell_flashes.rs`, `crates/baud-core/src/ops.rs`, `crates/baud-core/src/rect.rs`, `crates/baud-core/tests/checksum_extension.rs`, `crates/baud-core/tests/encoding/width.rs`, `crates/baud-core/tests/key_modifiers.rs`, `crates/baud-core/tests/more_fix.rs`, `crates/baud-core/tests/row_watch.rs`, `crates/baud-core/tests/xterm/pointer_mode.rs`, `crates/baud-domain/src/themefile/detect.rs`, `crates/baud-domain/src/vt/clipboard.rs`, `crates/baud-domain/src/vt/key.rs`, `crates/baud-domain/src/vt/key/keyboards.rs`, `crates/baud-domain/src/vt/mode.rs`, `crates/baud-domain/src/vt/mouse.rs`, `crates/baud-domain/src/vt/osc.rs`, `crates/baud-domain/src/vt/window.rs`, `crates/baud-present-wayland/src/keys.rs`, `crates/baud-present-wayland/src/pointer.rs`, `crates/baud-render/src/bell.rs`, `crates/baud-render/tests/special_colors.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="xterm-misc"></a>
 ### xterm-misc
@@ -12717,7 +12717,7 @@ xterm-snapshots 9489b20, misc.c -- ReportAnsiColorRequest answers any entry; Res
 - **URL:** <https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/misc.c>
 - **sha256:** `1ea4c69b2e1b0824956c4991eaa62da1ff93804b735dc0f9cba65b03a8b406ce` (204973 bytes)
 - **Copy:** [docs/research/sources/xterm-misc.c](research/sources/xterm-misc.c)
-- **Cited in:** `baud-app/src/bell.rs`, `baud-app/src/fonts.rs`, `baud-app/src/hide.rs`, `baud-app/src/hostlog.rs`, `baud-app/src/sys.rs`, `baud-core/src/dcs.rs`, `baud-core/src/font.rs`, `baud-core/src/graph.rs`, `baud-core/src/ops.rs`, `baud-core/src/osc.rs`, `baud-core/src/stack.rs`, `baud-core/src/storage.rs`, `baud-core/src/term.rs`, `baud-core/src/window.rs`, `baud-core/tests/alt_buffer_modes.rs`, `baud-core/tests/color_stack.rs`, `baud-core/tests/control_strings.rs`, `baud-core/tests/encoding/width.rs`, `baud-core/tests/host_logging.rs`, `baud-core/tests/reverse_cursor.rs`, `baud-core/tests/reverse_osc.rs`, `baud-core/tests/s8c1t_strings.rs`, `baud-core/tests/scrollbar_mode.rs`, `baud-core/tests/sgr_stack.rs`, `baud-core/tests/title_modes.rs`, `baud-core/tests/vt220/dcs.rs`, `baud-core/tests/x_property.rs`, `baud-core/tests/xterm/font.rs`, `baud-core/tests/xterm/mouse.rs`, `baud-core/tests/xterm/osc.rs`, `baud-core/tests/xterm/xres.rs`, `baud-domain/src/vt/font_ops.rs`, `baud-domain/src/vt/key.rs`, `baud-domain/src/vt/mode.rs`, `baud-domain/src/vt/mouse.rs`, `baud-domain/src/vt/osc.rs`, `baud-domain/src/vt/report.rs`, `baud-domain/src/vt/stack.rs`, `baud-domain/src/vt/tcap.rs`, `baud-domain/src/vt/xres.rs`, `baud-domain/tests/video.rs`, `baud-render/tests/reverse_video.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/bell.rs`, `crates/baud-app/src/fonts.rs`, `crates/baud-app/src/hide.rs`, `crates/baud-app/src/hostlog.rs`, `crates/baud-app/src/sys.rs`, `crates/baud-core/src/dcs.rs`, `crates/baud-core/src/font.rs`, `crates/baud-core/src/graph.rs`, `crates/baud-core/src/ops.rs`, `crates/baud-core/src/osc.rs`, `crates/baud-core/src/stack.rs`, `crates/baud-core/src/storage.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/src/window.rs`, `crates/baud-core/tests/alt_buffer_modes.rs`, `crates/baud-core/tests/color_stack.rs`, `crates/baud-core/tests/control_strings.rs`, `crates/baud-core/tests/encoding/width.rs`, `crates/baud-core/tests/host_logging.rs`, `crates/baud-core/tests/reverse_cursor.rs`, `crates/baud-core/tests/reverse_osc.rs`, `crates/baud-core/tests/s8c1t_strings.rs`, `crates/baud-core/tests/scrollbar_mode.rs`, `crates/baud-core/tests/sgr_stack.rs`, `crates/baud-core/tests/title_modes.rs`, `crates/baud-core/tests/vt220/dcs.rs`, `crates/baud-core/tests/x_property.rs`, `crates/baud-core/tests/xterm/font.rs`, `crates/baud-core/tests/xterm/mouse.rs`, `crates/baud-core/tests/xterm/osc.rs`, `crates/baud-core/tests/xterm/xres.rs`, `crates/baud-domain/src/vt/font_ops.rs`, `crates/baud-domain/src/vt/key.rs`, `crates/baud-domain/src/vt/mode.rs`, `crates/baud-domain/src/vt/mouse.rs`, `crates/baud-domain/src/vt/osc.rs`, `crates/baud-domain/src/vt/report.rs`, `crates/baud-domain/src/vt/stack.rs`, `crates/baud-domain/src/vt/tcap.rs`, `crates/baud-domain/src/vt/xres.rs`, `crates/baud-domain/tests/video.rs`, `crates/baud-render/tests/reverse_video.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="xterm-misc-9489b20"></a>
 ### xterm-misc-9489b20
@@ -12728,7 +12728,7 @@ xterm-snapshots 9489b20 (xterm-411), misc.c -- AllocOneColor takes each 16-bit c
 - **sha256:** `1ea4c69b2e1b0824956c4991eaa62da1ff93804b735dc0f9cba65b03a8b406ce` (204973 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-17
-- **Cited in:** `baud-domain/src/themefile/xresources.rs`, `baud-domain/src/vt/osc.rs`
+- **Cited in:** `crates/baud-domain/src/themefile/xresources.rs`, `crates/baud-domain/src/vt/osc.rs`
 
 <a id="xterm-print-c"></a>
 ### xterm-print-c
@@ -12759,7 +12759,7 @@ xterm 411, ptyx.h -- gsets, curgl, curgr and curss; DFT\_DECID; EXP\_C2\_CONTROL
 - **URL:** <https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/ptyx.h>
 - **sha256:** `f8603a234b445d37698cd71db47679414ecbc9fb44a70eb46fa48827e7ccdb28` (120129 bytes)
 - **Copy:** [docs/research/sources/xterm-ptyx.h](research/sources/xterm-ptyx.h)
-- **Cited in:** `baud-app/src/paste.rs`, `baud-core/src/paint.rs`, `baud-core/src/status.rs`, `baud-core/tests/xterm/osc.rs`, `baud-domain/src/vt/key.rs`, `baud-domain/src/vt/osc.rs`, `baud-domain/src/vt/rect.rs`, `baud-domain/src/vt/stack.rs`, `baud-domain/src/vt/window.rs`, `baud-render/tests/special_colors.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/paste.rs`, `crates/baud-core/src/paint.rs`, `crates/baud-core/src/status.rs`, `crates/baud-core/tests/xterm/osc.rs`, `crates/baud-domain/src/vt/key.rs`, `crates/baud-domain/src/vt/osc.rs`, `crates/baud-domain/src/vt/rect.rs`, `crates/baud-domain/src/vt/stack.rs`, `crates/baud-domain/src/vt/window.rs`, `crates/baud-render/tests/special_colors.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-reset"></a>
 ### xterm-reset
@@ -12770,7 +12770,7 @@ xterm 411, charproc.c, the whole file -- among it CASE\_RIS and CASE\_DECSTR, Re
 - **sha256:** `f3e838a4494c1093d831246a0cb0ed301d1af14e52aa5ab8f66e6a8bb0db63a0` (413144 bytes)
 - **Copy:** [docs/research/sources/xterm-charproc.c](research/sources/xterm-charproc.c)
 - **Read:** 2026-10-20
-- **Cited in:** `baud-app/src/hide.rs`, `baud-app/src/wheel.rs`, `baud-app/src/winops.rs`, `baud-core/src/feed.rs`, `baud-core/src/graph.rs`, `baud-core/src/locator.rs`, `baud-core/src/ops.rs`, `baud-core/src/osc.rs`, `baud-core/src/paint.rs`, `baud-core/src/rect.rs`, `baud-core/src/term.rs`, `baud-core/src/window.rs`, `baud-core/tests/alt_buffer_modes.rs`, `baud-core/tests/conformance/spec_inventory.rs`, `baud-core/tests/control_strings.rs`, `baud-core/tests/encoding/latin1.rs`, `baud-core/tests/encoding/width.rs`, `baud-core/tests/key_encode.rs`, `baud-core/tests/memory_lock.rs`, `baud-core/tests/palette_reset.rs`, `baud-core/tests/reverse_cursor.rs`, `baud-core/tests/reverse_osc.rs`, `baud-core/tests/reverse_wrap.rs`, `baud-core/tests/row_watch.rs`, `baud-core/tests/scrollback.rs`, `baud-core/tests/sixel.rs`, `baud-core/tests/sixel_modes.rs`, `baud-core/tests/tab_waits.rs`, `baud-core/tests/vt100/save_params.rs`, `baud-core/tests/vt220/replies.rs`, `baud-core/tests/vt420/corner.rs`, `baud-core/tests/vt420/rect_ops.rs`, `baud-core/tests/vt420/reports.rs`, `baud-core/tests/vt420/side_margins.rs`, `baud-core/tests/xterm/bell_modes.rs`, `baud-core/tests/xterm/mouse.rs`, `baud-core/tests/xterm/pointer_mode.rs`, `baud-core/tests/xterm/save_restore_modes.rs`, `baud-core/tests/xterm/soft_reset_scope.rs`, `baud-core/tests/xterm_resources.rs`, `baud-domain/src/vt/charset.rs`, `baud-domain/src/vt/csi.rs`, `baud-domain/src/vt/esc.rs`, `baud-domain/src/vt/key.rs`, `baud-domain/src/vt/locator.rs`, `baud-domain/src/vt/mode.rs`, `baud-domain/src/vt/mouse.rs`, `baud-domain/src/vt/osc.rs`, `baud-domain/src/vt/rect.rs`, `baud-domain/src/vt/report.rs`, `baud-domain/src/vt/stack.rs`, `baud-domain/src/vt/tcap.rs`, `baud-domain/src/vt/window.rs`, `baud-render/tests/special_colors.rs`, `docs/input-coverage.md`, `docs/protocols/xterm.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/hide.rs`, `crates/baud-app/src/wheel.rs`, `crates/baud-app/src/winops.rs`, `crates/baud-core/src/feed.rs`, `crates/baud-core/src/graph.rs`, `crates/baud-core/src/locator.rs`, `crates/baud-core/src/ops.rs`, `crates/baud-core/src/osc.rs`, `crates/baud-core/src/paint.rs`, `crates/baud-core/src/rect.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/src/window.rs`, `crates/baud-core/tests/alt_buffer_modes.rs`, `crates/baud-core/tests/conformance/spec_inventory.rs`, `crates/baud-core/tests/control_strings.rs`, `crates/baud-core/tests/encoding/latin1.rs`, `crates/baud-core/tests/encoding/width.rs`, `crates/baud-core/tests/key_encode.rs`, `crates/baud-core/tests/memory_lock.rs`, `crates/baud-core/tests/palette_reset.rs`, `crates/baud-core/tests/reverse_cursor.rs`, `crates/baud-core/tests/reverse_osc.rs`, `crates/baud-core/tests/reverse_wrap.rs`, `crates/baud-core/tests/row_watch.rs`, `crates/baud-core/tests/scrollback.rs`, `crates/baud-core/tests/sixel.rs`, `crates/baud-core/tests/sixel_modes.rs`, `crates/baud-core/tests/tab_waits.rs`, `crates/baud-core/tests/vt100/save_params.rs`, `crates/baud-core/tests/vt220/replies.rs`, `crates/baud-core/tests/vt420/corner.rs`, `crates/baud-core/tests/vt420/rect_ops.rs`, `crates/baud-core/tests/vt420/reports.rs`, `crates/baud-core/tests/vt420/side_margins.rs`, `crates/baud-core/tests/xterm/bell_modes.rs`, `crates/baud-core/tests/xterm/mouse.rs`, `crates/baud-core/tests/xterm/pointer_mode.rs`, `crates/baud-core/tests/xterm/save_restore_modes.rs`, `crates/baud-core/tests/xterm/soft_reset_scope.rs`, `crates/baud-core/tests/xterm_resources.rs`, `crates/baud-domain/src/vt/charset.rs`, `crates/baud-domain/src/vt/csi.rs`, `crates/baud-domain/src/vt/esc.rs`, `crates/baud-domain/src/vt/key.rs`, `crates/baud-domain/src/vt/locator.rs`, `crates/baud-domain/src/vt/mode.rs`, `crates/baud-domain/src/vt/mouse.rs`, `crates/baud-domain/src/vt/osc.rs`, `crates/baud-domain/src/vt/rect.rs`, `crates/baud-domain/src/vt/report.rs`, `crates/baud-domain/src/vt/stack.rs`, `crates/baud-domain/src/vt/tcap.rs`, `crates/baud-domain/src/vt/window.rs`, `crates/baud-render/tests/special_colors.rs`, `docs/input-coverage.md`, `docs/protocols/xterm.md`, `docs/vt-coverage.md`
 
 <a id="xterm-screen"></a>
 ### xterm-screen
@@ -12781,7 +12781,7 @@ xterm patch #411, screen.c -- a cell holding 0 drawn as a space; the DECRQCRA ch
 - **sha256:** `dc7450221e30412d52d763c7a8bd61d7791a270340ad92fad2274c643d9fd72a` (91264 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-18
-- **Cited in:** `baud-app/src/keep.rs`, `baud-app/src/seat.rs`, `baud-core/src/rect.rs`, `baud-core/tests/checksum_extension.rs`, `baud-core/tests/line_rendition.rs`, `baud-domain/src/vt/rect.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/keep.rs`, `crates/baud-app/src/seat.rs`, `crates/baud-core/src/rect.rs`, `crates/baud-core/tests/checksum_extension.rs`, `crates/baud-core/tests/line_rendition.rs`, `crates/baud-domain/src/vt/rect.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-scroll"></a>
 ### xterm-scroll
@@ -12791,7 +12791,7 @@ xterm 411, util.c -- xtermScroll keeps a line when the top margin is row 0. Thom
 - **URL:** <https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/util.c>
 - **sha256:** `3c3bc4ccc9c11e0946ad84b256fd180db7410256cac568a5a8635cdc902da2b1` (166853 bytes)
 - **Copy:** [docs/research/sources/xterm-util.c](research/sources/xterm-util.c)
-- **Cited in:** `baud-app/src/bell.rs`, `baud-app/src/keep.rs`, `baud-app/src/paste.rs`, `baud-app/src/seat.rs`, `baud-core/src/ops.rs`, `baud-core/src/osc.rs`, `baud-core/src/paint.rs`, `baud-core/src/rect.rs`, `baud-core/src/term.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-core/tests/line_rendition.rs`, `baud-core/tests/pending_wrap.rs`, `baud-core/tests/reverse_cursor.rs`, `baud-core/tests/reverse_osc.rs`, `baud-core/tests/row_watch.rs`, `baud-core/tests/scrollback.rs`, `baud-core/tests/vt420/rect_scroll.rs`, `baud-core/tests/xterm/erase_saved_lines.rs`, `baud-core/tests/xterm/osc.rs`, `baud-domain/src/grid.rs`, `baud-domain/src/vt/key.rs`, `baud-domain/src/vt/osc.rs`, `baud-render/src/bell.rs`, `baud-render/tests/special_colors.rs`, `baud-render/tests/video_flash.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/bell.rs`, `crates/baud-app/src/keep.rs`, `crates/baud-app/src/paste.rs`, `crates/baud-app/src/seat.rs`, `crates/baud-core/src/ops.rs`, `crates/baud-core/src/osc.rs`, `crates/baud-core/src/paint.rs`, `crates/baud-core/src/rect.rs`, `crates/baud-core/src/term.rs`, `crates/baud-core/tests/kitty_graphics.rs`, `crates/baud-core/tests/line_rendition.rs`, `crates/baud-core/tests/pending_wrap.rs`, `crates/baud-core/tests/reverse_cursor.rs`, `crates/baud-core/tests/reverse_osc.rs`, `crates/baud-core/tests/row_watch.rs`, `crates/baud-core/tests/scrollback.rs`, `crates/baud-core/tests/vt420/rect_scroll.rs`, `crates/baud-core/tests/xterm/erase_saved_lines.rs`, `crates/baud-core/tests/xterm/osc.rs`, `crates/baud-domain/src/grid.rs`, `crates/baud-domain/src/vt/key.rs`, `crates/baud-domain/src/vt/osc.rs`, `crates/baud-render/src/bell.rs`, `crates/baud-render/tests/special_colors.rs`, `crates/baud-render/tests/video_flash.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="xterm-scrollbar-c"></a>
 ### xterm-scrollbar-c
@@ -12802,7 +12802,7 @@ xterm patch #411, scrollbar.c -- ScrollBarOn, ScrollBarOff and DoResizeScreen: t
 - **sha256:** `b0272f0a4a9f9383f5a4b1c22b02e7250eb4340a7a4977eeb233b59f3d8d1cce` (28125 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-20
-- **Cited in:** `baud-app/src/reveal.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/reveal.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-sgr"></a>
 ### xterm-sgr
@@ -12812,7 +12812,7 @@ xterm 411, charproc.c -- SGR 21 sets ATR\_DBL\_UNDER beside UNDERLINE, and SGR 2
 - **URL:** <https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/charproc.c>
 - **sha256:** `f3e838a4494c1093d831246a0cb0ed301d1af14e52aa5ab8f66e6a8bb0db63a0` (413144 bytes)
 - **Copy:** [docs/research/sources/xterm-charproc.c](research/sources/xterm-charproc.c)
-- **Cited in:** `baud-core/tests/s8c1t_strings.rs`, `baud-core/tests/sgr/groups.rs`, `baud-core/tests/xterm/keypad_version.rs`, `baud-domain/src/vt/report.rs`, `baud-domain/src/vt/sgr.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/s8c1t_strings.rs`, `crates/baud-core/tests/sgr/groups.rs`, `crates/baud-core/tests/xterm/keypad_version.rs`, `crates/baud-domain/src/vt/report.rs`, `crates/baud-domain/src/vt/sgr.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-tabs-c"></a>
 ### xterm-tabs-c
@@ -12823,7 +12823,7 @@ xterm 411, tabs.c -- TabToNextStop and TabToPrevStop: where HT and CBT stop unde
 - **sha256:** `673a40eac3388bc2685be6ef87e30e533ed78c8a2b290bf6a670185041ba2c6e` (5283 bytes)
 - **Copy:** [docs/research/sources/xterm-tabs.c](research/sources/xterm-tabs.c)
 - **Read:** 2026-10-14
-- **Cited in:** `baud-core/src/bounds.rs`, `baud-core/src/ops.rs`, `baud-core/tests/more_fix.rs`, `baud-core/tests/tab_waits.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/bounds.rs`, `crates/baud-core/src/ops.rs`, `crates/baud-core/tests/more_fix.rs`, `crates/baud-core/tests/tab_waits.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-terminfo"></a>
 ### xterm-terminfo
@@ -12833,7 +12833,7 @@ xterm 411, terminfo -- xterm's terminal descriptions: xterm-sun, xterm-hp, xterm
 - **URL:** <https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/terminfo>
 - **sha256:** `af38ec99c0816a2a8dbbde6fa70877a87e59f1e913c35805570cb2f1f007a574` (59700 bytes)
 - **Copy:** [docs/research/sources/xterm-terminfo](research/sources/xterm-terminfo)
-- **Cited in:** `baud-core/tests/xterm_keyboards.rs`, `baud-domain/src/vt/key/keyboards.rs`, `docs/input-coverage.md`
+- **Cited in:** `crates/baud-core/tests/xterm_keyboards.rs`, `crates/baud-domain/src/vt/key/keyboards.rs`, `docs/input-coverage.md`
 
 <a id="xterm-version"></a>
 ### xterm-version
@@ -12844,7 +12844,7 @@ xterm 411, version.c and version.h -- xtermVersion, the text XTVERSION sends: "%
 - **sha256:** `3343c255b9da8b22f952cdfc6cd0a86b22af2f747dafcb2d78beb32967a26178` (2692 bytes)
 - **Copy:** [docs/research/sources/xterm-version.c](research/sources/xterm-version.c)
 - **Read:** 2026-10-16
-- **Cited in:** `baud-core/tests/xterm/keypad_version.rs`, `baud-domain/src/vt/report.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/xterm/keypad_version.rs`, `crates/baud-domain/src/vt/report.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-version-h"></a>
 ### xterm-version-h
@@ -12863,7 +12863,7 @@ xterm 411, VTPrsTbl.c -- the parse tables: SO/SI, SS2/SS3, LS2/LS3 and LS1R-LS3R
 - **URL:** <https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/VTPrsTbl.c>
 - **sha256:** `36169b1c9ef40cd35a46ffc2549d1a002d488847d72b35aa2d810c71f692940d` (221587 bytes)
 - **Copy:** [docs/research/sources/xterm-VTPrsTbl.c](research/sources/xterm-VTPrsTbl.c)
-- **Cited in:** `baud-core/src/graph.rs`, `baud-core/tests/vt420/reports.rs`, `baud-domain/src/vt/csi.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/src/graph.rs`, `crates/baud-core/tests/vt420/reports.rs`, `crates/baud-domain/src/vt/csi.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-wcwidth-c"></a>
 ### xterm-wcwidth-c
@@ -12874,7 +12874,7 @@ xterm 411, wcwidth.c -- mk\_wcwidth and mk\_wcwidth\_cjk: private-use width unde
 - **sha256:** `f953a846633947906c9d8dff80175b053cfecd25aa38194d6a74dad7f4b04461` (56116 bytes)
 - **Copy:** [docs/research/sources/xterm-wcwidth.c](research/sources/xterm-wcwidth.c)
 - **Read:** 2026-10-15
-- **Cited in:** `baud-core/tests/encoding/width.rs`, `baud-domain/src/decode.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/encoding/width.rs`, `crates/baud-domain/src/decode.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-wcwidth-h"></a>
 ### xterm-wcwidth-h
@@ -12944,7 +12944,7 @@ xterm 411, xstrings.c -- x\_decode\_hex: either case, an odd digit count refused
 - **URL:** <https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/xstrings.c>
 - **sha256:** `2dae87b10814d2e8119bc6a68a3264d856bb2ba1915517c91fe6481a4ed35492` (12185 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/stack.rs`, `baud-domain/src/vt/tcap.rs`, `baud-domain/src/vt/xres.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-domain/src/vt/stack.rs`, `crates/baud-domain/src/vt/tcap.rs`, `crates/baud-domain/src/vt/xres.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-xterm-h"></a>
 ### xterm-xterm-h
@@ -12954,7 +12954,7 @@ xterm 411, xterm.h -- the prototypes the charset paths name: saveCharsets, resto
 - **URL:** <https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/xterm.h>
 - **sha256:** `8d2f5b04c2c1509bbfb953304c10ac7330804c63cefdc37e0dfc787d66871e00` (80687 bytes)
 - **Copy:** [docs/research/sources/xterm-xterm.h](research/sources/xterm-xterm.h)
-- **Cited in:** `baud-app/src/hostlog.rs`, `baud-domain/src/vt/osc.rs`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-app/src/hostlog.rs`, `crates/baud-domain/src/vt/osc.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-xtermcap-c"></a>
 ### xterm-xtermcap-c
@@ -12964,7 +12964,7 @@ xterm 411, xtermcap.c -- the XTGETTCAP table (110 rows, 17 modifier groups), loo
 - **URL:** <https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/xtermcap.c>
 - **sha256:** `4b41264cbbc480e0a41acf2989617e0395fd45c3b7eae226f54bd9f07954bc40` (16921 bytes)
 - **Copy:** [docs/research/sources/xterm-xtermcap.c](research/sources/xterm-xtermcap.c)
-- **Cited in:** `baud-core/tests/xterm_keyboards.rs`, `baud-domain/build/tcap.rs`, `baud-domain/build/termcap_keys.rs`, `baud-domain/build/xtermcap.rs`, `baud-domain/src/vt/key/keyboards.rs`, `baud-domain/src/vt/tcap.rs`, `baud-domain/src/vt/tcap_data.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `crates/baud-core/tests/xterm_keyboards.rs`, `crates/baud-domain/build/tcap.rs`, `crates/baud-domain/build/termcap_keys.rs`, `crates/baud-domain/build/xtermcap.rs`, `crates/baud-domain/src/vt/key/keyboards.rs`, `crates/baud-domain/src/vt/tcap.rs`, `crates/baud-domain/src/vt/tcap_data.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="yazi-dimension"></a>
 ### yazi-dimension
@@ -12974,7 +12974,7 @@ yazi-emulator/src/dimension.rs, at v26.5.6. sxyazi and contributors, 2026, githu
 - **URL:** <https://raw.githubusercontent.com/sxyazi/yazi/aa526434f00bb44e2e902d9a4ac5f810da1018b9/yazi-emulator/src/dimension.rs>
 - **sha256:** `22a3902080be4c83459d985ce333b41728e8109badc38813eb5ce4a9498b6147` (1482 bytes)
 - **Copy:** [docs/research/sources/yazi-dimension-26.5.6.rs](research/sources/yazi-dimension-26.5.6.rs)
-- **Cited in:** `baud-app/src/pty.rs`, `baud-core/tests/image_geometry.rs`
+- **Cited in:** `crates/baud-app/src/pty.rs`, `crates/baud-core/tests/image_geometry.rs`
 
 <a id="yazi-emulator"></a>
 ### yazi-emulator
@@ -12984,7 +12984,7 @@ yazi-emulator/src/emulator.rs, at v26.5.6. sxyazi and contributors, 2026, github
 - **URL:** <https://raw.githubusercontent.com/sxyazi/yazi/aa526434f00bb44e2e902d9a4ac5f810da1018b9/yazi-emulator/src/emulator.rs>
 - **sha256:** `e767683398e5711be7b26ee402b4933af7a7b437e0847ddd4437dfdd0844a0ec` (5985 bytes)
 - **Copy:** [docs/research/sources/yazi-emulator-26.5.6.rs](research/sources/yazi-emulator-26.5.6.rs)
-- **Cited in:** `baud-core/src/write.rs`, `baud-core/tests/image_geometry.rs`, `baud-domain/src/vt/report.rs`
+- **Cited in:** `crates/baud-core/src/write.rs`, `crates/baud-core/tests/image_geometry.rs`, `crates/baud-domain/src/vt/report.rs`
 
 <a id="yazi-sixel"></a>
 ### yazi-sixel
@@ -13014,7 +13014,7 @@ Zig 0.16.0, lib/std/fmt.zig -- parseInt and parseUnsigned, which ghostty d9840f3
 - **URL:** <https://codeberg.org/ziglang/zig/raw/tag/0.16.0/lib/std/fmt.zig>
 - **sha256:** `53fea69903a8761d62783e2843e5f89cdfab943790012035698591d0bb378b2d` (58268 bytes)
 - **Copy:** [docs/research/sources/zig-0.16.0-fmt.zig](research/sources/zig-0.16.0-fmt.zig)
-- **Cited in:** `baud-domain/src/themefile.rs`
+- **Cited in:** `crates/baud-domain/src/themefile.rs`
 
 <a id="zsh-5-9-files"></a>
 ### zsh-5-9-files
@@ -13025,7 +13025,7 @@ zsh 5.9, Doc/Zsh/files.yo -- Startup/Shutdown Files: /etc/zshenv first, then $ZD
 - **sha256:** `27788af56bfd81c64b47c639f888fff0b4320ac7e23a84308ec1d228c8ae8e9b` (2739 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-31
-- **Cited in:** `baud-app/src/shell.rs`
+- **Cited in:** `crates/baud-app/src/shell.rs`
 
 <a id="zsh-5-9-func"></a>
 ### zsh-5-9-func
@@ -13036,7 +13036,7 @@ zsh 5.9, Doc/Zsh/func.yo -- Hook Functions: precmd 'Executed before each prompt'
 - **sha256:** `1e7cd75cab246643574d7a88999055af787e012009bb2b9a77963b6bcee696c8` (16180 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-31
-- **Cited in:** `baud-app/src/shell.rs`
+- **Cited in:** `crates/baud-app/src/shell.rs`
 
 <a id="zsh-5-9-init-c"></a>
 ### zsh-5-9-init-c
@@ -13047,7 +13047,7 @@ zsh 5.9, Src/init.c -- run\_init\_scripts: GLOBAL\_ZSHENV, then for an interacti
 - **sha256:** `f361b711378f1cf05a69c2b6930859b0a4c669fb2b7f624a89a083e540d1cfd9` (46550 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-31
-- **Cited in:** `baud-app/src/shell.rs`
+- **Cited in:** `crates/baud-app/src/shell.rs`
 
 <a id="zsh-5-9-newuser-c"></a>
 ### zsh-5-9-newuser-c
@@ -13058,7 +13058,7 @@ zsh 5.9, Src/Modules/newuser.c -- boot\_: ZDOTDIR else home; none of .zshenv, .z
 - **sha256:** `14c25f1601c6ac76b37b08c72a4c8ae889e247062e4a7f7bacf8999b0bc637aa` (2593 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-31
-- **Cited in:** `baud-app/src/shell.rs`
+- **Cited in:** `crates/baud-app/src/shell.rs`
 
 <a id="zsh-5-9-prompt"></a>
 ### zsh-5-9-prompt
@@ -13069,5 +13069,5 @@ zsh 5.9, Doc/Zsh/prompt.yo -- %{...%}: 'Include a string as a literal escape seq
 - **sha256:** `37e399550fe751045f7518cba9a9a57c1ff8fd5970688590a4c694b333077f15` (15823 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-31
-- **Cited in:** `baud-app/src/shell.rs`
+- **Cited in:** `crates/baud-app/src/shell.rs`
 

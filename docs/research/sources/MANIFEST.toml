@@ -75,17 +75,17 @@
 #   AO  the rendition table: how terminals store a cell's colours, and how a table of renditions frees its slots
 #   AS  the glass's legibility: Apple's material, dimming and accessibility settings, Terminal's profiles
 #   AT  a standard material behind the window body: NSVisualEffectView, the material catalogs, TextEdit
-#   BL  the bell: what a BEL does in a macOS window -- the alert sound, an attention request, a raise (baud-app/src/bell.rs)
-#   BU  bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click (baud-app/src/link.rs)
+#   BL  the bell: what a BEL does in a macOS window -- the alert sound, an attention request, a raise (crates/baud-app/src/bell.rs)
+#   BU  bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click (crates/baud-app/src/link.rs)
 #   AX  notifications and progress from programs: OSC 9, 777, 99, 9;4 and 1337, and where each platform shows them
 #   AZ  a window in the background: the unfocused cursor, the inactive selection, theme cursor colours
-#   CR  the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (baud-app/src/reload.rs)
-#   WN  more than one window: a new window, a window's close, the last window closed, the Dock's reopen (baud-app/src/windows.rs)
-#   GP  the brand pictures: GitHub's picture limits, the five-unit code the link picture's tape spells, the tape's hole sizes, and the font release the letters are traced from (tools/baud-pictures and assets/logo/README.md)
-#   SP  the shell prompt baud ships: starship's configuration schema, which assets/starship/baud.toml is checked against (baud-app/tests/starship_preset.rs)
-#   FM  the films' pieces: the licences of the photo and the fonts the demo's takes show (assets/demo/LICENSES.md)
-#   TB  the title bar's double-click: the Desktop & Dock setting and where it is read (baud-present-macos/src/container.rs)
-#   WF  the window's facts: the notifications that change its frame, screen, backing scale and minimized state, which XTWINOPS's reports answer from (baud-app/src/app.rs)
+#   CR  the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (crates/baud-app/src/reload.rs)
+#   WN  more than one window: a new window, a window's close, the last window closed, the Dock's reopen (crates/baud-app/src/windows.rs)
+#   GP  the brand pictures: GitHub's picture limits, the five-unit code the link picture's tape spells, the tape's hole sizes, and the font release the letters are traced from (tools/baud-pictures and docs/assets/logo/README.md)
+#   SP  the shell prompt baud ships: starship's configuration schema, which docs/assets/starship/baud.toml is checked against (crates/baud-app/tests/starship_preset.rs)
+#   FM  the films' pieces: the licences of the photo and the fonts the demo's takes show (docs/assets/demo/LICENSES.md)
+#   TB  the title bar's double-click: the Desktop & Dock setting and where it is read (crates/baud-present-macos/src/container.rs)
+#   WF  the window's facts: the notifications that change its frame, screen, backing scale and minimized state, which XTWINOPS's reports answer from (crates/baud-app/src/app.rs)
 #
 # Selection, resize and reflow, Sixel and images have no group of their own:
 # their sources are filed under C, and the images' also under J.
@@ -171,7 +171,7 @@ group  = "C"
 # Read 2026-10-27 (lane b230) through `--find`: § 8.3.87 NP, § 8.3.95 PP, § 8.3.96 PPA,
 # § 8.3.97 PPB and § 8.3.98 PPR (PAGE POSITION FORWARD); NP and PP's 'The effect of this
 # control function on the active presentation position is not defined by this Standard'.
-# Read 2026-10-28 (lane b240) through `scripts/extract-ecma48.py`, its positive control
+# Read 2026-10-28 (lane b240) through `tools/scripts/extract-ecma48.py`, its positive control
 # passing: the 25 functions with intermediate 02/00 that baud counts -- 8.3.36 DTA, 8.3.52
 # FNK, 8.3.53 FNT ("Ps2 identifies the character font according to a register which is to
 # be established"), 8.3.54 GCC, 8.3.55 GSM, 8.3.56 GSS, 8.3.65 IDCS, 8.3.66 IGS, 8.3.73 JFY,
@@ -322,7 +322,7 @@ group  = "C"
 # Not in the repository: no grant to redistribute it was found (a DEC manual
 # as transcribed on vt100.net). It was read as vt220-rm-chapter2.html, and the
 # digest is of that copy.
-# baud-domain/tests/vt220_tables.tsv holds the cells the tests read, from this
+# crates/baud-domain/tests/vt220_tables.tsv holds the cells the tests read, from this
 # page and vt220-rm-ch4's Table 4-4, each fetched by its url and refused unless
 # it hashed to its sha256, which the file's `#` header names and a test holds to
 # this manifest. No prose of either page is kept, and no crate carries the file.
@@ -586,7 +586,7 @@ group  = "C"
 # [0,0]; 070-9 § 7.1-7.3, the macro parameter's grid table, background select
 # "no action" on hardcopy devices, the grid in SSU units defaulting to decipoints.
 # Read 2026-10-22 for the conformance levels (lane b153), the copy whose sha256 matches:
-# every Levels field over the text layer [text], into baud-domain/tests/std070_levels.tsv,
+# every Levels field over the text layer [text], into crates/baud-domain/tests/std070_levels.tsv,
 # whose `#` header names this sha256: `pdftotext -layout` of this copy, a field a
 # line matching `Levels:` as the OCR spells it (l, 1 or I for the l's, e or o,
 # v or y, and `:`, `;` or `.`), the PDF page counted by form feeds, the function
@@ -1257,7 +1257,7 @@ group  = "C"
 # recapture adds AX, XT or OTbs to eight, the six strings Cr, Cs, E3, Ms,
 # Se and Ss and 52 modified keys to xterm and xterm-16color, TS and six keys
 # to nsterm and 22 keys to rxvt. These are the conformance targets:
-# `baud-core/tests/conformance/` replays every output capability of each
+# `crates/baud-core/tests/conformance/` replays every output capability of each
 # entry and requires baud to drop none of them.
 # A $TERM value is a capability *profile*, not a protocol -- xterm-256color
 # is xterm with a different colour capability, not a different parser.
@@ -1713,7 +1713,7 @@ status = "retrieved"
 group  = "G"
 
 # The Script property and its extensions, and the aliases that give each
-# value its ISO 15924 code: what `baud-font/build/script.rs` compiles
+# value its ISO 15924 code: what `crates/baud-font/build/script.rs` compiles
 # baud-font's script tables from, and what baud-font's renderer splits
 # runs by. Pinned at 17.0.0, the version of every other UCD file here.
 [sources.unicode-scripts]
@@ -1730,7 +1730,7 @@ status = "retrieved"
 group  = "G"
 
 # The Indic syllabic and positional categories, and the blocks they are read
-# within: what `baud-font/build/indic.rs` compiles baud-font's Indic tables
+# within: what `crates/baud-font/build/indic.rs` compiles baud-font's Indic tables
 # from -- each character's class in a syllable and where its glyph goes.
 [sources.unicode-indicsyllabiccategory]
 key    = "unicode-indicsyllabiccategory"
@@ -1805,7 +1805,7 @@ status = "retrieved"
 group  = "G"
 
 # Bidi_Paired_Bracket and its type: which characters are paired brackets
-# and which closes which (UAX #9 BD14-BD16). `baud-font/build/script.rs`
+# and which closes which (UAX #9 BD14-BD16). `crates/baud-font/build/script.rs`
 # compiles the pairs into baud-font's script tables, for UAX #24 5.1's "paired
 # punctuation ... should therefore match the script of the enclosing text".
 # Pinned at 17.0.0, the version of Scripts.txt beside it.
@@ -1836,8 +1836,8 @@ status = "retrieved"
 group  = "G"
 
 # Bidi_Mirroring_Glyph: the character whose glyph is another's mirrored
-# (UAX #9 L4). `baud-domain/build/bidi.rs` compiles it into the build's
-# `bidi_data.rs`, through the link `baud-domain/data/unicode-bidimirroring.txt`.
+# (UAX #9 L4). `crates/baud-domain/build/bidi.rs` compiles it into the build's
+# `bidi_data.rs`, through the link `crates/baud-domain/data/unicode-bidimirroring.txt`.
 [sources.unicode-bidimirroring]
 key    = "unicode-bidimirroring"
 title  = "BidiMirroring.txt, Unicode Character Database 17.0.0"
@@ -1852,7 +1852,7 @@ status = "retrieved"
 group  = "G"
 
 # UAX #9's two conformance files: "Implementations are expected to correctly
-# cover all test cases in both test files". `baud-domain/tests/bidi.rs` runs
+# cover all test cases in both test files". `crates/baud-domain/tests/bidi.rs` runs
 # every line of each.
 [sources.unicode-biditest]
 key    = "unicode-biditest"
@@ -2240,7 +2240,7 @@ group  = "C"
 # `map_DEC_Supp_Graphic`, `map_JIS_Roman` and `map_JIS_Katakana` too, and
 # DEC Special Graphics from `map_DEC_Spec_Graphic`: baud-domain's build
 # (build/dec_sets.rs, build/dec_graphics.rs, build/nrcs.rs) reads this file
-# through a link in baud-domain/data/, and every cell where it differs from
+# through a link in crates/baud-domain/data/, and every cell where it differs from
 # DEC's text is named, or the build or a test fails.
 [sources.xterm-charsets]
 key    = "xterm-charsets"
@@ -2750,7 +2750,7 @@ group        = "H"
 # legacy `~` form kitty also accepts. Tab-separated, one key a line, in the
 # table's order. The controls held: 111 keys, none twice, ESCAPE 27 u,
 # CAPS_LOCK 57358 u, ISO_LEVEL5_SHIFT 57454 u. Line 1 names the parent's
-# sha256; baud-core/tests/kitty_encode.rs reads it.
+# sha256; crates/baud-core/tests/kitty_encode.rs reads it.
 
 [sources.kitty-legacy-c0]
 key          = "kitty-legacy-c0"
@@ -2771,7 +2771,7 @@ group        = "H"
 # Backspace, Tab and Space in that order; each cell as the table spells
 # its bytes (`0x1b 0x7f`, `CSI`), tab-separated, one cell a line, row by
 # row. The controls held: 35 cells, Alt-Backspace `0x1b 0x7f`. Line 1
-# names the parent's sha256; baud-core/tests/key_encode.rs reads it.
+# names the parent's sha256; crates/baud-core/tests/key_encode.rs reads it.
 
 # Group F was declared when the corpus was set up and stood empty for the life
 # of the project, while a per-row
@@ -3588,7 +3588,7 @@ group  = "J"
 # Re-pinned 2026-10-08: the url had come to serve 177,827 bytes against the
 # 178,177 first pinned (94066f79...), whose bytes were never committed. Two
 # fetches that day hashed alike; the page still titles itself 1.9.1, and the
-# ScriptList sentence baud-font/src/layout.rs quotes is in it verbatim.
+# ScriptList sentence crates/baud-font/src/layout.rs quotes is in it verbatim.
 # Re-pinned 2026-10-13: the same 177,827 bytes now hash 669fece5...; still
 # 1.9.1. The hash tracks the page chrome, not the spec text: a later fetch
 # that day had the same byte count and hashed 4795083b..., and `cmp -l`
@@ -3596,9 +3596,9 @@ group  = "J"
 # `/static/assets/0.4.03571.8296-bb082b73` pinned against
 # `0.4.03568.8292-0a6c2196` in the later fetch. The ScriptList section was
 # read again from the pinned fetch for script selection: the DFLT paragraph
-# baud-font/src/layout.rs quotes, and its note that "Applications may
+# crates/baud-font/src/layout.rs quotes, and its note that "Applications may
 # process script-neutral characters together with immediately-preceding or
-# following script-specific characters", which baud-font/src/script.rs
+# following script-specific characters", which crates/baud-font/src/script.rs
 # quotes, are both in it verbatim.
 # Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,
@@ -3622,7 +3622,7 @@ group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome.
 # 187 registered tags. Every Unicode 17.0 script's tag that
-# `baud-font/build/script.rs` derives is among them (Yi's is printed with
+# `crates/baud-font/build/script.rs` derives is among them (Yi's is printed with
 # no-break spaces and is `yi  `); the registered tags it does not derive are
 # byzm, math and musc (not Unicode scripts), jamo ("not recommended"), and
 # jurc, pcun and seal (not encoded in 17.0). Checked 2026-10-13.
@@ -3796,7 +3796,7 @@ group  = "J"
 # Read as reference 2026-11-02, at the version of the hb-shape the
 # Devanagari fixtures are made with; not committed -- a source file at a
 # pinned tag. Practice, not the text: where it and the Devanagari
-# specification differ, baud-font/src/indic.rs names the departure.
+# specification differ, crates/baud-font/src/indic.rs names the departure.
 
 [sources.harfbuzz-14-5-1-shaper-indic-machine]
 key    = "harfbuzz-14-5-1-shaper-indic-machine"
@@ -3813,7 +3813,7 @@ group  = "J"
 # Read as reference 2026-11-02, at the version of the hb-shape the
 # Devanagari fixtures are made with; not committed -- a source file at a
 # pinned tag. Practice, not the text: where it and the Devanagari
-# specification differ, baud-font/src/indic.rs names the departure.
+# specification differ, crates/baud-font/src/indic.rs names the departure.
 
 [sources.harfbuzz-14-5-1-shaper-indic-h]
 key    = "harfbuzz-14-5-1-shaper-indic-h"
@@ -3830,7 +3830,7 @@ group  = "J"
 # Read as reference 2026-11-02, at the version of the hb-shape the
 # Devanagari fixtures are made with; not committed -- a source file at a
 # pinned tag. Practice, not the text: where it and the Devanagari
-# specification differ, baud-font/src/indic.rs names the departure.
+# specification differ, crates/baud-font/src/indic.rs names the departure.
 
 [sources.harfbuzz-14-5-1-gen-indic-table]
 key    = "harfbuzz-14-5-1-gen-indic-table"
@@ -3847,7 +3847,7 @@ group  = "J"
 # Read as reference 2026-11-02, at the version of the hb-shape the
 # Devanagari fixtures are made with; not committed -- a source file at a
 # pinned tag. Practice, not the text: where it and the Devanagari
-# specification differ, baud-font/src/indic.rs names the departure.
+# specification differ, crates/baud-font/src/indic.rs names the departure.
 
 [sources.harfbuzz-14-5-1-shaper-syllabic]
 key    = "harfbuzz-14-5-1-shaper-syllabic"
@@ -3864,7 +3864,7 @@ group  = "J"
 # Read as reference 2026-11-02, at the version of the hb-shape the
 # Devanagari fixtures are made with; not committed -- a source file at a
 # pinned tag. Practice, not the text: where it and the Devanagari
-# specification differ, baud-font/src/indic.rs names the departure.
+# specification differ, crates/baud-font/src/indic.rs names the departure.
 
 [sources.harfbuzz-14-5-1-vowel-constraints]
 key    = "harfbuzz-14-5-1-vowel-constraints"
@@ -3881,7 +3881,7 @@ group  = "J"
 # Read as reference 2026-11-02, at the version of the hb-shape the
 # Devanagari fixtures are made with; not committed -- a source file at a
 # pinned tag. Practice, not the text: where it and the Devanagari
-# specification differ, baud-font/src/indic.rs names the departure.
+# specification differ, crates/baud-font/src/indic.rs names the departure.
 
 [sources.harfbuzz-14-5-1-shape-normalize]
 key    = "harfbuzz-14-5-1-shape-normalize"
@@ -3898,7 +3898,7 @@ group  = "J"
 # Read as reference 2026-11-02, at the version of the hb-shape the
 # Devanagari fixtures are made with; not committed -- a source file at a
 # pinned tag. Practice, not the text: where it and the Devanagari
-# specification differ, baud-font/src/indic.rs names the departure.
+# specification differ, crates/baud-font/src/indic.rs names the departure.
 
 [sources.harfbuzz-14-5-1-buffer-h]
 key    = "harfbuzz-14-5-1-buffer-h"
@@ -3967,7 +3967,7 @@ group  = "J"
 # Read as reference 2026-11-02, at the version of the hb-shape the
 # Devanagari fixtures are made with; not committed -- a source file at a
 # pinned tag. Practice, not the text: where it and the Devanagari
-# specification differ, baud-font/src/indic.rs names the departure.
+# specification differ, crates/baud-font/src/indic.rs names the departure.
 
 [sources.harfbuzz-14-5-1-shaper]
 key    = "harfbuzz-14-5-1-shaper"
@@ -3984,7 +3984,7 @@ group  = "J"
 # Read as reference 2026-11-02, at the version of the hb-shape the
 # Devanagari fixtures are made with; not committed -- a source file at a
 # pinned tag. Practice, not the text: where it and the Devanagari
-# specification differ, baud-font/src/indic.rs names the departure.
+# specification differ, crates/baud-font/src/indic.rs names the departure.
 
 [sources.harfbuzz-14-5-1-ot-map]
 key    = "harfbuzz-14-5-1-ot-map"
@@ -4001,7 +4001,7 @@ group  = "J"
 # Read as reference 2026-11-02, at the version of the hb-shape the
 # Devanagari fixtures are made with; not committed -- a source file at a
 # pinned tag. Practice, not the text: where it and the Devanagari
-# specification differ, baud-font/src/indic.rs names the departure.
+# specification differ, crates/baud-font/src/indic.rs names the departure.
 
 [sources.ms-opentype-fvar]
 key    = "ms-opentype-fvar"
@@ -4262,7 +4262,7 @@ group        = "J"
 # The 256 codes of Appendix B's "Standard Encoding (code / SID / name)"
 # table and the SID of each, one `code; SID` line a code in decimal, the
 # name column left out; line 1 names the parent's sha256, which the build
-# (baud-font/build/standard_encoding.rs) checks as its header. Read once
+# (crates/baud-font/build/standard_encoding.rs) checks as its header. Read once
 # from the PDF's text layer: the standard security handler (PDF 1.4,
 # Algorithms 3.1 and 3.2, RC4 with an empty user password) decrypts each
 # stream, each is inflated, and the strings of its TJ and Tj operators are
@@ -4273,7 +4273,7 @@ group        = "J"
 # Predefined Encodings(4 Dec 03)" is passed over by that anchor. The
 # controls: 256 rows, and space (32, SID 1), A (65, 34), a (97, 66),
 # .notdef (0, 0) and germandbls (251, 149) as the appendix names them.
-# Produced once by scripts/extract-adobe-cff.py (git blob afe31349), its
+# Produced once by tools/scripts/extract-adobe-cff.py (git blob afe31349), its
 # raw_text and file_key, and the row parse of the generator the build
 # replaced (git blob 6b57afec), under Python 3.13.12; the table the build
 # compiles from it is byte for byte the one that generator committed.
@@ -5708,7 +5708,7 @@ sha256 = "8c15f338fe6e3cb11315d2cf9368abac64525c6d84f391353f78e9d4518655a4"
 bytes  = 16921
 status = "retrieved"
 group  = "J"
-# Committed 2026-10-14 so a test can read it: `baud-font/tests/mark_order.rs`
+# Committed 2026-10-14 so a test can read it: `crates/baud-font/tests/mark_order.rs`
 # holds the shaper's Hebrew mark order to HB_MODIFIED_COMBINING_CLASS_CCC10
 # to CCC26 (lines 333-349), the order note AB 11.4 chose.
 
@@ -5895,7 +5895,7 @@ group  = "J"
 # Revision 51, the revision for Unicode 17.0.0, the version of every UCD file
 # baud compiles. The url was the unversioned one, which now serves revision 52
 # (`uax9-tr9-52`); the hash was always revision 51's, so the url names it.
-# `baud-domain/build/bidi.rs` and `baud-domain/src/bidi.rs` build from it.
+# `crates/baud-domain/build/bidi.rs` and `crates/baud-domain/src/bidi.rs` build from it.
 [sources.uax9-bidi]
 key    = "uax9-bidi"
 title  = "UAX #9: Unicode Bidirectional Algorithm, revision 51 (Unicode 17.0.0)"
@@ -6180,8 +6180,8 @@ group  = "J"
 # (LICENSES/ecma-copyright-notice.txt): Ecma's TR/53 page
 # (ecma-tr53-page) lists this 2nd edition as the report and the 1st under
 # Archives, and the text carries no notice of its own, only "available free
-# of charge" (scripts/extract-ecma35.py, its positive control hitting).
-# Re-read 2026-10-26 (lane b220), the sha256 matching, through scripts/extract-ecma35.py
+# of charge" (tools/scripts/extract-ecma35.py, its positive control hitting).
+# Re-read 2026-10-26 (lane b220), the sha256 matching, through tools/scripts/extract-ecma35.py
 # (its streams are LZWDecode): 7.1 DCSM, 7.2 SDS and SRS, 7.3's DCSM list, and Annex A's
 # worked examples 1-3 and note A.1, the test vectors for SRS, SDS and DCSM.
 # Re-read 2026-10-26 (lane b223), the sha256 matching: 6.3.2, 7.1 ("DCSM allows to specify
@@ -7953,7 +7953,7 @@ bytes  = 289624
 status = "external"
 group  = "J"
 # The sha256 is of the archive member `ttf/FiraCode-Regular.ttf`, which is the
-# file committed at `baud-font/tests/fonts/FiraCode-Regular.ttf` beside its
+# file committed at `crates/baud-font/tests/fonts/FiraCode-Regular.ttf` beside its
 # licence (sha256 1d41e10031ab125302780a05ec4c91d218e47db0c7e37cf315cce5e608cdc25c); the archive itself is
 # 0949915ba8eb24d89fd93d10a7ff623f42830d7c5ffc3ecbf960e4ecad3e3e79. The
 # committed copy is what the oracle differential reads, and
@@ -7971,7 +7971,7 @@ sha256 = "a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f"
 bytes  = 273900
 status = "external"
 group  = "J"
-# Committed at `baud-font/tests/fonts/JetBrainsMono-Regular.ttf` beside its
+# Committed at `crates/baud-font/tests/fonts/JetBrainsMono-Regular.ttf` beside its
 # licence (sha256 30f0c136e3c88e422d0791acd97238870f9054a9729bc34cf2ff0d4ed8cac4ad), held to this hash by the same test.
 
 [sources.w3c-png-2003]
@@ -7987,7 +7987,7 @@ bytes  = 318600
 status = "retrieved"
 group  = "J"
 # The chunk layout (5.3), CRC (5.5), IHDR/PLTE/tRNS/IDAT (11.2, 11.3), the five
-# filter types (9.2) and the sample expansion rules baud-domain/src/png.rs cites;
+# filter types (9.2) and the sample expansion rules crates/baud-domain/src/png.rs cites;
 # and for Adam7, the pass pattern (8.2), the prior scanline zeroed for each
 # reduced image (9.2), no filter byte in an empty pass (9.1, 13.10), and
 # 13.10's and 15.2.3's requirement that a decoder read interlaced images.
@@ -8030,7 +8030,7 @@ group  = "J"
 # Simple alpha compositing (5.1): co = Cs as + Cb ab (1 - as), the
 # premultiplied result; ao = as + ab (1 - as); Co = co / ao straight; and
 # source-over among the Porter-Duff operators (9.1.4). What
-# baud-render/src/composite.rs's Blend::over_glass computes over a
+# crates/baud-render/src/composite.rs's Blend::over_glass computes over a
 # translucent page. Byte-identical to www.w3.org/TR/compositing-1/ on
 # 2026-10-15.
 
@@ -8093,7 +8093,7 @@ bytes  = 35222
 status = "external"
 group  = "J"
 # Not in the repository: its Appendix A is RSA's reference code under RSA's own
-# licence, which no row here carries. xtask/src/md5.rs is written from 3.1-3.5's
+# licence, which no row here carries. crates/xtask/src/md5.rs is written from 3.1-3.5's
 # description, and A.5's test suite is its first test.
 
 [sources.pdf-reference-1-4]
@@ -8128,38 +8128,38 @@ sha256 = "72a635cb3d2f3524c51620cdde406b217204e8a6a06c6a096ff8ed4b5fd6e27b"
 bytes  = 10673480
 status = "external"
 group  = "J"
-# 10.7 MB, so not committed; baud-font/tests/noto_subset.rs subsets it into
-# the committed baud-font/tests/fonts/NotoColorEmoji-subset.ttf, pinned below.
+# 10.7 MB, so not committed; crates/baud-font/tests/noto_subset.rs subsets it into
+# the committed crates/baud-font/tests/fonts/NotoColorEmoji-subset.ttf, pinned below.
 
 [sources.font-noto-color-emoji-subset]
 key    = "font-noto-color-emoji-subset"
 title  = "NotoColorEmoji-subset.ttf -- 46 glyphs of noto-color-emoji-cbdt re-encoded across CBLC index formats 1-5 and image formats 17/18/19"
-author = "baud-font/tests/noto_subset.rs over the Noto Emoji authors' PNGs"
+author = "crates/baud-font/tests/noto_subset.rs over the Noto Emoji authors' PNGs"
 year   = 2026
-venue  = "baud-font/tests/fonts/NotoColorEmoji-subset.ttf (OFL-1.1, licence beside it)"
-url    = "baud-font/tests/noto_subset.rs"
+venue  = "crates/baud-font/tests/fonts/NotoColorEmoji-subset.ttf (OFL-1.1, licence beside it)"
+url    = "crates/baud-font/tests/noto_subset.rs"
 file   = ""
 sha256 = "7f73b6fc6753d949fc3bdfc9bad935db68681a134fca60455b42795f6b97fcee"
 bytes  = 51080
 status = "external"
 group  = "J"
 # Derived, not fetched: the sha256 is of the generator's output, and the
-# committed fixture must hash to it (baud-font/tests/oracle.rs).
+# committed fixture must hash to it (crates/baud-font/tests/oracle.rs).
 
 [sources.font-sbix-strikes]
 key    = "font-sbix-strikes"
 title  = "sbix-strikes.ttf -- six sbix strikes holding every per-glyph case: a glyph in one strike only or two, flip, flip to dupe, dupe to flip, two flips, offsets, unreadable PNGs, dupe and flip loops, a chain at the hop bound, a ramp and its mirror"
-author = "baud-font/tests/bitmap.rs"
+author = "crates/baud-font/tests/bitmap.rs"
 year   = 2026
-venue  = "baud-font/tests/fonts/sbix-strikes.ttf (the repository's licence, beside it)"
-url    = "baud-font/tests/bitmap.rs"
+venue  = "crates/baud-font/tests/fonts/sbix-strikes.ttf (the repository's licence, beside it)"
+url    = "crates/baud-font/tests/bitmap.rs"
 file   = ""
 sha256 = "1116aa6d1d2b7f8acdffecfc019ba3a63832792af5659134d0282e018fa5f74f"
 bytes  = 54320
 status = "external"
 group  = "J"
 # Derived, not fetched: the sha256 is of the generator's output, and the
-# committed fixture must hash to it (baud-font/tests/oracle.rs).
+# committed fixture must hash to it (crates/baud-font/tests/oracle.rs).
 
 [sources.font-bungee-tint-regular]
 key    = "font-bungee-tint-regular"
@@ -8174,7 +8174,7 @@ bytes  = 221864
 status = "external"
 group  = "J"
 # The sha256 is of the archive member `Bungee-fonts/Bungee_Color/BungeeTint-Regular.ttf`,
-# committed as baud-font/tests/fonts/BungeeTint-Regular.ttf with the OFL beside it.
+# committed as crates/baud-font/tests/fonts/BungeeTint-Regular.ttf with the OFL beside it.
 
 [sources.unicode-data]
 key    = "unicode-data"
@@ -8189,7 +8189,7 @@ bytes  = 2198209
 status = "retrieved"
 group  = "J"
 # Field 5 (canonical decompositions, the untagged ones) is what
-# baud-font/build/compose.rs compiles into baud-font's compose tables: the shaper
+# crates/baud-font/build/compose.rs compiles into baud-font's compose tables: the shaper
 # composes a base and its marks the way HarfBuzz's normaliser does before
 # it looks glyphs up.
 
@@ -8205,7 +8205,7 @@ sha256 = "5019ffd530751a741900c849c0e010332f142a3612234639bd200b82138a87db"
 bytes  = 2827429
 status = "retrieved"
 group  = "J"
-# Fetched 2026-11-16 from the versioned path above. baud-font/tests/normalization.rs
+# Fetched 2026-11-16 from the versioned path above. crates/baud-font/tests/normalization.rs
 # checks every line of its six parts against NFD and NFC built from
 # baud-font's decompose, compose and combining_class, and the part 1 rule
 # that no unlisted code point decomposes.
@@ -8631,7 +8631,7 @@ group  = "O"
 # Not in the repository: no grant to redistribute it was found (Apple's
 # documentation). It was read as apple-cghideventtap.json, and the digest is
 # of that copy.
-# Where scripts/key-post.swift posts, so a posted key takes the path a
+# Where tools/scripts/key-post.swift posts, so a posted key takes the path a
 # hardware key takes from the window server onward.
 
 [sources.apple-cgevent-init-keyboard]
@@ -10583,7 +10583,7 @@ group  = "C"
 # Blue: 0 degrees Red: 120 degrees Green: 240 degrees", with hue 0-360 and
 # lightness and saturation 0-100 percent. Table 2-3, "VT340 Default Color
 # Map", lists sixteen HLS triples beside their RGB percentages, which is the
-# fixture `baud-domain/tests/sixel_decode.rs` converts against. Table 2-1's
+# fixture `crates/baud-domain/tests/sixel_decode.rs` converts against. Table 2-1's
 # "White" row, H180 L100 S100 beside R100 G100 B0, contradicts its own
 # lightness (L100 is white in every HLS model) and is not used. Its
 # "Background Intensity Control" says the VT340's background is an output map
@@ -10832,7 +10832,7 @@ group  = "C"
 # `shm_unlink`s -- so it is one copy (shm to the image store), not zero, and
 # what it saves is the base64, the zlib and the pty chunking rather than the
 # copy itself, as the survey that read the spec records. Formats `f=24` RGB, `f=32` RGBA (raw, no decoder)
-# and `f=100` PNG (a PNG and zlib decoder, which `baud-domain/src/png.rs` is,
+# and `f=100` PNG (a PNG and zlib decoder, which `crates/baud-domain/src/png.rs` is,
 # `no_std` and allocation-free; baud-core does not call it yet). Placements are
 # separate from images, carry a `z` index (negative below text), and a Unicode
 # placeholder (`U+10EEEE`) grid lets an image scroll with text.
@@ -11617,7 +11617,7 @@ group  = "L"
 # and that a scroller subclass draws its parts so AppKit can apply "separate
 # knob and track fade in/out" (NSScroller.h 55). No duration, width or
 # colour is documented anywhere in either; those are measured by
-# scripts/scroller-probe.swift and quoted in the scrollbar note.
+# tools/scripts/scroller-probe.swift and quoted in the scrollbar note.
 [sources.macos-sdk-nsscroller-h]
 key    = "macos-sdk-nsscroller-h"
 title  = "NSScroller.h -- NSScrollerStyle, preferredScrollerStyle and its change notification, knob styles, scrollerWidthForControlSize:scrollerStyle:"
@@ -13194,7 +13194,7 @@ sha256 = "662a196d58f1183bf2d77428b6d5283fe3f45161ab021bea4036bc98e5cac016"
 bytes  = 303144
 status = "external"
 group  = "J"
-# Committed at `baud-font/tests/fonts/JetBrainsMono-Variable.ttf` (renamed from
+# Committed at `crates/baud-font/tests/fonts/JetBrainsMono-Variable.ttf` (renamed from
 # `JetBrainsMono[wght].ttf`, whose brackets are a shell glob) beside the
 # JetBrains Mono licence, held to this hash by the pin test. Note Z.
 
@@ -13210,7 +13210,7 @@ sha256 = "f115aaa12113718c02ce72864fe6823b87241bc23d3e44cf1220155f861063f2"
 bytes  = 308888
 status = "external"
 group  = "J"
-# Committed at `baud-font/tests/fonts/JetBrainsMono-Italic-Variable.ttf`,
+# Committed at `crates/baud-font/tests/fonts/JetBrainsMono-Italic-Variable.ttf`,
 # renamed as the upright is. Note Z.
 
 [sources.jbm-glyphs-upright]
@@ -13256,7 +13256,7 @@ bytes  = 286320
 status = "external"
 group  = "J"
 # The sha256 is of the archive member `variable_ttf/FiraCode-VF.ttf`, committed
-# at `baud-font/tests/fonts/FiraCode-VF.ttf`; the archive is the one the
+# at `crates/baud-font/tests/fonts/FiraCode-VF.ttf`; the archive is the one the
 # Regular's entry names (0949915b...). Its default sits at the axis minimum,
 # which is the edge the normalisation's lower segment must not divide by.
 
@@ -14024,7 +14024,7 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a Unicode
 # publication). It was read as unicode18-ch5.html, and the digest is of that
 # copy.
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.unicode18-ch3]
 key    = "unicode18-ch3"
@@ -14041,7 +14041,7 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a Unicode
 # publication). It was read as unicode18-ch3.html, and the digest is of that
 # copy.
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.unicode18-ch2]
 key    = "unicode18-ch2"
@@ -14058,7 +14058,7 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a Unicode
 # publication). It was read as unicode18-ch2.html, and the digest is of that
 # copy.
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.unicode18-ch22]
 key    = "unicode18-ch22"
@@ -14075,7 +14075,7 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a Unicode
 # publication). It was read as unicode18-ch22.html, and the digest is of that
 # copy.
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.unicode18-ch23]
 key    = "unicode18-ch23"
@@ -14092,7 +14092,7 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a Unicode
 # publication). It was read as unicode18-ch23.html, and the digest is of that
 # copy.
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.unicode18-release]
 key    = "unicode18-release"
@@ -14109,7 +14109,7 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a Unicode
 # publication). It was read as unicode18-release.html, and the digest is of
 # that copy.
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 # Fetched as https://www.unicode.org/versions/latest/, which redirected here; the
 # versioned url returned the same bytes on 2026-10-08.
 
@@ -14128,7 +14128,7 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a Unicode
 # publication). It was read as unicode17-ch5.html, and the digest is of that
 # copy.
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.unicode17-ch2]
 key    = "unicode17-ch2"
@@ -14145,7 +14145,7 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a Unicode
 # publication). It was read as unicode17-ch2.html, and the digest is of that
 # copy.
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.unicode17-ch23]
 key    = "unicode17-ch23"
@@ -14162,7 +14162,7 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a Unicode
 # publication). It was read as unicode17-ch23.html, and the digest is of that
 # copy.
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.unicode16-ch5]
 key    = "unicode16-ch5"
@@ -14179,7 +14179,7 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a Unicode
 # publication). It was read as unicode16-ch5.html, and the digest is of that
 # copy.
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.uts51-r31]
 key    = "uts51-r31"
@@ -14195,7 +14195,7 @@ status = "external"
 group  = "J"
 # Not in the repository: no grant to redistribute it was found (a Unicode
 # publication). It was read as uts51-r31.html, and the digest is of that copy.
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 # Revision 29 is `uts51-emoji`. Fetched from the unversioned url; tr51-31.html returned
 # the same bytes on 2026-10-08.
 
@@ -14214,7 +14214,7 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a Unicode
 # publication). It was read as uts51-img-unsupported.png, and the digest is of
 # that copy.
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.uts51-img-missing-flag]
 key    = "uts51-img-missing-flag"
@@ -14231,7 +14231,7 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a Unicode
 # publication). It was read as uts51-img-missing-flag.png, and the digest is
 # of that copy.
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.uts51-img-invalid-tag]
 key    = "uts51-img-invalid-tag"
@@ -14248,7 +14248,7 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a Unicode
 # publication). It was read as uts51-img-invalid-tag.png, and the digest is of
 # that copy.
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.ucd18-emoji-data]
 key    = "ucd18-emoji-data"
@@ -14262,7 +14262,7 @@ sha256 = "80d00f8e616a0ef27fd6b8de3b758c06383b5d917e2977709578e68baf733bf1"
 bytes  = 108719
 status = "retrieved"
 group  = "J"
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.emoji17-sequences]
 key    = "emoji17-sequences"
@@ -14276,7 +14276,7 @@ sha256 = "12cc8267dc33cbd11ed32bcf6fc5dc2ad9c7a77bae1bdfba2f41b1b9b3ead8dd"
 bytes  = 194868
 status = "retrieved"
 group  = "J"
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.emoji17-zwj-sequences]
 key    = "emoji17-zwj-sequences"
@@ -14290,7 +14290,7 @@ sha256 = "5b25441daed2322b068c5e70cda522946a4f0274df864445a1965a92e5fc5cad"
 bytes  = 277215
 status = "retrieved"
 group  = "J"
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.emoji17-test]
 key    = "emoji17-test"
@@ -14304,7 +14304,7 @@ sha256 = "1d8a944f88d7952f7ef7c5167fef3c67995bcae24543949710231b03a201acda"
 bytes  = 669326
 status = "retrieved"
 group  = "J"
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.l2-24-264]
 key    = "l2-24-264"
@@ -14321,7 +14321,7 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a Unicode
 # publication). It was read as l2-24264-ttwg-report-utc181.pdf, and the digest
 # is of that copy.
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.l2-25-179]
 key    = "l2-25-179"
@@ -14338,7 +14338,7 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a Unicode
 # publication). It was read as l2-25179-ttwg.pdf, and the digest is of that
 # copy.
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.l2-25-263]
 key    = "l2-25-263"
@@ -14355,7 +14355,7 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a Unicode
 # publication). It was read as l2-25263-ttwg-report-utc185.pdf, and the digest
 # is of that copy.
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.last-resort-readme]
 key    = "last-resort-readme"
@@ -14369,7 +14369,7 @@ sha256 = "370c086fd464bf618d3168cd800e014fc3d966e0abf2f060646cc47682d9a0f2"
 bytes  = 6700
 status = "retrieved"
 group  = "J"
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.last-resort-license]
 key    = "last-resort-license"
@@ -14383,7 +14383,7 @@ sha256 = "fc8fc512b27846bdb0d6645bed8069ac87ea599548b58a8d04bc3b0ea705a9c4"
 bytes  = 4335
 status = "retrieved"
 group  = "J"
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 
 [sources.last-resort-ttf-18]
 key    = "last-resort-ttf-18"
@@ -15280,7 +15280,7 @@ group  = "J"
 # published the story in 1910 and this collection in 1917: in the public
 # domain in India (60 years after the author's death) and in the United
 # States (published before 1931). Pinned by oldid; the words of its text
-# are lines of baud-font/tests/shape/devanagari.txt.
+# are lines of crates/baud-font/tests/shape/devanagari.txt.
 
 [sources.premchand-saptasaroj-12]
 key    = "premchand-saptasaroj-12"
@@ -15561,7 +15561,7 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a Unicode
 # publication). It was read as unicode-enumerated-versions.html, and the
 # digest is of that copy.
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 # Fetched the same day as https://www.unicode.org/versions/latest/, which answered 302 to
 # /versions/Unicode18.0.0/ (the page unicode18-release holds, byte-identical).
 
@@ -15580,7 +15580,7 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a Unicode
 # publication). It was read as unicode17-ch3.html, and the digest is of that
 # copy.
-# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Read for note AD (2026-10-08); committed here and re-hashed by tools/scripts/check-sources.sh.
 # Positive control for the absence: D57 and D58 each match once in the extracted text; D57a-D57h
 # and "Misplaced variation" match nowhere.
 
@@ -16618,7 +16618,7 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a DEC manual
 # as transcribed on vt100.net). It was read as vt220-rm-chapter4.html, and the
 # digest is of that copy.
-# Its Table 4-4's national finals are in baud-domain/tests/vt220_tables.tsv,
+# Its Table 4-4's national finals are in crates/baud-domain/tests/vt220_tables.tsv,
 # read as dec-special-graphics' comment says, the file's `#` header naming this
 # sha256.
 # Read for note AD (2026-10-08), fixing a reviewer finding, and hash-verified then
@@ -17072,7 +17072,7 @@ group  = "C"
 # margin mode, clamps the cursor to width/2 on a double line and clears no
 # cell, so the half past the line comes back on DECSWL.
 
-# vttest's main.c, for the tests the line renditions replay (tests/vttest/):
+# vttest's main.c, for the tests the line renditions replay (tools/tests/vttest/):
 # tst_doublesize, "Test of double-sized characters", and the known-bug tests
 # B, E and L, whose prose calls the loss of the right half a "common
 # misfeature". Fetched 2026-10-18 (lane b92) at the snapshot the captures
@@ -22935,7 +22935,7 @@ title  = "The least opacity at which each cursor colour over each ground makes a
 author = "baud research (note AL)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = "printed by thresholds.py (git blob a11dc088); recomputed by baud-render/tests/al_observed.rs, which asserts it equal to this file"
+url    = "printed by thresholds.py (git blob a11dc088); recomputed by crates/baud-render/tests/al_observed.rs, which asserts it equal to this file"
 file   = "al-observed/thresholds-out.txt"
 sha256 = "e2b5681c95650182cae7b15679c4e6a57ebacb2d6a7ad0f38869561dff4145a9"
 bytes  = 3816
@@ -23046,21 +23046,21 @@ group  = "AM"
 # other .ti files, and pinned as a source only: it is not a conformance
 # profile. Added as an eleventh `profile!` at dedd796 it fails on `Cs` alone,
 # 1 of 88 output capabilities: the suite's `expand` writes the digit 1 for
-# every %d, %c and %s (baud-core/tests/conformance/terminfo.rs 96-97), so
+# every %d, %c and %s (crates/baud-core/tests/conformance/terminfo.rs 96-97), so
 # `Cs=\E]12;%p1%s\007` replays as an OSC 12 whose colour is `1`, which names
 # no colour. The fault is the replayed value's; the same OSC 12 carrying
 # red leaves Term::unsupported at 0. Note AM, section 9.
 #
 # Historical: if a later change made it join the profiles, these would move
 # with it in the same commit (the second and third are done):
-#   - baud-core/tests/conformance/main.rs's `profile!` list and
+#   - crates/baud-core/tests/conformance/main.rs's `profile!` list and
 #     docs/protocols/profiles/ (ten each), and input_caps.rs's list of ten
 #     profiles;
 #   - `expand`, or the profile's treatment of `Cs`, for the failure above;
-#   - baud-core/tests/conformance/main.rs 16 and terminfo.rs 3, which call the
+#   - crates/baud-core/tests/conformance/main.rs 16 and terminfo.rs 3, which call the
 #     fixtures `infocmp -1` output; this one is `infocmp -x -1`.
 # Pinned as a source only, one statement left it out until 2026-10-18:
-# baud-domain/tests/terminfo.rs's "Every pinned `.ti` is a positive control"
+# crates/baud-domain/tests/terminfo.rs's "Every pinned `.ti` is a positive control"
 # ran over a hard-coded list of 11 cases (ten .ti and terminfo.5) without
 # this file; it now lists all eleven .ti and checks the directory holds no
 # other. Nothing in note AM moves either way: its section 8.4
@@ -23250,7 +23250,7 @@ group  = "AM"
 
 [sources.foot-generate-builtin-terminfo-py]
 key    = "foot-generate-builtin-terminfo-py"
-title  = "foot 1.21.0, scripts/generate-builtin-terminfo.py -- foot.info compiled at build time; Co, TN, name and RGB=8 added"
+title  = "foot 1.21.0, tools/scripts/generate-builtin-terminfo.py -- foot.info compiled at build time; Co, TN, name and RGB=8 added"
 author = "Daniel Eklöf and the foot contributors"
 year   = 2025
 venue  = "foot (MIT), tag 1.21.0 @ 68f5eab0"
@@ -23472,7 +23472,7 @@ sha256 = "47d1cc681abe31166b342b6cc4aab13a6ba8ea5c48794697fe3bf8b1dbaf509a"
 bytes  = 339359
 status = "external"
 group  = "AN"
-# What xtask/src/publish.rs's SPDX_IDS were each checked against,
+# What crates/xtask/src/publish.rs's SPDX_IDS were each checked against,
 # 2026-11-03: all fifteen are on it and none is deprecated. It lists TekHVC,
 # which the sidecar's LicenseRef-Tektronix-TekHVC predates.
 
@@ -24486,7 +24486,7 @@ group  = "C"
 # Read 2026-10-11 (round 2026-10-11c, lane scorc): 1997-2050, 4909-4918.
 # Committed 2026-10-12 for V10, as note V's pin table asks: copied from the
 # clean checkout at d9840f3 that built the libghostty-vt the V10 oracle
-# (bench-others/ghostty-oracle) links, equal to `git show
+# (tools/bench-others/ghostty-oracle) links, equal to `git show
 # d9840f3:src/terminal/Terminal.zig`. Read for V10: index 2316-2438,
 # reverseIndex 2516-2526, scrollDown 2619-2650, scrollUp 2659-, insertLines
 # 2951-3118, deleteLines 3125-. [[source: ghostty-terminal-9bbb9b2]] does not
@@ -25977,10 +25977,10 @@ sha256 = "05a8c47f02c197ce909ede7a86566925b98a7a983e6d8790af14b3a030e8412c"
 bytes  = 150744
 status = "external"
 group  = "J"
-# Committed byte for byte at `baud-font/tests/fonts/SourceCodeVF-Upright.otf`,
+# Committed byte for byte at `crates/baud-font/tests/fonts/SourceCodeVF-Upright.otf`,
 # never subset: the OFL reserves the name "Source", so a modified copy could not
 # keep it. Its licence, LICENSE.md at the same commit (7c940e28...), is
-# `baud-font/tests/fonts/SourceCodeVF-LICENSE.txt`. Its CFF2 table has two
+# `crates/baud-font/tests/fonts/SourceCodeVF-LICENSE.txt`. Its CFF2 table has two
 # ItemVariationData (k = 2 and 1), 412 `vsindex` and 3,241 `blend` in its glyph
 # charstrings (its 1,016 local subroutines carry 139 and 1,517 more); it has no
 # hints, no flex, no global subroutines and one Font DICT, which
@@ -26078,7 +26078,7 @@ bytes  = 6274
 status = "retrieved"
 group  = "J"
 # Read for the two ways HarfBuzz's emission differs from baud's sink, which
-# baud-font/tests/cff2.rs normalises and counts: a contour of a moveto alone is
+# crates/baud-font/tests/cff2.rs normalises and counts: a contour of a moveto alone is
 # never emitted, and a contour whose current point is not its start is closed by
 # a line_to to the start before close_path.
 
@@ -27449,7 +27449,7 @@ group  = "J"
 
 # The bell (BL): what a BEL does in the window on macOS -- the system's alert
 # sound, an attention request that bounces the Dock icon, and a raise that takes
-# no focus. Pinned 2026-10-14 for the BEL lane, `baud-app/src/bell.rs`.
+# no focus. Pinned 2026-10-14 for the BEL lane, `crates/baud-app/src/bell.rs`.
 
 [sources.apple-nsapplication-requestuserattention]
 key    = "apple-nsapplication-requestuserattention"
@@ -27976,7 +27976,7 @@ bytes  = 11056
 status = "external"
 group  = "J"
 # Read 2026-11-07 for what `baud --version` prints after its first line
-# (baud-app/src/version.rs); not committed -- the manual is under the GNU
+# (crates/baud-app/src/version.rs); not committed -- the manual is under the GNU
 # FDL. The page is generated, so a re-fetch need not hash the same.
 
 [sources.apple-cfbundleversion]
@@ -28477,7 +28477,7 @@ sha256 = "3be7edfc24aa866c12e80ccc43db0954311587d308aa7f7ce6d01db7c3c2968c"
 bytes  = 155033
 status = "external"
 group  = "Y"
-# Fetched and hash-checked by scripts/kitty-colour-oracle.sh. Not
+# Fetched and hash-checked by tools/scripts/kitty-colour-oracle.sh. Not
 # committed: kitty is GPL.
 
 [sources.kitty-wide-gamut-docs-1e1486e]
@@ -28834,7 +28834,7 @@ title  = "The probe's output for the rgbi: and device-independent specs (the man
 author = "baud research"
 year   = 2026
 venue  = "local capture or measurement"
-url    = "the specs xcms-specs.py printed (git blob cc086db0), now computed by baud-domain/tests/x_parse_color_specs.rs and held to this file's first column, through a C probe of XParseColor and XAllocColor, built with clang against nixpkgs libX11 1.8.13 and xorgproto 2025.1, run on Xvfb 21.1.24 -screen 0 1024x768x24 at DISPLAY=:85, 2026-10-18; Xvfb at depth 24 sets no XDCCC property"
+url    = "the specs xcms-specs.py printed (git blob cc086db0), now computed by crates/baud-domain/tests/x_parse_color_specs.rs and held to this file's first column, through a C probe of XParseColor and XAllocColor, built with clang against nixpkgs libX11 1.8.13 and xorgproto 2025.1, run on Xvfb 21.1.24 -screen 0 1024x768x24 at DISPLAY=:85, 2026-10-18; Xvfb at depth 24 sets no XDCCC property"
 file   = "xparsecolor-observed/xcms.out"
 sha256 = "1d3b42eec18d496f170523047099bb419302f87e131e0c732a633dca2e9ac259"
 bytes  = 52082
@@ -28853,7 +28853,7 @@ title  = "The probe's output for the rgb: and # specs (the manual's examples, pr
 author = "baud research"
 year   = 2026
 venue  = "local capture or measurement"
-url    = "the specs rgb-specs.py printed (git blob 23c5314e), now computed by baud-domain/tests/x_parse_color_specs.rs and held to this file's first column, through a C probe of XParseColor and XAllocColor, built with clang against nixpkgs libX11 1.8.13 and xorgproto 2025.1, run on Xvfb 21.1.24 -screen 0 1024x768x24 at DISPLAY=:85, 2026-10-18; the visual reported depth 24, bits_per_rgb 8, TrueColor"
+url    = "the specs rgb-specs.py printed (git blob 23c5314e), now computed by crates/baud-domain/tests/x_parse_color_specs.rs and held to this file's first column, through a C probe of XParseColor and XAllocColor, built with clang against nixpkgs libX11 1.8.13 and xorgproto 2025.1, run on Xvfb 21.1.24 -screen 0 1024x768x24 at DISPLAY=:85, 2026-10-18; the visual reported depth 24, bits_per_rgb 8, TrueColor"
 file   = "xparsecolor-observed/rgb.out"
 sha256 = "163172f16939b0368c878e95a8ac0048a628597d3175ba98ddcc804d3fa3a879"
 bytes  = 29964
@@ -29059,7 +29059,7 @@ sha256 = "316a4dc08e0c5ef818a1f063357c9c36302074a64b4e35ddba923f2aa19c980f"
 bytes  = 9051
 status = "external"
 group  = "Y"
-# Read 2026-10-17. oklchToSrgbGamutMap 101-178, labToOklch 181-230; run by scripts/kitty-colour-oracle.sh, never committed (note AR, O14).
+# Read 2026-10-17. oklchToSrgbGamutMap 101-178, labToOklch 181-230; run by tools/scripts/kitty-colour-oracle.sh, never committed (note AR, O14).
 
 [sources.kitty-colorspaces-test-go-1e1486e]
 key    = "kitty-colorspaces-test-go-1e1486e"
@@ -30343,7 +30343,7 @@ group  = "Y"
 # does.
 
 # How a bare URI is found in a terminal's text, read 2026-10-18 for the
-# bare-URL Cmd-click (`baud-app/src/link.rs`). RFC 3986 (`rfc3986`, above)
+# bare-URL Cmd-click (`crates/baud-app/src/link.rs`). RFC 3986 (`rfc3986`, above)
 # says what a URI is and that its wrappers are not part of it (Appendix C);
 # the rest is practice. The terminals' files are `external`: other
 # projects' source under GPL and MIT, as the group F comment says.
@@ -32118,7 +32118,7 @@ sha256 = "6e2d985b3653c3674df87731931b98a68e4dcb72d5ff90e457708e8e16ce818d"
 bytes  = 19358
 status = "retrieved"
 group  = "H"
-# Committed 2026-10-21 (lane b133): the governing text for baud-xkb/src/compose.rs.
+# Committed 2026-10-21 (lane b133): the governing text for crates/baud-xkb/src/compose.rs.
 
 [sources.libx11-compose-5]
 key    = "libx11-compose-5"
@@ -32132,7 +32132,7 @@ sha256 = "6901b1cd8a7dab84b96d720db0ee9b10e13bca06da00918edb8253d0e409cfd3"
 bytes  = 5789
 status = "retrieved"
 group  = "H"
-# Committed 2026-10-21 (lane b133): the governing text for baud-xkb/src/compose.rs.
+# Committed 2026-10-21 (lane b133): the governing text for crates/baud-xkb/src/compose.rs.
 
 [sources.libx11-compose-en-us]
 key    = "libx11-compose-en-us"
@@ -32147,7 +32147,7 @@ bytes  = 456142
 status = "retrieved"
 group  = "H"
 # Committed 2026-10-21 (lane b133): the system table a Linux box has under /usr/share/X11/locale, read by
-# baud-xkb/tests/compose.rs with libxkbcommon as the oracle. The url is the source, as built by libX11
+# crates/baud-xkb/tests/compose.rs with libxkbcommon as the oracle. The url is the source, as built by libX11
 # 1.8.13's nls rules (Compose.pre preprocessed); the copy was taken from the build output
 # /nix/store/iknyacmjgr9ickpc2sljgc54zfzj2d4n-libx11-1.8.13/share/X11/locale/en_US.UTF-8/Compose.
 
@@ -32164,7 +32164,7 @@ bytes  = 124875
 status = "retrieved"
 group  = "H"
 # Committed 2026-10-21 (lane b133): the system table a Linux box has under /usr/share/X11/locale, read by
-# baud-xkb/tests/compose.rs with libxkbcommon as the oracle. The url is the source, as built by libX11
+# crates/baud-xkb/tests/compose.rs with libxkbcommon as the oracle. The url is the source, as built by libX11
 # 1.8.13's nls rules (Compose.pre preprocessed); the copy was taken from the build output
 # /nix/store/iknyacmjgr9ickpc2sljgc54zfzj2d4n-libx11-1.8.13/share/X11/locale/el_GR.UTF-8/Compose.
 
@@ -32264,7 +32264,7 @@ sha256 = "a12ccca5990c34d2ebff4a823b73fdf0e6fb5af95bc464172ca8fa1dd533546c"
 bytes  = 15235
 status = "external"
 group  = "H"
-# Fetched 2026-10-21 (lane b133): practice for baud-present-wayland/src/ime.rs. Read, not copied.
+# Fetched 2026-10-21 (lane b133): practice for crates/baud-present-wayland/src/ime.rs. Read, not copied.
 
 [sources.gtk-3b438f05-imcontextwayland]
 key    = "gtk-3b438f05-imcontextwayland"
@@ -32278,7 +32278,7 @@ sha256 = "40f54a93200c436099cf511465ab9335a7e9e4f4dcbbb9c0a4597c862792f1d3"
 bytes  = 46796
 status = "external"
 group  = "H"
-# Fetched 2026-10-21 (lane b133 fix): practice for baud-present-wayland/src/ime.rs. Read, not copied.
+# Fetched 2026-10-21 (lane b133 fix): practice for crates/baud-present-wayland/src/ime.rs. Read, not copied.
 
 [sources.gtk-3b438f05-common-scss]
 key    = "gtk-3b438f05-common-scss"
@@ -32306,7 +32306,7 @@ sha256 = "b20eb6eb8e72f747e0f0a91488fb1cd16c468eb0af9a9dfd930db133de4fd97a"
 bytes  = 41569
 status = "external"
 group  = "H"
-# Fetched 2026-10-21 (lane b133 fix): practice for baud-present-wayland/src/ime.rs. Read, not copied.
+# Fetched 2026-10-21 (lane b133 fix): practice for crates/baud-present-wayland/src/ime.rs. Read, not copied.
 
 [sources.vte-0-80-vte-cc]
 key    = "vte-0-80-vte-cc"
@@ -32320,7 +32320,7 @@ sha256 = "955c55e456afc1a46d23dc1478473fc62f6be1d6f9490611123c533622ba8363"
 bytes  = 427878
 status = "external"
 group  = "H"
-# Fetched 2026-10-21 (lane b133 fix): practice for baud-present-wayland/src/ime.rs. Read, not copied.
+# Fetched 2026-10-21 (lane b133 fix): practice for crates/baud-present-wayland/src/ime.rs. Read, not copied.
 
 [sources.kitty-aef2bc23-wl-text-input]
 key    = "kitty-aef2bc23-wl-text-input"
@@ -32334,7 +32334,7 @@ sha256 = "1e85dfbda5697d470e4c6252a4c2077c91272268e3713de3e8bade87f6f51fea"
 bytes  = 7718
 status = "external"
 group  = "H"
-# Fetched 2026-10-21 (lane b133 fix): practice for baud-present-wayland/src/ime.rs. Read, not copied.
+# Fetched 2026-10-21 (lane b133 fix): practice for crates/baud-present-wayland/src/ime.rs. Read, not copied.
 
 [sources.libx11-xkbbind-c]
 key    = "libx11-xkbbind-c"
@@ -32439,7 +32439,7 @@ sha256 = "6b9e2ba951cab511bb8af5b1ee6d9eed117cc6542718c95f6596869de7295497"
 bytes  = 10146
 status = "external"
 group  = "J"
-# Fetched 2026-11-16 (A76): what baud-app/src/bus.rs calls for a print.
+# Fetched 2026-11-16 (A76): what crates/baud-app/src/bus.rs calls for a print.
 # Not committed: the file is LGPL, a licence no group here carries.
 
 [sources.xdg-portal-request]
@@ -32469,7 +32469,7 @@ sha256 = "ea56234bc02a4a8080c8a07908d3af8f443ccb22b63fd575062ac3ec9bc2e7dc"
 bytes  = 348639
 status = "external"
 group  = "J"
-# Fetched 2026-10-21 (lane b134): the wire protocol baud-app/src/bus.rs speaks. Read:
+# Fetched 2026-10-21 (lane b134): the wire protocol crates/baud-app/src/bus.rs speaks. Read:
 # the EXTERNAL text (3370-3390: "interoperable clients should prefer to send the
 # ASCII decimal string form of the integer Unix user ID", hex-encoded), the session
 # bus's address (5576-5590: DBUS_SESSION_BUS_ADDRESS, else "platform-specific
@@ -32477,7 +32477,7 @@ group  = "J"
 
 [sources.dbus-next-0-2-3]
 key    = "dbus-next-0-2-3"
-title  = "dbus-next 0.2.3 (Python), the wheel -- an independent D-Bus marshaller, the oracle for baud-app/fixtures/bus-*.hex"
+title  = "dbus-next 0.2.3 (Python), the wheel -- an independent D-Bus marshaller, the oracle for crates/baud-app/fixtures/bus-*.hex"
 author = "Tony Crisci and the dbus-next contributors (MIT)"
 year   = 2020
 venue  = "PyPI"
@@ -32506,7 +32506,7 @@ group  = "J"
 
 [sources.xdg-open-1]
 key    = "xdg-open-1"
-title  = "xdg-utils 1.2.1, scripts/desc/xdg-open.xml -- xdg-open(1): opens a file or URL in the user's preferred application; cannot handle an argument beginning with -; may run for a very long time"
+title  = "xdg-utils 1.2.1, tools/scripts/desc/xdg-open.xml -- xdg-open(1): opens a file or URL in the user's preferred application; cannot handle an argument beginning with -; may run for a very long time"
 author = "Kevin Krammer, Jeremy White and the xdg-utils contributors"
 year   = 2024
 venue  = "gitlab.freedesktop.org/xdg/xdg-utils @ 356c380a (v1.2.1)"
@@ -32550,7 +32550,7 @@ group  = "J"
 # when a paste is converted to ISO 8859-1. Read, not copied.
 
 # Search in the scrollback (lane b135, 2026-10-21): what a match of the
-# user's text is. `baud-domain/build/search.rs` reads CaseFolding.txt beside
+# user's text is. `crates/baud-domain/build/search.rs` reads CaseFolding.txt beside
 # `unicode-data`; the comparison is `unicode17-ch3`'s D145.
 [sources.unicode-casefolding]
 key    = "unicode-casefolding"
@@ -32878,7 +32878,7 @@ group  = "AX"
 # kitty's own file, removed from the repository on 2026-10-25 (kitty's reference
 # files were removed from the tree); this URL serves these bytes.
 # Read whole, 2026-10-21 (lane b139). The governing text for OSC 99; its keys table and
-# the query table are what baud-domain/src/vt/notify.rs implements key by key.
+# the query table are what crates/baud-domain/src/vt/notify.rs implements key by key.
 
 [sources.kitty-notifications-py]
 key    = "kitty-notifications-py"
@@ -33128,7 +33128,7 @@ sha256 = "16ae4115530a777d919fcc5346695abe1a5e4f7f2a65b1d02c658752a6920187"
 bytes  = 46707
 status = "external"
 group  = "AX"
-# What the Linux driver sends over the session bus (baud-app/src/bus.rs).
+# What the Linux driver sends over the session bus (crates/baud-app/src/bus.rs).
 
 [sources.libunity-launcher-entry]
 key    = "libunity-launcher-entry"
@@ -33368,7 +33368,7 @@ sha256 = "5bf9f02a6a5a1d7205b3e719e003c5427c0fa98f5210977f685b62b1cb77aee8"
 bytes  = 30394
 status = "external"
 group  = "H"
-# Fetched 2026-10-21 (lane b140): practice for baud-present-wayland/src/damage.rs. Read, not copied.
+# Fetched 2026-10-21 (lane b140): practice for crates/baud-present-wayland/src/damage.rs. Read, not copied.
 
 [sources.foot-2705e36-terminal]
 key    = "foot-2705e36-terminal"
@@ -33382,7 +33382,7 @@ sha256 = "27b3dfbf4cf953884632b1b798c876922fa2f11aaac68213ef1a42d4fb419544"
 bytes  = 148115
 status = "external"
 group  = "H"
-# Fetched 2026-11-01: practice for baud-present-wayland/src/scale.rs, the order a window's scale is taken in. Read, not copied.
+# Fetched 2026-11-01: practice for crates/baud-present-wayland/src/scale.rs, the order a window's scale is taken in. Read, not copied.
 
 # Fonts by family name (lane b141, 2026-10-21): how a family name is matched
 # and a family's styled faces picked, the font directories a scan reads, and
@@ -34674,7 +34674,7 @@ bytes  = 69599
 status = "external"
 group  = "AX"
 
-# Read 2026-10-22 (lane b163): the config watch (baud-app/src/reload.rs,
+# Read 2026-10-22 (lane b163): the config watch (crates/baud-app/src/reload.rs,
 # live.rs, the macOS and Linux drivers) -- the kernel interfaces it is
 # built on, the editor save it must see, and how five terminals reload.
 
@@ -35148,7 +35148,7 @@ sha256 = "39f39672dd932a5367b6d94e2f0d113395cc4e1e7fb8e7f3e55b28ada3b299c4"
 bytes  = 5688
 status = "external"
 group  = "AX"
-# No longer cited: baud-domain/src/interpolate.rs is written from the documentation. Kept as provenance for the version it replaced.
+# No longer cited: crates/baud-domain/src/interpolate.rs is written from the documentation. Kept as provenance for the version it replaced.
 
 [sources.iterm2-964a75d-expression-parser]
 key    = "iterm2-964a75d-expression-parser"
@@ -35766,7 +35766,7 @@ bytes  = 613261
 status = "external"
 group  = "J"
 # Read 2026-10-23 (lane b176). testorig.jpg, testprog.jpg and testimg.ppm
-# are in baud-domain/tests/ijg/ with the README the IJG's terms require;
+# are in crates/baud-domain/tests/ijg/ with the README the IJG's terms require;
 # the decoder's arithmetic is the IJG's (LICENSE, third-party.toml).
 
 [sources.libjpeg-turbo-314]
@@ -35782,9 +35782,9 @@ bytes  = 2528165
 status = "external"
 group  = "J"
 # Read 2026-11-01. testimgari.jpg and testimgint.jpg are in
-# baud-domain/tests/ijg/ with the README.ijg it carries; its cjpeg and djpeg
+# crates/baud-domain/tests/ijg/ with the README.ijg it carries; its cjpeg and djpeg
 # made and decoded the arithmetic, 12-bit and lossless fixtures
-# (baud-domain/tests/jpeg/README.md). It decodes the 6b references here to
+# (crates/baud-domain/tests/jpeg/README.md). It decodes the 6b references here to
 # 6b's bytes but for 4:4:0, which it upsamples by its own filter.
 
 [sources.richter-libjpeg]
@@ -35802,7 +35802,7 @@ group  = "J"
 # Read 2026-11-01; built as nixpkgs' libjpeg-tools, its predictive encoder's
 # lookup of a quantization table a lossless frame never defines answered
 # with the selector instead of an error. It wrote the arithmetic-coded and
-# subsampled lossless fixtures (baud-domain/tests/jpeg/README.md); none of
+# subsampled lossless fixtures (crates/baud-domain/tests/jpeg/README.md); none of
 # its code is in baud.
 
 [sources.firefox-774fa0c-swizzle]
@@ -35877,7 +35877,7 @@ text_sha256 = "a8b1c1f027e7724ec2672220d2eef05aace9f746abffb9d4edcf1e2e036f7d5d"
 text_bytes  = 5041
 status = "external"
 group  = "J"
-# Read and hash-verified for the bitmap decoder (baud-domain/src/bmp.rs); not
+# Read and hash-verified for the bitmap decoder (crates/baud-domain/src/bmp.rs); not
 # committed -- a vendor HTML page whose spec text is a fraction of its chrome.
 # Checked by its article text; `cargo xtask page-text` reproduces it.
 
@@ -35896,7 +35896,7 @@ text_sha256 = "cc6a77dd8962bb73fc39ebe11515a7b7f1c7101865a6e1a6597176ea212e0f19"
 text_bytes  = 3397
 status = "external"
 group  = "J"
-# Read and hash-verified for the bitmap decoder (baud-domain/src/bmp.rs); not
+# Read and hash-verified for the bitmap decoder (crates/baud-domain/src/bmp.rs); not
 # committed -- a vendor HTML page whose spec text is a fraction of its chrome.
 # Checked by its article text; `cargo xtask page-text` reproduces it.
 
@@ -35915,7 +35915,7 @@ text_sha256 = "f8936dc1ca62335fa9a1bb8d4949fb0cb0096cdb1c3d03a877e5d0a16a31c039"
 text_bytes  = 5169
 status = "external"
 group  = "J"
-# Read and hash-verified for the bitmap decoder (baud-domain/src/bmp.rs); not
+# Read and hash-verified for the bitmap decoder (crates/baud-domain/src/bmp.rs); not
 # committed -- a vendor HTML page whose spec text is a fraction of its chrome.
 # Checked by its article text; `cargo xtask page-text` reproduces it.
 
@@ -35934,7 +35934,7 @@ text_sha256 = "a86a7e6053ad66a6a083e98ace997cea7671c4f8ca0377226c7b49ebf8bad058"
 text_bytes  = 1113
 status = "external"
 group  = "J"
-# Read and hash-verified for the bitmap decoder (baud-domain/src/bmp.rs); not
+# Read and hash-verified for the bitmap decoder (crates/baud-domain/src/bmp.rs); not
 # committed -- a vendor HTML page whose spec text is a fraction of its chrome.
 # Checked by its article text; `cargo xtask page-text` reproduces it.
 
@@ -35953,7 +35953,7 @@ text_sha256 = "efcc8dd67f7cba70e29939b092a43b695a3f5155c14ed76568e7d3bbde34ffd5"
 text_bytes  = 1354
 status = "external"
 group  = "J"
-# Read and hash-verified for the bitmap decoder (baud-domain/src/bmp.rs); not
+# Read and hash-verified for the bitmap decoder (crates/baud-domain/src/bmp.rs); not
 # committed -- a vendor HTML page whose spec text is a fraction of its chrome.
 # Checked by its article text; `cargo xtask page-text` reproduces it.
 
@@ -35972,7 +35972,7 @@ text_sha256 = "90600439aaf352a2986eca35c245dc5a63f7560cd0a16f3761725c11ca0074ca"
 text_bytes  = 3190
 status = "external"
 group  = "J"
-# Read and hash-verified for the bitmap decoder (baud-domain/src/bmp.rs); not
+# Read and hash-verified for the bitmap decoder (crates/baud-domain/src/bmp.rs); not
 # committed -- a vendor HTML page whose spec text is a fraction of its chrome.
 # Checked by its article text; `cargo xtask page-text` reproduces it.
 
@@ -35991,7 +35991,7 @@ text_sha256 = "f0c706fbf2994fc07c9405b8eadbfa44eadb4878cd1e194a82dfff8e00573bb3"
 text_bytes  = 7835
 status = "external"
 group  = "J"
-# Read and hash-verified for the bitmap decoder (baud-domain/src/bmp.rs); not
+# Read and hash-verified for the bitmap decoder (crates/baud-domain/src/bmp.rs); not
 # committed -- a vendor HTML page whose spec text is a fraction of its chrome.
 # Checked by its article text; `cargo xtask page-text` reproduces it.
 
@@ -36010,7 +36010,7 @@ text_sha256 = "4a428b67591b6fb3bf26ecb2c2ce9b93fdfe6b9d56d2796cf087e8b87ea19819"
 text_bytes  = 9960
 status = "external"
 group  = "J"
-# Read and hash-verified for the bitmap decoder (baud-domain/src/bmp.rs); not
+# Read and hash-verified for the bitmap decoder (crates/baud-domain/src/bmp.rs); not
 # committed -- a vendor HTML page whose spec text is a fraction of its chrome.
 # Checked by its article text; `cargo xtask page-text` reproduces it.
 
@@ -36029,7 +36029,7 @@ text_sha256 = "11b357332b77ba40eb55f231d3d40c7cf914d4ae913410961fcc836a3a35910e"
 text_bytes  = 13423
 status = "external"
 group  = "J"
-# Read and hash-verified for the bitmap decoder (baud-domain/src/bmp.rs); not
+# Read and hash-verified for the bitmap decoder (crates/baud-domain/src/bmp.rs); not
 # committed -- a vendor HTML page whose spec text is a fraction of its chrome.
 # Checked by its article text; `cargo xtask page-text` reproduces it.
 
@@ -36048,7 +36048,7 @@ text_sha256 = "0e77188893353f264df0524de6035dee183feb6e8b7fae519f6e4dd7acc3b55e"
 text_bytes  = 2575
 status = "external"
 group  = "J"
-# Read and hash-verified for the bitmap decoder (baud-domain/src/bmp.rs); not
+# Read and hash-verified for the bitmap decoder (crates/baud-domain/src/bmp.rs); not
 # committed -- a vendor HTML page whose spec text is a fraction of its chrome.
 # Checked by its article text; `cargo xtask page-text` reproduces it.
 
@@ -36067,7 +36067,7 @@ text_sha256 = "e41dc2119356c195890cb579881c0cbd0ea656bb896330b9d3f6765a1cf4bc10"
 text_bytes  = 3597
 status = "external"
 group  = "J"
-# Read and hash-verified for the bitmap decoder (baud-domain/src/bmp.rs); not
+# Read and hash-verified for the bitmap decoder (crates/baud-domain/src/bmp.rs); not
 # committed -- a vendor HTML page whose spec text is a fraction of its chrome.
 # Checked by its article text; `cargo xtask page-text` reproduces it.
 
@@ -36086,7 +36086,7 @@ text_sha256 = "695751c93d602119e2675b89cd92bdb82a66706968aa6aeefa7f48f27d64ad56"
 text_bytes  = 3106
 status = "external"
 group  = "J"
-# Read and hash-verified for the bitmap decoder (baud-domain/src/bmp.rs); not
+# Read and hash-verified for the bitmap decoder (crates/baud-domain/src/bmp.rs); not
 # committed -- a vendor HTML page whose spec text is a fraction of its chrome.
 # Checked by its article text; `cargo xtask page-text` reproduces it.
 
@@ -36105,7 +36105,7 @@ text_sha256 = "065127b683f1a88dbfe631180c6594adf8985f63c650db2306fa7ec48b53548e"
 text_bytes  = 1697
 status = "external"
 group  = "J"
-# Read and hash-verified for the bitmap decoder (baud-domain/src/bmp.rs); not
+# Read and hash-verified for the bitmap decoder (crates/baud-domain/src/bmp.rs); not
 # committed -- a vendor HTML page whose spec text is a fraction of its chrome.
 # Checked by its article text; `cargo xtask page-text` reproduces it.
 
@@ -36121,7 +36121,7 @@ sha256 = "5e0b8d4d95b369f935ef15ddc48ffb779c09428caef8d5539fefde37d5ab4eeb"
 bytes  = 2537
 status = "external"
 group  = "J"
-# Read and hash-verified for the bitmap decoder (baud-domain/src/bmp.rs); not
+# Read and hash-verified for the bitmap decoder (crates/baud-domain/src/bmp.rs); not
 # committed. The rendered page's article text is under the page check's floor,
 # so the source it is rendered from is pinned at its commit instead.
 
@@ -36137,7 +36137,7 @@ sha256 = "8044ec9b1c380de3e72081ebea6002b48316d9999408e456a1b8201561f1cdad"
 bytes  = 2235
 status = "external"
 group  = "J"
-# Read and hash-verified for the bitmap decoder (baud-domain/src/bmp.rs); not
+# Read and hash-verified for the bitmap decoder (crates/baud-domain/src/bmp.rs); not
 # committed. The rendered page's article text is under the page check's floor,
 # so the source it is rendered from is pinned at its commit instead.
 
@@ -37514,7 +37514,7 @@ group  = "J"
 # not prescriptive. Considerable variation is to be expected in actual fonts."; the
 # reference glyphs at 05D3, 05D5, 05D6 and 05E8 (page 2 rendered at 150 dpi).
 # b207 (2026-10-25): the reference glyph of U+20AA, which baud's embedded font now
-# draws (baud-app/fonts/glyphs/languages/hebrew/stage/). Not committed: the
+# draws (crates/baud-app/fonts/glyphs/languages/hebrew/stage/). Not committed: the
 # charts' Terms of Use forbid copies for public distribution.
 [sources.unicode18-chart-20a0]
 key    = "unicode18-chart-20a0"
@@ -38182,7 +38182,7 @@ group  = "C"
 # Fetched and read 2026-10-28, not committed. Line 1384: "#* Manually set which boxes
 # to show. Available values are "cpu mem net proc" and "gpu0" through "gpu5", separate
 # values with whitespace."; line 1577: "-c, --config <file>     Path to a config file".
-# The btop.conf tests/recordings/README.md describes is this version's
+# The btop.conf tools/tests/recordings/README.md describes is this version's
 # --default-config with shown_boxes, disks_filter and show_battery changed.
 [sources.btop-config-147]
 key    = "btop-config-147"
@@ -38350,7 +38350,7 @@ bytes  = 6895
 status = "retrieved"
 group  = "BE"
 # Committed under docs/research/sources/ -- a protocol file. The requests
-# baud-bench/src/linux/pointer.rs spells, in their order: opcodes 1 to 8.
+# crates/baud-bench/src/linux/pointer.rs spells, in their order: opcodes 1 to 8.
 
 [sources.virtual-keyboard-unstable-v1]
 key    = "virtual-keyboard-unstable-v1"
@@ -38365,7 +38365,7 @@ bytes  = 4937
 status = "retrieved"
 group  = "BE"
 # Committed under docs/research/sources/ -- a protocol file. The requests
-# baud-bench/src/linux/pointer.rs spells: keymap, key, modifiers, destroy.
+# crates/baud-bench/src/linux/pointer.rs spells: keymap, key, modifiers, destroy.
 
 [sources.wlr-screencopy-unstable-v1]
 key    = "wlr-screencopy-unstable-v1"
@@ -38380,7 +38380,7 @@ bytes  = 10166
 status = "retrieved"
 group  = "BE"
 # Committed under docs/research/sources/ -- a protocol file, version 3. What
-# baud-bench/src/linux/keypixel.rs spells: the manager's capture_output_region
+# crates/baud-bench/src/linux/keypixel.rs spells: the manager's capture_output_region
 # (1), the frame's destroy (1) and copy_with_damage (2), and its events buffer
 # (0), ready (2), failed (3) and buffer_done (6).
 
@@ -38396,7 +38396,7 @@ sha256 = "e11d24e1d40696f6054011c8d023821dc941ffcf662f57f744a46b68a1c774c9"
 bytes  = 115573
 status = "external"
 group  = "BU"
-# Fetched 2026-10-29 for the pointer over a link (baud-app/src/link.rs,
+# Fetched 2026-10-29 for the pointer over a link (crates/baud-app/src/link.rs,
 # Hover::pointer). Read, not copied.
 
 [sources.apple-nscursor-pointinghand]
@@ -39018,7 +39018,7 @@ sha256 = "27788af56bfd81c64b47c639f888fff0b4320ac7e23a84308ec1d228c8ae8e9b"
 bytes  = 2739
 status = "external"
 group  = "C"
-# Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
+# Fetched 2026-10-31 for baud's shell integration (crates/baud-app/src/shell.rs);
 # hash recorded only, not committed. Read, not copied.
 
 [sources.zsh-5-9-init-c]
@@ -39033,7 +39033,7 @@ sha256 = "f361b711378f1cf05a69c2b6930859b0a4c669fb2b7f624a89a083e540d1cfd9"
 bytes  = 46550
 status = "external"
 group  = "C"
-# Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
+# Fetched 2026-10-31 for baud's shell integration (crates/baud-app/src/shell.rs);
 # hash recorded only, not committed. Read, not copied.
 
 [sources.zsh-5-9-newuser-c]
@@ -39048,7 +39048,7 @@ sha256 = "14c25f1601c6ac76b37b08c72a4c8ae889e247062e4a7f7bacf8999b0bc637aa"
 bytes  = 2593
 status = "external"
 group  = "C"
-# Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
+# Fetched 2026-10-31 for baud's shell integration (crates/baud-app/src/shell.rs);
 # hash recorded only, not committed. Read, not copied.
 
 [sources.zsh-5-9-func]
@@ -39063,7 +39063,7 @@ sha256 = "1e7cd75cab246643574d7a88999055af787e012009bb2b9a77963b6bcee696c8"
 bytes  = 16180
 status = "external"
 group  = "C"
-# Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
+# Fetched 2026-10-31 for baud's shell integration (crates/baud-app/src/shell.rs);
 # hash recorded only, not committed. Read, not copied.
 
 [sources.zsh-5-9-prompt]
@@ -39078,7 +39078,7 @@ sha256 = "37e399550fe751045f7518cba9a9a57c1ff8fd5970688590a4c694b333077f15"
 bytes  = 15823
 status = "external"
 group  = "C"
-# Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
+# Fetched 2026-10-31 for baud's shell integration (crates/baud-app/src/shell.rs);
 # hash recorded only, not committed. Read, not copied.
 
 [sources.bash-5-3-man]
@@ -39093,7 +39093,7 @@ sha256 = "23f7bd155c57125864094d2cb4e1f6ec9f8c2ea002e18bebeb3ed4bcfaad1971"
 bytes  = 392678
 status = "external"
 group  = "C"
-# Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
+# Fetched 2026-10-31 for baud's shell integration (crates/baud-app/src/shell.rs);
 # hash recorded only, not committed. Read, not copied.
 
 [sources.ghostty-b58ef1d-shell-integration-zig]
@@ -39108,7 +39108,7 @@ sha256 = "a18e87896e0057ca68a0c8205c165274c837f028515b03da28c52807c8d28e4d"
 bytes  = 35468
 status = "external"
 group  = "C"
-# Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
+# Fetched 2026-10-31 for baud's shell integration (crates/baud-app/src/shell.rs);
 # hash recorded only, not committed. Read, not copied.
 
 [sources.kitty-6d5d0c4-shell-integration-py]
@@ -39123,7 +39123,7 @@ sha256 = "40525f51d6025ba5d109e5dec6655b44a552c35a12a939663fdb4ac9edb84429"
 bytes  = 8590
 status = "external"
 group  = "C"
-# Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
+# Fetched 2026-10-31 for baud's shell integration (crates/baud-app/src/shell.rs);
 # hash recorded only, not committed. Read, not copied.
 
 [sources.fish-cmd-fish]
@@ -39138,7 +39138,7 @@ sha256 = "fb7a08bfb28cf1a4c1ebe39705adfcf50c64cfe9e9a5c0ead3df9d539c5bb30d"
 bytes  = 4656
 status = "external"
 group  = "C"
-# Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
+# Fetched 2026-10-31 for baud's shell integration (crates/baud-app/src/shell.rs);
 # hash recorded only, not committed. Read, not copied.
 
 [sources.fish-language]
@@ -39153,7 +39153,7 @@ sha256 = "edfa2215a227f28f54e376fce453da45f964a395d041332dbc25aa2833ad52bb"
 bytes  = 108671
 status = "external"
 group  = "C"
-# Fetched 2026-10-31 for baud's shell integration (baud-app/src/shell.rs);
+# Fetched 2026-10-31 for baud's shell integration (crates/baud-app/src/shell.rs);
 # hash recorded only, not committed. Read, not copied.
 
 [sources.weston-16-fifo]
@@ -39273,7 +39273,7 @@ bytes  = 10843
 status = "external"
 group  = "AX"
 # Fetched 2026-11-01 for RequestAttention=fireworks; hash recorded only, not
-# committed (GPL-2.0). Read, not copied: baud-render/src/fireworks.rs takes
+# committed (GPL-2.0). Read, not copied: crates/baud-render/src/fireworks.rs takes
 # its numbers and draws its own star. PTYSession.m (screenRequestAttention:,
 # iterm2-964a75d-ptysession) calls PTYTextView's showFireworks, which opens
 # the overlay window, holds it 1 s and fades its alpha with the animator, and
@@ -39527,11 +39527,11 @@ bytes  = 1245
 status = "retrieved"
 group  = "C"
 
-# The README demo's guard (baud-app/examples/demo/guard.rs): lines 143-145,
+# The README demo's guard (crates/baud-app/examples/demo/guard.rs): lines 143-145,
 # kCGWindowListOptionOnScreenOnly lists the windows "ordered from front to
 # back", so the first of layer 0 is the frontmost ordinary window; lines
 # 66-69, kCGWindowBounds "is a CFDictionary" (declared at line 71). Its
-# --record (baud-app/examples/demo/mac.rs): lines 294-300,
+# --record (crates/baud-app/examples/demo/mac.rs): lines 294-300,
 # CGPreflightScreenCaptureAccess "Returns whether the current process
 # already has permission to capture the contents of the screen, without
 # prompting the user".
@@ -39582,7 +39582,7 @@ bytes  = 40681
 status = "external"
 group  = "O"
 
-# The README demo's refusal on the session (baud-app/examples/demo/guard.rs,
+# The README demo's refusal on the session (crates/baud-app/examples/demo/guard.rs,
 # mac.rs): lines 19-23, CGSessionCopyCurrentDictionary returns "a window
 # server session dictionary, or NULL if the caller is not running within a
 # Quartz GUI session or the window server is disabled"; lines 43-46,
@@ -40066,7 +40066,7 @@ sha256 = "6f6376c6ed2960ea8a963cd7387ec9d76e3f629125bc33d1fdcd7eb7012f7bbf"
 bytes  = 5622857
 status = "external"
 group  = "GP"
-# The archive baud-app/fonts/jetbrains-mono/SOURCE pins. Not committed: the
+# The archive crates/baud-app/fonts/jetbrains-mono/SOURCE pins. Not committed: the
 # generator fetches it, refuses it unless it and the Medium inside hash as
 # here, and keeps nothing of it but the outlines it traces.
 
@@ -40261,7 +40261,7 @@ status = "external"
 group  = "BL"
 # Fetched and read 2026-11-04, not committed (Apple's documentation): the
 # Discussion. The README film's recorder films this display
-# (scripts/trail-record.swift); NSScreen.screens' first is the same one,
+# (tools/scripts/trail-record.swift); NSScreen.screens' first is the same one,
 # the screen whose origin is (0, 0) (apple-nsscreen-screens).
 [sources.sdk27-nsscreen-h]
 key    = "sdk27-nsscreen-h"
@@ -40472,7 +40472,7 @@ group  = "C"
 # begin a sequence of non-printing characters"; 2096-2098 toggle the flag
 # and 2111 counts a character into the prompt's width only outside it.
 
-# The demo's hello.txt, baud defined in six languages (baud-app/examples/demo/session.rs).
+# The demo's hello.txt, baud defined in six languages (crates/baud-app/examples/demo/session.rs).
 [sources.itu-r-v607-3-ar]
 key    = "itu-r-v607-3-ar"
 title  = "ITU-R Recommendation V.607-3, Terms and symbols for information quantities in telecommunications -- Arabic, PDF"
@@ -40684,7 +40684,7 @@ group  = "AN"
 # table the learn.microsoft.com article-text pins were decoded with;
 # `cargo xtask page-text` decodes with this file.
 
-# **The build's name**: `<package version>+<commit>` (`baud-app/src/build_id.rs`).
+# **The build's name**: `<package version>+<commit>` (`crates/baud-app/src/build_id.rs`).
 # Hash-verified, not committed: a page of the web and a vendor header.
 [sources.semver]
 key    = "semver"
@@ -40828,7 +40828,7 @@ group  = "FM"
 # redistributing it with no grant. It was read as
 # elementary-wallpapers-debian-copyright-ba8b274.txt, and the digest is of
 # that copy.
-# Read 2026-11-07 for assets/demo/LICENSES.md; the branch's head resolved
+# Read 2026-11-07 for docs/assets/demo/LICENSES.md; the branch's head resolved
 # through the GitHub API that day. "Unsplash photos published before June 8,
 # 2017 are CC0 (public domain):" heads a list holding "Canazei Granite Ridges
 # <https://unsplash.com/photos/yrwpJwDNSHE>". The repository names no licence
@@ -40861,7 +40861,7 @@ sha256 = "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499"
 bytes  = 7048
 status = "retrieved"
 group  = "FM"
-# Read 2026-11-07 for assets/demo/LICENSES.md (served with last-modified
+# Read 2026-11-07 for docs/assets/demo/LICENSES.md (served with last-modified
 # 2023-09-11). Section 2 waives the rights "for any purpose whatsoever,
 # including without limitation commercial, advertising or promotional
 # purposes". Kept under CC0 itself (cc-policies).
@@ -40894,12 +40894,12 @@ sha256 = "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2"
 bytes  = 4301
 status = "retrieved"
 group  = "FM"
-# Read 2026-11-07 for assets/demo/LICENSES.md. It sits beside
+# Read 2026-11-07 for docs/assets/demo/LICENSES.md. It sits beside
 # fonts/NotoColorEmoji.ttf, and the README names it for the fonts
 # (noto-emoji-readme-v2-051). The repository's root LICENSE at the same
 # commit is the OFL 1.1 too, with "Copyright 2013 Google LLC"; it hashes to
 # 500bb1ccf43df7bbb522112f9133a52b16e1c35e809632f5d8609b179152de5b, the
-# copy at baud-font/tests/fonts/NotoColorEmoji-LICENSE.txt.
+# copy at crates/baud-font/tests/fonts/NotoColorEmoji-LICENSE.txt.
 
 [sources.noto-emoji-readme-v2-051]
 key    = "noto-emoji-readme-v2-051"
@@ -40930,7 +40930,7 @@ sha256 = "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2"
 bytes  = 4301
 status = "retrieved"
 group  = "FM"
-# Read 2026-11-07 for assets/demo/LICENSES.md. Byte for byte the same text as
+# Read 2026-11-07 for docs/assets/demo/LICENSES.md. Byte for byte the same text as
 # noto-emoji-fonts-license; it carries no copyright line. Sans/ has no
 # LICENSE of its own (404 that day); Sans/README-third_party.md names this one
 # (noto-cjk-sans-readme-third-party).
@@ -40966,7 +40966,7 @@ sha256 = "f2095b08bed08b23a6fe26112fcd679a2bee3f002eef077eb05d215ed1051bd8"
 bytes  = 4374
 status = "retrieved"
 group  = "FM"
-# Read 2026-11-07 for assets/demo/LICENSES.md: "Copyright 2022 The Noto
+# Read 2026-11-07 for docs/assets/demo/LICENSES.md: "Copyright 2022 The Noto
 # Project Authors (https://github.com/notofonts/)", then the OFL 1.1. The
 # commit's git tree, listed whole through the GitHub API that day, has no
 # licence file anywhere under the directories of Noto Naskh Arabic, Noto Sans
@@ -41021,7 +41021,7 @@ sha256 = "2af83c37e54f5156ee4cce2ef2f87c611162b9ec4111a3dce156e7649d302928"
 bytes  = 1071
 status = "external"
 group  = "FM"
-# Read 2026-11-08 for assets/demo/LICENSES.md: "MIT License", "Copyright (c)
+# Read 2026-11-08 for docs/assets/demo/LICENSES.md: "MIT License", "Copyright (c)
 # 2026 Hải Nguyễn", then the MIT grant and its one condition, "The above
 # copyright notice and this permission notice shall be included in all copies
 # or substantial portions of the Software." The commit's git tree, listed whole
@@ -41058,7 +41058,7 @@ sha256 = "77efcac668e66b674e30e6c44979127f8b2d91535b1ce074f4e3eced798dcd95"
 bytes  = 24993
 status = "external"
 group  = "FM"
-# Read 2026-11-08 for baud-app/examples/demo/sound.rs: "`timing` is an array
+# Read 2026-11-08 for crates/baud-app/examples/demo/sound.rs: "`timing` is an array
 # of `[start_ms, end_ms]` pairs within the audio file"; "One segment ... plays
 # when the key goes down. Releasing the key is silent."; "Two segments ...
 # play the first when the key goes down and the second when it comes up."; "A
@@ -41077,7 +41077,7 @@ sha256 = "c75a516843bd65e6375e37a3652160ac1da4201810e11ac701bc4cc2b0270919"
 bytes  = 43372
 status = "external"
 group  = "FM"
-# Read 2026-11-08 for baud-app/examples/demo/sound.rs. handle_key_event plays
+# Read 2026-11-08 for crates/baud-app/examples/demo/sound.rs. handle_key_event plays
 # only `if let Some((start, end)) = lookup_timing(&self.key_map, code, down)`,
 # with no other arm, and lookup_timing returns None for a code the map does
 # not hold: a key the pack does not define plays nothing. play_segment cuts at
@@ -41491,7 +41491,7 @@ group  = "TB"
 
 # Group WF, the window's facts: the notifications that change a window's
 # frame, its screen, its backing scale and whether it is minimized, which
-# XTWINOPS's reports and XTQALLOWED answer from (baud-app/src/app.rs,
+# XTWINOPS's reports and XTQALLOWED answer from (crates/baud-app/src/app.rs,
 # poll_window). The pages name the object each is posted with and whether it
 # carries a userInfo; none says whether a move or a resize posts during a
 # live drag or only at its end.
@@ -41624,7 +41624,7 @@ sha256 = "c7a1a8bb711e44e4a19ca0a3c943f13a8e53d5fbb6c752e08cb186d5995a9d40"
 bytes  = 14762
 status = "external"
 group  = "AA"
-# Read 2026-11-14 for the Linux desktop entry's X-TerminalArgExec (baud-app/tests/install.rs); hash-verified, not
+# Read 2026-11-14 for the Linux desktop entry's X-TerminalArgExec (crates/baud-app/tests/install.rs); hash-verified, not
 # committed -- a file at a pinned commit. Re-fetch the url and compare.
 
 [sources.gtk-4241-gdksettings-wayland]
@@ -41639,7 +41639,7 @@ sha256 = "601835cfa729761bb02039f91de4e4e7703c422800d4e29722930389452704f4"
 bytes  = 23827
 status = "external"
 group  = "J"
-# Read 2026-11-14 for Linux point sizing (baud-app/src/typesize.rs); hash-verified, not committed -- a
+# Read 2026-11-14 for Linux point sizing (crates/baud-app/src/typesize.rs); hash-verified, not committed -- a
 # source file at a pinned tag. Re-fetch the url and compare.
 
 [sources.gtk-4241-cssstyleproperty]
@@ -41654,7 +41654,7 @@ sha256 = "d0c80861a0ecbd83c30aca1b8337d845d1c0b6a0eeb4272ff91a752806a19a43"
 bytes  = 67261
 status = "external"
 group  = "J"
-# Read 2026-11-14 for Linux point sizing (baud-app/src/typesize.rs); hash-verified, not committed -- a
+# Read 2026-11-14 for Linux point sizing (crates/baud-app/src/typesize.rs); hash-verified, not committed -- a
 # source file at a pinned tag. Re-fetch the url and compare.
 
 [sources.gtk-4241-cssnumbervalue]
@@ -41669,7 +41669,7 @@ sha256 = "bc84e5e5c0aa1480bb22b1e6bd45537cd09bcc57fe1cff752c853b763b275038"
 bytes  = 57303
 status = "external"
 group  = "J"
-# Read 2026-11-14 for Linux point sizing (baud-app/src/typesize.rs); hash-verified, not committed -- a
+# Read 2026-11-14 for Linux point sizing (crates/baud-app/src/typesize.rs); hash-verified, not committed -- a
 # source file at a pinned tag. Re-fetch the url and compare.
 
 [sources.qtbase-6120-qwaylandscreen]
@@ -41684,7 +41684,7 @@ sha256 = "45f2f45e977ba0668b926b3bb6c33283b3906bd4061b6471f2ead01f9c9383ff"
 bytes  = 11982
 status = "external"
 group  = "J"
-# Read 2026-11-14 for Linux point sizing (baud-app/src/typesize.rs); hash-verified, not committed -- a
+# Read 2026-11-14 for Linux point sizing (crates/baud-app/src/typesize.rs); hash-verified, not committed -- a
 # source file at a pinned tag. Re-fetch the url and compare.
 
 [sources.qtbase-6120-qfontdatabase]
@@ -41699,7 +41699,7 @@ sha256 = "664bddb84c56444ee0bdad5b0c21691b27c55e3b1a04fd9343457401eba27556"
 bytes  = 107138
 status = "external"
 group  = "J"
-# Read 2026-11-14 for Linux point sizing (baud-app/src/typesize.rs); hash-verified, not committed -- a
+# Read 2026-11-14 for Linux point sizing (crates/baud-app/src/typesize.rs); hash-verified, not committed -- a
 # source file at a pinned tag. Re-fetch the url and compare.
 
 [sources.fontconfig-2183-fcdefault]
@@ -41714,7 +41714,7 @@ sha256 = "cc78020d718da60e5cb0e7112bd2cd5e5eef27cd0a010146c5b92107bb16cecd"
 bytes  = 11614
 status = "external"
 group  = "J"
-# Read 2026-11-14 for Linux point sizing (baud-app/src/typesize.rs); hash-verified, not committed -- a
+# Read 2026-11-14 for Linux point sizing (crates/baud-app/src/typesize.rs); hash-verified, not committed -- a
 # source file at a pinned tag. Re-fetch the url and compare.
 
 [sources.openssh-9_9p2-ssh-c]
@@ -41729,7 +41729,7 @@ sha256 = "7dcdd99a7ff66ec0386f1aea76e30cf9914ac84d7bba8eca83cd6c0ec8c47c0d"
 bytes  = 73830
 status = "external"
 group  = "BU"
-# Read 2026-11-08 for baud-app/src/ssh.rs. Line 747-748: `again: while ((opt
+# Read 2026-11-08 for crates/baud-app/src/ssh.rs. Line 747-748: `again: while ((opt
 # = getopt(ac, av, "1246ab:c:e:fgi:kl:m:no:p:qstvx" "AB:CD:E:F:GI:J:KL:MNO:
 # P:Q:R:S:TVw:W:XYy")) != -1)`. 1106-1107: `if (optind > 1 &&
 # strcmp(av[optind - 1], "--") == 0) opt_terminated = 1;`. 1112: with
@@ -41751,7 +41751,7 @@ sha256 = "2651aa713ec62ac16b8e476703331581a41fb9b9e75bf7eda6a1a707e5175878"
 bytes  = 68571
 status = "external"
 group  = "BU"
-# Read 2026-11-08 for baud-app/src/ssh.rs. parse_uri, 1033-1121:
+# Read 2026-11-08 for crates/baud-app/src/ssh.rs. parse_uri, 1033-1121:
 # `scheme://`, then an optional user before `@` with `;` connection
 # parameters ignored and an empty user refused ("Empty username"), then
 # the mandatory host by hpdelim2 (`[...]` for an IPv6 literal), then
@@ -41769,7 +41769,7 @@ sha256 = "bbfab46d48504011514f1cae51a7821663a599fbc41e11453d350b9ccd720878"
 bytes  = 108374
 status = "external"
 group  = "BU"
-# Read 2026-11-08 for baud-app/src/ssh.rs. dump_client_config, 3548-:
+# Read 2026-11-08 for crates/baud-app/src/ssh.rs. dump_client_config, 3548-:
 # "Most interesting options first: user, host, port", then each keyword as
 # `printf("%s %s\n", lookup_opcode_name(code), ...)` (dump_cfg_string,
 # 3480-3485, which prints nothing for an unset string, so `remotecommand`

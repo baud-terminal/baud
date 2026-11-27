@@ -1,6 +1,6 @@
 //! Two variable fonts whose glyphs' left side bearings are not their xMin.
 //!
-//! Writes `baud-font/tests/var/bearing-cases.ttf`, with `head` flags bit 1
+//! Writes `crates/baud-font/tests/var/bearing-cases.ttf`, with `head` flags bit 1
 //! clear, and `bearing-cases-bit1.ttf`, the same font with bit 1 set. The
 //! left side bearing point -- the first phantom point, the origin -- sits at
 //! `pp1 = xMin - lsb` (`[[source: ms-opentype-hmtx]]`,
@@ -46,7 +46,7 @@
 //! Axis: wght 100-400-900, no avar; only the 900 side carries deltas, so
 //! 650 is half of each. Deterministic: the head timestamps are fixed.
 //! baud's own font, under the repository's licence
-//! (`baud-font/tests/licences.rs` lists it).
+//! (`crates/baud-font/tests/licences.rs` lists it).
 
 use write_fonts::tables::glyf::{
     Anchor, Bbox, Component, ComponentFlags, CompositeGlyph, Glyph, Transform,
@@ -225,7 +225,13 @@ fn build(flags: u16) -> Vec<u8> {
 /// Bit 0, the baseline at y = 0, in both; bit 1 in the second alone.
 pub fn fonts() -> Vec<(&'static str, Vec<u8>)> {
     vec![
-        ("baud-font/tests/var/bearing-cases.ttf", build(0x0001)),
-        ("baud-font/tests/var/bearing-cases-bit1.ttf", build(0x0003)),
+        (
+            "crates/baud-font/tests/var/bearing-cases.ttf",
+            build(0x0001),
+        ),
+        (
+            "crates/baud-font/tests/var/bearing-cases-bit1.ttf",
+            build(0x0003),
+        ),
     ]
 }

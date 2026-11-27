@@ -24,7 +24,7 @@ use crate::{BINDING, FREETYPE, HARFBUZZ, Oracle, contours_hb, fmt, ft, ft_row, h
 /// `vertical.txt`.
 pub const ORACLE: Oracle = Oracle {
     name: "vertical",
-    file: "baud-font/tests/var/vertical.txt",
+    file: "crates/baud-font/tests/var/vertical.txt",
     lines,
 };
 
@@ -47,7 +47,7 @@ pub fn without_vertical_metrics(font: &[u8]) -> Vec<u8> {
 fn lines(root: &Path) -> Vec<String> {
     let lib = ft::Library::new();
     crate::pinned(Some(&lib));
-    let path = root.join("baud-font/tests/var/vertical-cases.ttf");
+    let path = root.join("crates/baud-font/tests/var/vertical-cases.ttf");
     let blob = hb::Blob::from_file(&path);
     let hface = hb::Face::new(&blob);
     let names: Vec<String> = {

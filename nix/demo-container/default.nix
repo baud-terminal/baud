@@ -1,5 +1,5 @@
 # **The container the README session ssh's into**
-# (`baud-app/examples/demo/container.rs`): busybox's tools, bash as the
+# (`crates/baud-app/examples/demo/container.rs`): busybox's tools, bash as the
 # login shell with starship drawing baud's prompt, OpenSSH's sshd,
 # fastfetch, btop and helix, from aarch64-linux nixpkgs, in an image made by
 # nixpkgs' own `dockerTools.streamLayeredImage`, with baud's mark as a
@@ -20,12 +20,12 @@
 #
 # The text of each file is beside this one, and the demo's tests read the
 # same files (`include_str!`). The mark is the repository's own
-# `assets/logo/baud-mark-amber-tight.svg`, the ❯ and the cursor tight to
+# `docs/assets/logo/baud-mark-amber-tight.svg`, the ❯ and the cursor tight to
 # their height, drawn to a PNG 600 pixels wide by librsvg: fastfetch sends
 # a picture's file as it is, in iTerm2's inline protocol, and this
 # fastfetch decodes none itself.
 #
-# The prompt's config is the repository's `assets/starship/baud.toml` with
+# The prompt's config is the repository's `docs/assets/starship/baud.toml` with
 # three modules off -- the user and the host it shows over ssh on a line
 # of their own, and the container's name it shows in docker -- so the
 # prompt there reads `~ ❯`, as baud's own shell does. The session's badge
@@ -40,7 +40,7 @@
 let
   inherit (linux) busybox openssh fastfetch-unwrapped btop starship bashInteractive helix;
   starshipConfig = (pkgs.formats.toml { }).generate "starship.toml" (
-    pkgs.lib.recursiveUpdate (pkgs.lib.importTOML ../../assets/starship/baud.toml) {
+    pkgs.lib.recursiveUpdate (pkgs.lib.importTOML ../../docs/assets/starship/baud.toml) {
       username.disabled = true;
       hostname.disabled = true;
       container.disabled = true;
@@ -69,7 +69,7 @@ pkgs.dockerTools.streamLayeredImage {
     install -m 0644 ${./btop.conf} home/jordan/.config/btop/btop.conf
     install -m 0644 ${./helix.toml} home/jordan/.config/helix/config.toml
     ${pkgs.librsvg}/bin/rsvg-convert --width 600 \
-      --output usr/share/baud/mark.png ${../../assets/logo/baud-mark-amber-tight.svg}
+      --output usr/share/baud/mark.png ${../../docs/assets/logo/baud-mark-amber-tight.svg}
     chmod 0644 usr/share/baud/mark.png
     ln -s ${busybox}/bin bin
     ln -s ${bashInteractive}/bin/bash usr/bin/bash

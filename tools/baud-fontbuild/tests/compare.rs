@@ -23,7 +23,7 @@ fn root() -> PathBuf {
 }
 
 fn regular() -> Vec<u8> {
-    std::fs::read(root().join("baud-app/fonts/built/Regular.ttf")).unwrap()
+    std::fs::read(root().join("crates/baud-app/fonts/built/Regular.ttf")).unwrap()
 }
 
 fn fonts_under(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -123,19 +123,19 @@ fn report(base: &[u8], copy: &mut [u8]) -> String {
 #[test]
 fn every_committed_font_equals_itself() {
     let mut fonts = vec![];
-    fonts_under(&root().join("baud-app/fonts"), &mut fonts);
-    fonts_under(&root().join("baud-font/tests"), &mut fonts);
+    fonts_under(&root().join("crates/baud-app/fonts"), &mut fonts);
+    fonts_under(&root().join("crates/baud-font/tests"), &mut fonts);
     fonts.sort();
     // Positive control: the walk reached the built fonts and the cases.
     assert!(
         fonts
             .iter()
-            .any(|p| p.ends_with("baud-app/fonts/built/Regular.ttf"))
+            .any(|p| p.ends_with("crates/baud-app/fonts/built/Regular.ttf"))
     );
     assert!(
         fonts
             .iter()
-            .any(|p| p.ends_with("baud-font/tests/var/hvar/bad-map.ttf"))
+            .any(|p| p.ends_with("crates/baud-font/tests/var/hvar/bad-map.ttf"))
     );
     assert!(fonts.len() >= 57, "{} fonts", fonts.len());
     for p in &fonts {
@@ -148,7 +148,8 @@ fn every_committed_font_equals_itself() {
 #[test]
 fn the_built_fonts_are_expanded_with_nothing_left_as_bytes() {
     for style in ["Regular", "Bold", "Italic", "BoldItalic"] {
-        let b = std::fs::read(root().join(format!("baud-app/fonts/built/{style}.ttf"))).unwrap();
+        let b =
+            std::fs::read(root().join(format!("crates/baud-app/fonts/built/{style}.ttf"))).unwrap();
         let baud_fontbuild::Reach { tables, bytes_only } = reach(&b).unwrap();
         assert!(bytes_only.is_empty(), "{style}: {bytes_only:?}");
         let names: Vec<&str> = tables.iter().map(|(t, _)| t.as_str()).collect();
@@ -188,7 +189,8 @@ fn the_built_fonts_are_expanded_with_nothing_left_as_bytes() {
 #[test]
 fn the_checksums_are_recomputed_as_the_built_fonts_carry_them() {
     for style in ["Regular", "Bold", "Italic", "BoldItalic"] {
-        let base = std::fs::read(root().join(format!("baud-app/fonts/built/{style}.ttf"))).unwrap();
+        let base =
+            std::fs::read(root().join(format!("crates/baud-app/fonts/built/{style}.ttf"))).unwrap();
         let mut copy = base.clone();
         fix_checksums(&mut copy);
         assert!(copy == base, "{style}: the recomputed checksums differ");

@@ -1,7 +1,7 @@
 //! Variable fonts built to reach what HVAR and the phantom-point advance do
 //! in rules the real fonts never test: baud-font's step 3 of note Z.
 //!
-//! Writes `baud-font/tests/var/hvar/*.ttf`. Each is 16 glyphs (.notdef,
+//! Writes `crates/baud-font/tests/var/hvar/*.ttf`. Each is 16 glyphs (.notdef,
 //! g1..g15) of one square, advance 600, with gvar deltas on the phantom
 //! points that disagree with HVAR, so a font whose HVAR is read gives
 //! HVAR's answer and one whose HVAR is not gives gvar's. Axes: wght
@@ -58,7 +58,7 @@
 //! `broken`**, a glyph that claims three contours and carries two bytes
 //! of them ([`Broken`]). Deterministic: the head timestamps are fixed.
 //! baud's own fonts, under the repository's licence
-//! (`baud-font/tests/licences.rs` lists the directory).
+//! (`crates/baud-font/tests/licences.rs` lists the directory).
 
 use write_fonts::TableWriter;
 use write_fonts::tables::glyf::{
@@ -75,7 +75,7 @@ use super::{
 /// The path of a font here under the root.
 macro_rules! p {
     ($n:literal) => {
-        concat!("baud-font/tests/var/hvar/", $n)
+        concat!("crates/baud-font/tests/var/hvar/", $n)
     };
 }
 

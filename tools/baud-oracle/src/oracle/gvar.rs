@@ -16,7 +16,7 @@ use crate::{BINDING, HARFBUZZ, Oracle, hb};
 /// `outlines.txt`.
 pub const ORACLE: Oracle = Oracle {
     name: "gvar",
-    file: "baud-font/tests/var/outlines.txt",
+    file: "crates/baud-font/tests/var/outlines.txt",
     lines,
 };
 

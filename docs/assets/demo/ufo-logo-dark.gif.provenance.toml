@@ -1,0 +1,35 @@
+# How docs/assets/demo/ufo-logo-dark.gif is made: every line the same on every run.
+# `baud-pictures logo --ufo --check` makes the GIF and this file again
+# and compares both byte for byte.
+file             = "ufo-logo-dark.gif"
+sha256           = "e889fb76f34aba3a10e5d11bbb9dd80ea8d136e1ac13769cabf663a7ad38d447"
+bytes            = 386639
+frames           = 310
+size             = [840, 580]
+lasts_cs         = 1000
+repeats          = "for ever, a NETSCAPE2.0 block of count 0"
+page             = "#0D1117"
+made_by          = "tools/baud-pictures logo --ufo"
+drawn_by         = "crates/baud-app/src/ufo_film.rs: the lockup by baud's CPU renderer, the saucer and its beam by baud-render's ufo trail"
+flight           = "tools/baud-pictures/src/ufo.rs, its move table"
+flight_sha256    = "b532280b0b6648c1c1da56f1d5072a6169cba3f7d23873c15a58bbdc08818269"
+walls            = "docs/assets/readme/logo-walls.png"
+walls_sha256     = "931c0a901594ee8834194315ce1e36094e4a7dc00a24ea3a4670f48c6dab8638"
+encoder          = "gifski 1.34.0"
+encoder_nixpkgs  = "github:NixOS/nixpkgs/319e4cebef10cbb636c6ea392137b52ad105336a"
+encoder_settings = ["--fps", "50", "--quality", "90", "--motion-quality", "100", "--lossy-quality", "100", "--fixed-color", "0D1117", "--repeat", "0"]
+snap_levels      = 3
+zlib             = "1.3.2"
+zlib_nixpkgs     = "7dd199b0e2993e37b4775ed66b1c291699608c9f"
+
+[census]
+samples_a_second = 100
+pixels_a_point   = 2
+fed              = "twice over, the repeat's join counted"
+general_flashes  = 11
+red_flashes      = 0
+area             = 44.2
+strict           = 336.5
+threshold        = 21824.0
+outcome          = "passes"
+strict_outcome   = "passes"

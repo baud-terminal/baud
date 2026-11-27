@@ -1,0 +1,1 @@
+../../../docs/research/sources/adobe-5176-cff-standard-encoding.txt

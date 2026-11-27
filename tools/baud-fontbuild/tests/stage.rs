@@ -16,14 +16,14 @@ fn root() -> PathBuf {
 
 fn base(style: &str) -> Vec<u8> {
     std::fs::read(root().join(format!(
-        "baud-app/fonts/jetbrains-mono/JetBrainsMono-{style}.ttf"
+        "crates/baud-app/fonts/jetbrains-mono/JetBrainsMono-{style}.ttf"
     )))
     .unwrap()
 }
 
 fn source(style: &str) -> String {
     std::fs::read_to_string(root().join(format!(
-        "baud-app/fonts/glyphs/languages/hebrew/stage/{style}.txt"
+        "crates/baud-app/fonts/glyphs/languages/hebrew/stage/{style}.txt"
     )))
     .unwrap()
 }

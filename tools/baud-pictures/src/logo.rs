@@ -1,5 +1,5 @@
 //! **The README's header logo, filmed with baud's own renderer and
-//! encoded**: `baud-pictures logo` writes `assets/readme/logo-dark.gif`,
+//! encoded**: `baud-pictures logo` writes `docs/assets/readme/logo-dark.gif`,
 //! `logo-light.gif`, `logo-dark.svg` and `logo-light.svg`; `logo --check`
 //! films and encodes all four again and fails unless each equals the
 //! committed file byte for byte, writing no tracked file; `logo --out DIR`
@@ -18,7 +18,7 @@
 //!
 //! **`--ufo`** films the UFO logo instead ([`crate::ufo`]): the same
 //! lockup, walls, encoder, checks and census, the saucer threading the
-//! letters in place of the plasma, into `assets/demo/`.
+//! letters in place of the plasma, into `docs/assets/demo/`.
 //!
 //! **What it shows**: the lockup, `baud ❯ █`, as the launch splash holds
 //! it and the logo files draw it, with baud's white plasma moving round
@@ -26,7 +26,7 @@
 //! as baud's cursor blinks by default, the app's own caret asked for each
 //! frame. It plays the plasma's whole loop, twenty blink cycles at the
 //! default 250 ms shown and 250 hidden, at full light, and repeats, so the
-//! plasma never rests: no frame is the bare logo. `baud-app/src/logo_film.rs`
+//! plasma never rests: no frame is the bare logo. `crates/baud-app/src/logo_film.rs`
 //! draws each frame; [`crate::plasma`] decides what the plasma does.
 //!
 //! **How the random path closes.** A random walk does not come back, so the
@@ -64,7 +64,7 @@
 //! **How it is made**, for each half, on GitHub's page colour, `#0d1117`
 //! for the dark theme and `#ffffff` for the light:
 //!  1. baud-app's logo film draws the bare logo, the block shown;
-//!  2. the dark half's bare logo is held to `assets/readme/logo-walls.png`,
+//!  2. the dark half's bare logo is held to `docs/assets/readme/logo-walls.png`,
 //!     the drawing the plasma's path was chosen against, which
 //!     [`WALLS_SHA256`] pins: today's renderer must draw the word within
 //!     [`WALLS_OFF`] of it, and the mark moved up as [`MARK_MOVED`] says,
@@ -147,7 +147,7 @@ pub const MP4_FPS: u32 = 100;
 /// **The MP4's encoder settings**: RGB to BT.709 4:2:0 in TV range, H.264
 /// High at CRF 18, `slow`, four threads, no audio, nothing of the run in
 /// the file -- the demo's `--record` MP4's settings
-/// (`baud-app/examples/demo/film.rs`), the conversion added.
+/// (`crates/baud-app/examples/demo/film.rs`), the conversion added.
 pub const MP4: [&str; 31] = [
     "-vf",
     "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p",
@@ -230,15 +230,15 @@ pub struct Half {
 pub const HALVES: [Half; 2] = [
     Half {
         name: "dark",
-        gif: "assets/readme/logo-dark.gif",
-        svg: "assets/readme/logo-dark.svg",
+        gif: "docs/assets/readme/logo-dark.gif",
+        svg: "docs/assets/readme/logo-dark.svg",
         page: [0x0D, 0x11, 0x17],
         word: [0xF3, 0xF4, 0xF6],
     },
     Half {
         name: "light",
-        gif: "assets/readme/logo-light.gif",
-        svg: "assets/readme/logo-light.svg",
+        gif: "docs/assets/readme/logo-light.gif",
+        svg: "docs/assets/readme/logo-light.svg",
         page: [0xFF, 0xFF, 0xFF],
         word: [0x1E, 0x21, 0x28],
     },
@@ -254,7 +254,7 @@ pub const LIMIT: usize = 5_000_000;
 /// is not a thing the eye reads as motion.
 pub const MOVED: u8 = 4;
 
-pub const WALLS: &str = "assets/readme/logo-walls.png";
+pub const WALLS: &str = "docs/assets/readme/logo-walls.png";
 pub const WALLS_SHA256: &str = "931c0a901594ee8834194315ce1e36094e4a7dc00a24ea3a4670f48c6dab8638";
 
 /// **The canvas's columns the word stands in**, left of the ❯'s, and of the

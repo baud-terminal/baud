@@ -17,7 +17,7 @@ use crate::{BINDING, FREETYPE, HARFBUZZ, Oracle, contours_hb, fmt, ft, ft_row, h
 /// `components.txt`.
 pub const ORACLE: Oracle = Oracle {
     name: "component",
-    file: "baud-font/tests/var/components.txt",
+    file: "crates/baud-font/tests/var/components.txt",
     lines,
 };
 
@@ -27,7 +27,7 @@ pub const SETTINGS: [Option<i32>; 4] = [None, Some(100), Some(650), Some(900)];
 fn lines(root: &Path) -> Vec<String> {
     let lib = ft::Library::new();
     crate::pinned(Some(&lib));
-    let path = root.join("baud-font/tests/var/component-cases.ttf");
+    let path = root.join("crates/baud-font/tests/var/component-cases.ttf");
     let blob = hb::Blob::from_file(&path);
     let hface = hb::Face::new(&blob);
     let names: Vec<String> = {

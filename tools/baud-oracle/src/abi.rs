@@ -1,5 +1,5 @@
 //! **The C probe that holds `hb.rs`, `ft.rs` and `xkb.rs` to the
-//! headers**, the way `baud-app/src/sys.rs`'s tests hold its declarations
+//! headers**, the way `crates/baud-app/src/sys.rs`'s tests hold its declarations
 //! to the platform's: written, compiled with `cc` against the flags
 //! `pkg-config` gives for the linked HarfBuzz, FreeType and libxkbcommon,
 //! run, and its `name=value` lines read back.

@@ -2,7 +2,7 @@
 #
 # Written by `cargo xtask credits --crates` from Cargo.lock and the crates'
 # sources in the cargo registry; `cargo xtask credits` prints each row in
-# baud-app/assets/CREDITS.txt. `cargo xtask credits --check` fails if the
+# crates/baud-app/assets/CREDITS.txt. `cargo xtask credits --check` fails if the
 # crates Cargo.lock links on a shipped target are not these rows, or a
 # row's notice file in the registry no longer hashes to `sha256`.
 #

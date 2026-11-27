@@ -6,10 +6,10 @@ cargo-features = ["profile-rustflags"]
 
 [workspace]
 resolver = "2"
-members = ["baud-domain", "baud-core", "baud-bench",
-  "baud-isa",
-  "baud-isa-x86-64",
-  "baud-isa-aarch64",
+members = ["crates/baud-domain", "crates/baud-core", "crates/baud-bench",
+  "crates/baud-isa",
+  "crates/baud-isa-x86-64",
+  "crates/baud-isa-aarch64",
   # **A member, because the reason it was excluded expired.** That reason was
   # "pins alacritty by absolute path, so it cannot resolve on a checkout that
   # has not set that path" -- and the path was
@@ -19,55 +19,55 @@ members = ["baud-domain", "baud-core", "baud-bench",
   # to the registry version `multibench` already uses, it resolves anywhere,
   # and being a member is what makes `cargo test --workspace` build it --
   # which is the only thing that would have reported the break.
-  "baud-difftest",
+  "crates/baud-difftest",
   # The second external oracle: sfte, a single-file C11 terminal, vendored
   # whole under docs/research/sources/ and compiled by this crate's build.rs.
   # A member for the reason baud-difftest is one: `cargo test --workspace`
   # building it is the only thing that reports a break.
-  "baud-sfte-difftest",
+  "crates/baud-sfte-difftest",
   # The renderer:
   # the pure font stack, the compositor, one presentation crate per platform,
   # and the binary that joins a pty to a window. None of them touches
   # `baud-core`, which stays `no_std`, allocation-free and dependency-free.
-  "baud-font",
-  "baud-render",
-  "baud-present-macos",
-  "baud-app",
+  "crates/baud-font",
+  "crates/baud-render",
+  "crates/baud-present-macos",
+  "crates/baud-app",
   # The table compiler the crates' build scripts share: std alone, no
   # dependencies, so a build-dependency adds nothing to a build's graph.
-  "baud-tablegen",
+  "crates/baud-tablegen",
   # The stages between the pty and the screen, and what crosses between
   # them: a library, so its compile_fail witnesses run.
-  "baud-pipeline",
+  "crates/baud-pipeline",
   # The repository's gates, run as `cargo xtask <command>` through the alias
   # in `.cargo/config.toml`. Unpublished, and not a default member, so a
   # bare `cargo run` still builds the terminal.
-  "xtask",
-    "baud-wayland",
-    "baud-xkb",
-    "baud-present-vulkan",
-    "baud-present-wayland",
+  "crates/xtask",
+    "crates/baud-wayland",
+    "crates/baud-xkb",
+    "crates/baud-present-vulkan",
+    "crates/baud-present-wayland",
 ]
 
-# bench-others/* are standalone harnesses against sibling checkouts of other
+# tools/bench-others/* are standalone harnesses against sibling checkouts of other
 # terminals. They do not belong in this lock file. tools/ holds the crates
 # that link C engines, with its own workspace and lock file, so a workspace
 # build never compiles or links them.
-exclude = ["bench-others", "tools"]
+exclude = ["tools"]
 
 # **`cargo run` builds the binary the bundle ships.** `baud` is the one binary,
 # and the rest is part of the tests. Without this line a bare
 # `cargo run --release` resolves features across every member, and `baud-bench`
 # turns on `baud-render`'s `exceptions`, which that manifest says the app does
 # not get, and libc's `std`: 4,160 more bytes of `__text` than
-# `scripts/bundle-macos.sh`'s `cargo build --release -p baud`, measured at
+# `tools/scripts/bundle-macos.sh`'s `cargo build --release -p baud`, measured at
 # 1e02e6b. With it a bare `cargo run`, `build`, `test` or `clippy` covers
 # the `baud` package alone; the gate passes `--workspace`.
-default-members = ["baud-app"]
+default-members = ["crates/baud-app"]
 
 [workspace.package]
 # The version is `1.0.0-unstable`, then `1.0.0-unstable.N`. Every crate
-# inherits this, and `baud-app/tests/version.rs` holds it to that scheme.
+# inherits this, and `crates/baud-app/tests/version.rs` holds it to that scheme.
 version = "1.0.0-unstable"
 # Deliberately 2021, not the 2024 the rust-template scaffold ships. An edition
 # migration across a measured hot path is a change that needs a benchmark, not
@@ -97,19 +97,19 @@ rust-version = "1.101"
 # ran the NEON scan it was built to leave out. Published, each library
 # keeps the scan as its own default.
 [workspace.dependencies]
-baud-domain = { path = "baud-domain", version = "1.0.0-unstable" }
-baud-tablegen = { path = "baud-tablegen", version = "1.0.0-unstable" }
-baud-isa = { path = "baud-isa", version = "1.0.0-unstable" }
-baud-isa-aarch64 = { path = "baud-isa-aarch64", version = "1.0.0-unstable" }
-baud-isa-x86-64 = { path = "baud-isa-x86-64", version = "1.0.0-unstable" }
-baud-core = { path = "baud-core", version = "1.0.0-unstable", default-features = false }
-baud-font = { path = "baud-font", version = "1.0.0-unstable" }
-baud-render = { path = "baud-render", version = "1.0.0-unstable", default-features = false }
-baud-xkb = { path = "baud-xkb", version = "1.0.0-unstable" }
-baud-wayland = { path = "baud-wayland", version = "1.0.0-unstable" }
-baud-present-wayland = { path = "baud-present-wayland", version = "1.0.0-unstable" }
-baud-present-vulkan = { path = "baud-present-vulkan", version = "1.0.0-unstable" }
-baud-present-macos = { path = "baud-present-macos", version = "1.0.0-unstable", default-features = false }
+baud-domain = { path = "crates/baud-domain", version = "1.0.0-unstable" }
+baud-tablegen = { path = "crates/baud-tablegen", version = "1.0.0-unstable" }
+baud-isa = { path = "crates/baud-isa", version = "1.0.0-unstable" }
+baud-isa-aarch64 = { path = "crates/baud-isa-aarch64", version = "1.0.0-unstable" }
+baud-isa-x86-64 = { path = "crates/baud-isa-x86-64", version = "1.0.0-unstable" }
+baud-core = { path = "crates/baud-core", version = "1.0.0-unstable", default-features = false }
+baud-font = { path = "crates/baud-font", version = "1.0.0-unstable" }
+baud-render = { path = "crates/baud-render", version = "1.0.0-unstable", default-features = false }
+baud-xkb = { path = "crates/baud-xkb", version = "1.0.0-unstable" }
+baud-wayland = { path = "crates/baud-wayland", version = "1.0.0-unstable" }
+baud-present-wayland = { path = "crates/baud-present-wayland", version = "1.0.0-unstable" }
+baud-present-vulkan = { path = "crates/baud-present-vulkan", version = "1.0.0-unstable" }
+baud-present-macos = { path = "crates/baud-present-macos", version = "1.0.0-unstable", default-features = false }
 
 # **Dev builds carry line tables, not full debuginfo.** Measured on this
 # workspace (`cargo build --workspace --tests`, lane environment, ld-prime):
@@ -134,7 +134,7 @@ debug = true
 # are what a debug run is for. `baud-app` and the present and window
 # crates stay at 0, so a debug run still lays out their constants
 # unmerged, as it did when it caught a test comparing `include_bytes!`
-# addresses; in the four, `audit_all.sh` holds address operations to their
+# addresses; in the four, `tools/audit_all.sh` holds address operations to their
 # count instead. Only `dev`, and `test` through it, read these; `release`
 # and `bench` do not. Measured: the debug suite spent its time in those
 # four crates at opt-level 0.
@@ -173,7 +173,7 @@ codegen-units = 1
 # measurements and the tests run the code that ships.
 rustflags = ["-C", "llvm-args=-align-all-functions=6"]
 
-# **The event rig's build** (`baud-app/tests/event_rig.rs`, `test:unit` on
+# **The event rig's build** (`crates/baud-app/tests/event_rig.rs`, `test:unit` on
 # macOS): `baud` with the test-only `effect-probe` feature, in a directory
 # of its own, `target/release-probe`, so the probe binary never stands in
 # for `target/release/baud`, which the other tests run. A probe build is

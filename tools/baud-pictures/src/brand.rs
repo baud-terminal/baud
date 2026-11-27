@@ -9,14 +9,14 @@
 //! with no gap. The cell is [`CELL_W`] by [`CELL_H`]: baud's metrics at
 //! 200 px, width round(0.6 px), height round(1.32 px) and baseline
 //! round(1.02 px). The plasma example reports them from the renderer, and
-//! this refuses to run if they differ; `baud-app/tests/brand_pictures.rs`
+//! this refuses to run if they differ; `crates/baud-app/tests/brand_pictures.rs`
 //! holds every file's ❯ and cursor to the renderer's own drawing of them.
 //! Every file scales that one drawing to its cell; no file draws the ❯ any
 //! other way.
 //!
 //! What it writes, each from the code below and nothing else:
 //!
-//! * `assets/logo/baud-lockup-{dark,light,mono-black,mono-white}.svg`:
+//! * `docs/assets/logo/baud-lockup-{dark,light,mono-black,mono-white}.svg`:
 //!   "baud" and the mark on one line, 300 by 130: the word where it always
 //!   was, the ❯'s cell from x 192 with the block's top on the word's top
 //!   ([`lined_up`]), the whole ink then centred across the box. The light
@@ -25,29 +25,29 @@
 //!   draws on both themes
 //!   (`BaudCursor::light`, which the plasma example reports and the run
 //!   holds to it), so the launch logo and the cursor match.
-//! * `assets/logo/baud-lockup-{dark,light}-blinking.svg`: their fixed
+//! * `docs/assets/logo/baud-lockup-{dark,light}-blinking.svg`: their fixed
 //!   twins' bytes, under the names the brand sheet and `THIRD_PARTY.md`
 //!   give them.
-//! * `assets/logo/baud-mark-{dark,light,amber}.svg` (and `-dark-`,
+//! * `docs/assets/logo/baud-mark-{dark,light,amber}.svg` (and `-dark-`,
 //!   `-light-blinking`): the mark alone at 512, transparent.
-//! * `assets/logo/baud-icon-512-{dark,light,amber}.svg` (and `-dark-`,
+//! * `docs/assets/logo/baud-icon-512-{dark,light,amber}.svg` (and `-dark-`,
 //!   `-light-blinking`) and `baud-icon-32-{dark,light}.svg`: the icons.
-//! * `assets/logo/baud-icon-dock.svg` and `baud-icon-dock-<N>.png`: the
+//! * `docs/assets/logo/baud-icon-dock.svg` and `baud-icon-dock-<N>.png`: the
 //!   Dock icon and its drawings at the iconset's sizes, which
-//!   `scripts/bundle-macos.sh` packs into `baud.icns`;
-//!   `baud-app/src/app.rs` embeds the SVG.
-//! * `assets/logo/baud-mark-amber-tight.svg`: the mark alone, its box 300
+//!   `tools/scripts/bundle-macos.sh` packs into `baud.icns`;
+//!   `crates/baud-app/src/app.rs` embeds the SVG.
+//! * `docs/assets/logo/baud-mark-amber-tight.svg`: the mark alone, its box 300
 //!   by 204, as the title bar showed it before the lockups.
-//! * `assets/logo/baud-lockup-{dark,light}-tight.svg`: the title bar's
-//!   lockups (`baud-app/src/mark.rs` embeds them), the dark and light
+//! * `docs/assets/logo/baud-lockup-{dark,light}-tight.svg`: the title bar's
+//!   lockups (`crates/baud-app/src/mark.rs` embeds them), the dark and light
 //!   lockups' word and mark, their cell the 168 of the mark above, on no
 //!   ground, the box snug to the ink across and centred on the cell's
 //!   rows.
-//! * `assets/logo/baud-github-org.svg` and `.png`: the organisation
+//! * `docs/assets/logo/baud-github-org.svg` and `.png`: the organisation
 //!   picture, "baud" over the mark, `#F3F4F6` and `#F4A32C` on `#15171B`,
 //!   500 by 500, the ground edge to edge so GitHub's own rounded corners
 //!   apply; the PNG adds baud's plasma.
-//! * `assets/readme/social.svg` and `.png`: the repository's link picture,
+//! * `docs/assets/readme/social.svg` and `.png`: the repository's link picture,
 //!   1280 by 640, the lockup and the README's tagline on `#15171B`, over a
 //!   strip of amber tape punched "baud" in the five-unit code of ITU-T S.1,
 //!   with its feed holes.
@@ -68,7 +68,7 @@
 //! written as Pillow 12.3.0 wrote it ([`crate::png`]), but the
 //! organisation picture's: that is its SVG drawn by resvg with two lights
 //! of baud's plasma laid over it, on the word and on the mark, each drawn
-//! by baud's CPU renderer (`baud-render/examples/brand_plasma.rs`, run
+//! by baud's CPU renderer (`crates/baud-render/examples/brand_plasma.rs`, run
 //! through cargo):
 //!
 //! * the word's: the launch splash's first pass at 0.0999 s, its seed
@@ -89,9 +89,9 @@
 //!
 //! Every letter is a path traced from the font ([`crate::outline`]), so no
 //! renderer can draw it in another face. 500 for the wordmark and 700 for
-//! the ❯ are the brand sheet's (`assets/logo/README.md`); the tagline is
+//! the ❯ are the brand sheet's (`docs/assets/logo/README.md`); the tagline is
 //! 400, since the sheet names no weight for it. 400 and 700 are the
-//! repository's own copies (`baud-app/fonts/jetbrains-mono/`), held here
+//! repository's own copies (`crates/baud-app/fonts/jetbrains-mono/`), held here
 //! to the hashes its `SOURCE` pins. 500 is in no committed file: it is
 //! read out of the JetBrains Mono 2.304 release archive that `SOURCE`
 //! names (`[[source: jbm-2304-release]]`), fetched by URL (or
@@ -130,7 +130,7 @@
 //! built by the cargo on PATH. Measured on aarch64-darwin only: whether
 //! the same bytes come out on another system is unmeasured, which is why
 //! `--check` runs by hand and not in `devenv test` (it also needs the
-//! network, for the archive). `baud-app/tests/brand_pictures.rs` holds the
+//! network, for the archive). `crates/baud-app/tests/brand_pictures.rs` holds the
 //! committed files to the parts that need neither: the limits, outlines in
 //! place of text, and the mark against baud's renderer.
 
@@ -149,8 +149,8 @@ macro_rules! fail {
     ($($t:tt)*) => { return Err(format!($($t)*)) };
 }
 
-pub const JBM: &str = "baud-app/fonts/jetbrains-mono";
-/// weight: (committed file, bytes, sha256), as `baud-app/fonts/jetbrains-mono/SOURCE`.
+pub const JBM: &str = "crates/baud-app/fonts/jetbrains-mono";
+/// weight: (committed file, bytes, sha256), as `crates/baud-app/fonts/jetbrains-mono/SOURCE`.
 pub const COMMITTED: [(u16, &str, usize, &str); 2] = [
     (
         400,
@@ -184,7 +184,7 @@ pub const CELL_W: f64 = 120.0;
 pub const CELL_H: f64 = 264.0;
 pub const BASELINE: f64 = 204.0;
 
-// The brand sheet's colours (assets/logo/README.md).
+// The brand sheet's colours (docs/assets/logo/README.md).
 pub const GROUND: &str = "#15171B";
 pub const TYPE_DARK: &str = "#F3F4F6";
 pub const TYPE_LIGHT: &str = "#1E2128";
@@ -203,10 +203,10 @@ pub fn tagline() -> String {
     LINES.join(" ")
 }
 
-pub const LOGO: &str = "assets/logo/";
-pub const ORG: (&str, f64) = ("assets/logo/baud-github-org", 500.0);
-pub const CARD: (&str, usize, usize) = ("assets/readme/social", 1280, 640);
-pub const DOCK: &str = "assets/logo/baud-icon-dock";
+pub const LOGO: &str = "docs/assets/logo/";
+pub const ORG: (&str, f64) = ("docs/assets/logo/baud-github-org", 500.0);
+pub const CARD: (&str, usize, usize) = ("docs/assets/readme/social", 1280, 640);
+pub const DOCK: &str = "docs/assets/logo/baud-icon-dock";
 /// The iconset's sizes, `icon_16x16` to `icon_512x512@2x` (`bundle-macos.sh`).
 pub const DOCK_SIZES: [u32; 7] = [16, 32, 64, 128, 256, 512, 1024];
 /// The Dock's mark: 1.2 times the 512 icons' cell, scaled about the ❯'s
@@ -217,11 +217,11 @@ pub const DOCK_SCALE: f64 = 1.2;
 pub fn dock_corner() -> f64 {
     CELL_W * 168.0 / CELL_H
 }
-pub const TIGHT: &str = "assets/logo/baud-mark-amber-tight.svg";
+pub const TIGHT: &str = "docs/assets/logo/baud-mark-amber-tight.svg";
 /// The title bar's lockups, by the appearance each is for.
 pub const TITLEBAR: [(&str, &str); 2] = [
-    ("dark", "assets/logo/baud-lockup-dark-tight.svg"),
-    ("light", "assets/logo/baud-lockup-light-tight.svg"),
+    ("dark", "docs/assets/logo/baud-lockup-dark-tight.svg"),
+    ("light", "docs/assets/logo/baud-lockup-light-tight.svg"),
 ];
 pub const MB: usize = 1_000_000;
 
@@ -570,7 +570,7 @@ fn get<'o>(out: &'o [(String, String)], name: &str) -> &'o str {
     &out.iter().find(|(n, _)| n == name).expect("drawn above").1
 }
 
-/// Every SVG in `assets/logo` but the organisation picture's.
+/// Every SVG in `docs/assets/logo` but the organisation picture's.
 ///
 /// # Errors
 /// As [`Type::text`].
@@ -1475,7 +1475,7 @@ pub fn draw(root: &Path, tmp: &Path) -> Result<Files, Fail> {
 }
 
 /// The logo files on disk, by their paths from `root`: every SVG and PNG
-/// in `assets/logo/`, and the card's two.
+/// in `docs/assets/logo/`, and the card's two.
 #[must_use]
 pub fn there(root: &Path) -> Vec<String> {
     let mut v: Vec<String> = std::fs::read_dir(root.join(LOGO))

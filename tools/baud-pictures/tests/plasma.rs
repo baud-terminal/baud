@@ -14,7 +14,7 @@ fn root() -> std::path::PathBuf {
 }
 
 fn walls() -> Vec<u8> {
-    let b = std::fs::read(root().join("assets/readme/logo-walls.png")).expect("the walls");
+    let b = std::fs::read(root().join("docs/assets/readme/logo-walls.png")).expect("the walls");
     let im = png::decode(&b).expect("a PNG");
     assert_eq!((im.w, im.h, im.mode), (W, H, png::Mode::Rgb));
     im.px

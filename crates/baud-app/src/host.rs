@@ -1,0 +1,3475 @@
+//! What both presentation layers set up the same way: the grid the storage
+//! is provisioned for, the cache probe whose answer picks the grid's pitch,
+//! and the faces the config names -- read once, parsed once, and held for
+//! as long as the renderer borrows them: until a font reload gives them
+//! back ([`refont`]), or the window's close (`lent::Drawing`).
+
+use crate::config::Config;
+use baud_domain::themefile::CellPaint;
+use baud_domain::{CacheGeometry, CacheLevel, ImageBudget, ImagePx, ImageRefusals, WinSize};
+use baud_font::bytes::Index;
+use baud_font::{Face, Px, StrikeRefusal, StrikeState};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
+
+/// The largest grid the storage is provisioned for.
+pub const MAX_GRID: WinSize = WinSize {
+    ws_col: 400,
+    ws_row: 150,
+};
+
+/// A cell height in device pixels as the core's [`ImagePx`], for
+/// `Term::set_cell_size` -- the numbers the core needs to advance the
+/// cursor past a Sixel. Saturates rather than truncates a cell taller than
+/// 65535 px, which no font produces.
+pub fn cell_px(cell_h: Px) -> ImagePx {
+    ImagePx::of(u16::try_from(cell_h.value()).unwrap_or(u16::MAX))
+}
+
+/// The default image arena, when a config names no `[images]` section: 95 MiB
+/// of decoded pixels. That is three 3840x2160 screens (24,883,200 pixels) with
+/// 20,480 to spare, because `[images] pixels_mb` counts whole MiB and the
+/// committed example writes the default. The gap-scan packs smaller images
+/// into it, and an overflow is refused and counted rather than truncated. **It
+/// is the one limit a config sets on an image**, with the 65535 pixels a
+/// coordinate holds each way and the slot table beside it: a Sixel is decoded
+/// as its body arrives (`SixelStream`), and no copy of the body is held, so no
+/// body is refused for its bytes. That is `[[source: dec-std-070]]` 070-9's
+/// limit: §8.1.2's raster extent "does not limit the number of pixels a device
+/// may image" (its p. 9, PDF p. 920), §2 makes "'picture too complex'" for an
+/// 800x240 raster not permitted and says "The protocol should support any size
+/// rasters, although not all devices will be capable of displaying them" (p.
+/// 2, PDF p. 913), and no section read names a limit on a body's bytes.
+/// The single source of the default; `Config::defaults` reads
+/// it, and `[images] pixels_mb` overrides it.
+///
+/// **Sized to the kitty quota's "It should allow at least a few full
+/// screen images"** (`[[source: kitty-graphics]]`, "Image persistence and
+/// storage quotas"): three screens at 3840x2160, the largest this Mac's
+/// displays draw. An idle terminal pays nothing for it, because the arena,
+/// the query probe and the PNG scratch come from zeroed memory
+/// (`Owned::with_images`, `Pixel::zeroed_vec`) and a page is committed
+/// when an image first writes it: a 400x150 terminal built that way and
+/// left idle peaked at 11.9 MB resident at this budget and 11.8 MB at the
+/// 4 MiB it replaced, where writing the arena at construction had peaked
+/// at 111.5 MB and 16.0 MB. A deleted image's pages go back to the system
+/// (`pages.rs`), with the PNG scratch its decode wrote: one 1920x1080
+/// picture shown and deleted leaves that terminal within 0.3 MB of idle
+/// (0.26 MB after a PNG, 0.20 MB after `f=32`), where 21.1 MB (a PNG) and 8.5 MB (`f=32`) stayed resident without it.
+/// Until 2026-10-16 this was 4 MiB and refused a 1920x1080 picture whole,
+/// an open departure.
+pub const IMAGE_BUDGET: ImageBudget = ImageBudget {
+    pixels: 95 << 18, // 24,903,680 ColorWords, 95 MiB
+};
+
+/// One startup line naming the resolved image budget, at `info` -- so it shows
+/// only under `BAUD_LOG=info` or below. A refusal names its own limit and
+/// sizes as it happens ([`describe_refusals`]); this line is the budget a
+/// reader checks a changed `[images]` against. A `ColorWord` is four bytes,
+/// so a MiB is `1 << 18` of them -- `>> 18` gives MiB with no multiply.
+pub fn describe_images(b: &ImageBudget) -> String {
+    format!("images: {} MiB pixels", b.pixels >> 18)
+}
+
+/// One `warn` line for the images one pump refused against a limit, naming
+/// the limit, the sizes that hit it and the `[images]` key that raises it --
+/// or `None` when none did. `before` and `after` are the store's
+/// [`ImageRefusals`] either side of the pump's feeds, compared once a pump and
+/// never per byte, so a flood of refusals is one line a read rather than one
+/// an image.
+///
+/// It exists because the refusal was invisible: yazi's previews went blank
+/// against the body default, 256 KiB on 2026-10-09, counted in a total that
+/// also counted the arena and the slots and that nothing in the app read. No
+/// body is refused, because a Sixel is decoded as it arrives, so the
+/// limits said are the arena's and the slots'. An
+/// image with no pixels, or one wider or taller than the 65535 pixels an
+/// image coordinate holds, is counted and not said -- no limit refused it and
+/// none raised would draw it. A `ColorWord` is four bytes, so a pixel count
+/// shifted right 18 is MiB, as in [`describe_images`].
+pub fn describe_refusals(
+    before: &ImageRefusals,
+    after: &ImageRefusals,
+    budget: &ImageBudget,
+) -> Option<String> {
+    let mut said = Vec::new();
+    if after.arena > before.arena {
+        let n = after.arena - before.arena;
+        let (w, h) = (after.arena_width.index(), after.arena_height.index());
+        let area = w * h;
+        let why = if area > budget.pixels {
+            "larger than the whole arena"
+        } else {
+            "no free gap held it, the live images hold the rest"
+        };
+        said.push(format!(
+            "{} refused for its pixels, the last {w}x{h} = {area} pixels ({} KiB \
+             decoded) against a {} MiB arena of {} pixels -- {why}; [images] \
+             pixels_mb raises it",
+            if n == 1 {
+                "an image".to_string()
+            } else {
+                format!("{n} images")
+            },
+            area >> 8,
+            budget.pixels >> 18,
+            budget.pixels,
+        ));
+    }
+    if after.slot > before.slot {
+        let n = after.slot - before.slot;
+        said.push(format!(
+            "{} refused, every image slot holding a live image",
+            if n == 1 {
+                "an image".to_string()
+            } else {
+                format!("{n} images")
+            },
+        ));
+    }
+    (!said.is_empty()).then(|| format!("images: {}", said.join("; ")))
+}
+
+/// The cache geometry of the machine this runs on, from the per-arch probe:
+/// `UNKNOWN` where there is no probe, which still resolves to a pitch.
+pub fn host_geometry() -> CacheGeometry {
+    #[cfg(target_arch = "aarch64")]
+    {
+        <baud_isa_aarch64::Host as baud_isa::CacheProbe>::detect()
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        <baud_isa_x86_64::Host as baud_isa::CacheProbe>::detect()
+    }
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    {
+        CacheGeometry::UNKNOWN
+    }
+}
+
+/// One line for the log: what the probe found, level by level, and what
+/// was assumed where it found nothing.
+pub fn describe(geom: &CacheGeometry) -> String {
+    let level = |l: Option<CacheLevel>| match l {
+        Some(l) => match l.way() {
+            Some(w) => format!(
+                "{} KiB {}-way, {} KiB a way",
+                l.size.bytes() / 1024,
+                l.ways.count(),
+                w.bytes() / 1024
+            ),
+            None => format!("{} KiB", l.size.bytes() / 1024),
+        },
+        None => "unknown".to_string(),
+    };
+    let line = match geom.line_reported() {
+        Some(l) => format!("{} B", l.bytes()),
+        None => format!("unknown, {} B assumed", geom.line().bytes()),
+    };
+    format!(
+        "line {line}; L1d {}; L2 {}; L3 {}",
+        level(geom.l1d()),
+        level(geom.l2()),
+        level(geom.l3())
+    )
+}
+
+/// The renderer's stack over the config's faces, in its order
+/// ([`crate::fonts::Fonts::configured`]): each face with the role its spec
+/// gives it, so the styled faces are drawn from and never fallen back
+/// through, and after each one with a `wdth` axis that draws Devanagari
+/// its narrower instances, which a word too wide for its columns is drawn
+/// at.
+pub fn stack(fonts: &crate::fonts::Fonts) -> baud_render::Stack<'static, 'static> {
+    let built = fonts.configured().expect("the config's faces");
+    baud_render::Stack::with_roles(built.faces, &built.roles)
+        .expect("the config's faces: a fallback first, each style once")
+}
+
+/// **What the config sets on a new renderer**, before any size is taken:
+/// the emoji default, the exit-status strip, which the window's
+/// arithmetic counts as it counts the gutter, the display's word wrap and
+/// the config's notice, whose row the grid gives up the same way. Both
+/// drivers set them here, and so does a test that draws as a launch does.
+pub fn set_up_renderer(
+    renderer: &mut baud_render::Renderer<'_, '_>,
+    cfg: &Config,
+    notice: &crate::live::Notice,
+) {
+    renderer.set_emoji_default(cfg.emoji);
+    renderer.set_status_marks(cfg.exit_status);
+    renderer.set_word_wrap(cfg.wrap_words);
+    renderer.set_wrap_marker(cfg.wrap_marker);
+    renderer.set_notice(notice.codepoints());
+    renderer.set_lights_colours(
+        cfg.activity_lights_colours,
+        baud_render::Halo::of(cfg.activity_lights_glow),
+    );
+    renderer.set_message_colours(cfg.message.colours);
+}
+
+/// **What the Linux driver tells a new terminal from the config**, before
+/// its first feed: the defaults the theme gives, the cell's size, the
+/// claims, the window's abilities and the font. The driver runs it, and so
+/// does a test that puts a real program under the terminal a launch makes.
+#[cfg(any(target_os = "linux", test))]
+pub fn set_up_term<'t>(
+    mut term: baud_core::Term<'t>,
+    cfg: &Config,
+    renderer: &baud_render::Renderer<'_, '_>,
+    fonts: &crate::fonts::Fonts,
+) -> baud_core::Term<'t> {
+    crate::host::tell_defaults(&mut term, renderer.theme(), baud_core::Overrides::Keep);
+    // The cell height for the Sixel cursor advance, before the first feed;
+    // re-set on every `configure`.
+    term.set_cell_size(
+        cell_px(renderer.metrics().cell_w),
+        cell_px(renderer.metrics().cell_h),
+    );
+    // A point is a pixel until the compositor says a scale: what `OSC 1337
+    // ; ReportCellSize` divides by, told again when the window's scale
+    // changes (`linux.rs`'s `configure`).
+    term.set_backing_scale(baud_domain::BackingScale::of(1.0));
+    term.set_sixel_claim(cfg.sixel);
+    crate::host::set_widths(
+        &mut term,
+        cfg.vs16_width,
+        cfg.ambiguous_width,
+        cfg.join_spacing_marks,
+    );
+    crate::host::set_checksum(&mut term, cfg.checksum);
+    crate::host::set_control_string_end(&mut term, cfg.kitty_string_end);
+    crate::host::set_up(&mut term, cfg.set_up);
+    crate::host::set_substitute(&mut term, cfg.substitute);
+    crate::host::set_prompt_at_bottom(&mut term, cfg.prompt_at_bottom);
+    crate::host::set_window_ops(&mut term, cfg.window_ops);
+    crate::host::set_window_abilities(
+        &mut term,
+        crate::winops::wayland_abilities(crate::winops::BoundsEvent::Never),
+        cfg.clipboard.osc52,
+    );
+    crate::host::set_term_name(&mut term);
+    crate::host::set_version_text(&mut term);
+    crate::host::set_logging(&mut term, cfg.logging);
+    // **No print panel in this driver**: the core is told there is no
+    // printer, so DSR `?15` answers "no printer" and a print is ignored and
+    // counted, whatever `[screen] printing` says (`print.rs`).
+    crate::print::set_printer(&mut term, cfg.printing, crate::print::Printers::None);
+    term.set_graphics_print(cfg.graphics_print);
+    crate::host::set_pointer_mode(&mut term, cfg.pointer_mode);
+    crate::host::set_font_changes(&mut term, cfg.font_changes);
+    crate::host::tell_font(&mut term, fonts, cfg.font_size, cfg.font_size);
+    term.set_initial_cursor_style(baud_core::CursorStyle::of(
+        cfg.cursor_shape,
+        cfg.cursor_blink.power_on(),
+    ));
+    term
+}
+
+/// **The Linux driver's launch as source**, for the tests that read which
+/// settings it tells the core: `linux.rs`, and [`set_up_term`]'s body, where
+/// it says most of them.
+#[cfg(test)]
+pub(crate) fn linux_driver_src() -> String {
+    let host = include_str!("host.rs");
+    let from = host
+        .find(concat!("pub fn ", "set_up_term<"))
+        .expect("set_up_term");
+    let len = host[from..].find("\n}\n").expect("its end");
+    format!("{}{}", include_str!("linux.rs"), &host[from..from + len])
+}
+
+/// Every face the config names, mapped and parsed. Each face's bytes are
+/// a read-only mapping for the life of the process, because the faces
+/// borrow them and a read of the whole file was the launch's largest
+/// controllable cost; a face that cannot be mapped or parsed is fatal
+/// with its path and the reason (a `CFF2` table that does not read, say),
+/// because a terminal with no font draws nothing.
+#[cfg(test)]
+pub fn load_faces(cfg: &mut Config) -> Loaded {
+    resolved(cfg);
+    let (data, mut held) = map_faces(cfg);
+    let faces = parse_faces(cfg, &data, &mut held);
+    let fonts = crate::fonts::Fonts::new(cfg, data, faces, held);
+    Loaded {
+        faces,
+        stack: stack(&fonts),
+        place: places(&fonts),
+    }
+}
+
+/// What a launch makes of the config's faces ([`load_faces`]).
+#[cfg(test)]
+pub struct Loaded {
+    /// Each face, parsed, in the config's order.
+    pub faces: &'static [Face<'static>],
+    /// The renderer's stack over them ([`stack`]).
+    pub stack: baud_render::Stack<'static, 'static>,
+    /// Each stack face's place in the config's order ([`places`]).
+    pub place: Vec<usize>,
+}
+
+/// Each face of the stack `fonts` launch with ([`stack`]), by its place in
+/// the config's order: a face's narrower instances follow it in the
+/// stack, so a stack index is not the config's.
+#[cfg(test)]
+pub fn places(fonts: &crate::fonts::Fonts) -> Vec<usize> {
+    let mut place: Vec<usize> = Vec::new();
+    for role in fonts.configured().expect("the config's faces").roles {
+        let at = match (role, place.last()) {
+            (_, None) => 0,
+            (baud_render::FaceRole::Narrower, Some(&at)) => at,
+            (_, Some(&at)) => at + 1,
+        };
+        place.push(at);
+    }
+    place
+}
+
+/// `cfg`'s family names resolved against the system's fonts, as
+/// `Config::launch` resolves them, for a test that builds its config in place.
+#[cfg(test)]
+pub fn resolved(cfg: &mut Config) {
+    let said = cfg.resolve(crate::discover::Catalogue::system());
+    assert!(said.is_empty(), "{said:?}");
+}
+
+/// The bytes of every face the config names, in its order: compiled in, or
+/// a read-only mapping, held by what is returned beside them.
+pub fn map_faces(cfg: &Config) -> (Vec<&'static [u8]>, crate::pty::Held) {
+    let mut held = crate::pty::Held::default();
+    let data = cfg
+        .faces
+        .iter()
+        .map(|f| match f.from {
+            crate::config::FaceFrom::Embedded(bytes) => bytes,
+            crate::config::FaceFrom::File => {
+                let bytes = held
+                    .map(&f.path)
+                    .unwrap_or_else(|e| panic!("font {}: {e}", f.path));
+                startup_mark(&format!("map {}", f.path.rsplit('/').next().unwrap_or("")));
+                bytes
+            }
+            // `Config::launch` resolves every name before anything maps.
+            crate::config::FaceFrom::Family => {
+                panic!("font family {:?}: the config was not resolved", f.path)
+            }
+        })
+        .collect();
+    (data, held)
+}
+
+/// The faces a config read again names, and what holds them
+/// ([`faces_again`]).
+type Again = (
+    Vec<&'static [u8]>,
+    &'static [Face<'static>],
+    crate::pty::Held,
+);
+
+/// **Every face a config read again names, mapped and parsed, or why
+/// not** (`reload.rs`): [`map_faces`] and [`parse_faces`] for a running
+/// window, where a font that does not map or parse leaves the faces in
+/// use as they were rather than ending the process, and gives back what
+/// it mapped before it.
+pub fn faces_again(cfg: &Config) -> Result<Again, String> {
+    let mut held = crate::pty::Held::default();
+    let parsed = (|| {
+        let mut data = Vec::with_capacity(cfg.faces.len());
+        for f in &cfg.faces {
+            data.push(match f.from {
+                crate::config::FaceFrom::Embedded(bytes) => bytes,
+                crate::config::FaceFrom::File => held
+                    .map(&f.path)
+                    .map_err(|e| format!("font {}: {e}", f.path))?,
+                crate::config::FaceFrom::Family => {
+                    return Err(format!("font family {:?} is not installed", f.path));
+                }
+            });
+        }
+        let mut faces = Vec::with_capacity(data.len());
+        for (d, f) in data.iter().zip(&cfg.faces) {
+            let mut face =
+                Face::parse_index(d, f.index).map_err(|e| format!("font {}: {e}", f.path))?;
+            face.set_variations(&f.variations);
+            faces.push(face);
+        }
+        Ok((data, faces))
+    })();
+    match parsed {
+        Ok((data, faces)) => {
+            let faces = held.leak(faces);
+            Ok((data, faces, held))
+        }
+        Err(e) => {
+            // SAFETY: the faces parsed before the failure were dropped with
+            // the closure's result, and nothing else was lent the bytes.
+            let _ = unsafe { held.release() };
+            Err(e)
+        }
+    }
+}
+
+/// **The fonts a config read again names, in place of `fonts`**, leading
+/// the renderer's chain at `size`: mapped and parsed ([`faces_again`]),
+/// the renderer restacked on them, and the faces the last fonts held given
+/// back -- what is returned. A font that does not load, or a stack the
+/// renderer cannot measure, leaves both as they were, and gives back what
+/// the attempt mapped.
+pub fn refont(
+    renderer: &mut baud_render::Renderer<'static, 'static>,
+    fonts: &mut crate::fonts::Fonts,
+    cfg: &Config,
+    size: baud_render::PxSize,
+) -> Result<crate::pty::Released, String> {
+    let (data, faces, held) = faces_again(cfg)?;
+    let next = crate::fonts::Fonts::new(cfg, data, faces, held);
+    if renderer.restack(stack(&next), size).is_none() {
+        // SAFETY: the stack made of `next`'s faces was dropped by the
+        // failed restack, which left the renderer's own as it was, and
+        // nothing else was lent them.
+        let _ = unsafe { next.into_held().release() };
+        return Err("the fonts do not make a stack".to_string());
+    }
+    let last = std::mem::replace(fonts, next);
+    // SAFETY: nothing borrows the last fonts' faces or bytes. A
+    // `Renderer`'s one borrow of faces is its `Stack` -- no other field
+    // carries its lifetimes -- and the restack above replaced it; every
+    // other stack made of them came from `last` (`Fonts::stack`) and went
+    // into a renderer's restack, not anywhere kept; `last` drops its own
+    // in `into_held`. No frame draws from them: a GPU frame reads the
+    // atlas, which the restack started over, and the macOS driver
+    // restacks only once no frame in flight reads it (`Reshape`); the
+    // Linux driver paints on the CPU, on this thread, and is not painting.
+    Ok(unsafe { last.into_held().release() })
+}
+
+/// **The system's faces for what no face of the stack draws**, after a
+/// frame (`fallback.rs`): the renderer's gaps asked of the system and, when
+/// it answers a face the stack lacks, the renderer restacked on the fonts
+/// with it behind the chain at `size` ([`refont`]), the face a program put
+/// in the lead, and the names it gave, kept. `None` when nothing changed;
+/// else what the restack gave back, or why it could not be made.
+pub fn follow_gaps(
+    renderer: &mut baud_render::Renderer<'static, 'static>,
+    fonts: &mut crate::fonts::Fonts,
+    size: baud_render::PxSize,
+) -> Option<Result<crate::pty::Released, String>> {
+    let gaps = renderer.take_gaps();
+    if gaps.is_empty() {
+        return None;
+    }
+    let mut cfg = Config::defaults();
+    cfg.faces = fonts.faces().to_vec();
+    if !crate::fallback::extend(&mut cfg, &gaps) {
+        return None;
+    }
+    let (data, faces, held) = match faces_again(&cfg) {
+        Ok(f) => f,
+        Err(e) => return Some(Err(e)),
+    };
+    let mut next = crate::fonts::Fonts::new(&cfg, data, faces, held);
+    let lead = next.carry(fonts);
+    let led = lead.and_then(|slot| {
+        let built = next.stack(slot)?;
+        Some((
+            slot,
+            baud_render::Stack::with_roles(built.faces, &built.roles)?,
+        ))
+    });
+    let restacked = match led {
+        Some((slot, stack)) => {
+            next.set(slot);
+            renderer.restack(stack, size)
+        }
+        None => renderer.restack(stack(&next), size),
+    };
+    if restacked.is_none() {
+        // SAFETY: the stack made of `next`'s faces was dropped by the failed
+        // restack, which left the renderer's own as it was.
+        let _ = unsafe { next.into_held().release() };
+        return Some(Err("the fonts do not make a stack".to_string()));
+    }
+    let last = std::mem::replace(fonts, next);
+    // SAFETY: as in `refont`: the restack replaced the renderer's one
+    // borrow of the last faces, and nothing else holds them.
+    Some(Ok(unsafe { last.into_held().release() }))
+}
+
+/// The log's line for what a font reload gave back.
+pub fn given_back(given: crate::pty::Released) -> String {
+    format!(
+        "fonts: the last stack given back, {} font files unmapped and {} parsed stacks freed",
+        given.unmapped, given.freed
+    )
+}
+
+/// `data`, which [`map_faces`] read from `cfg`, parsed in `cfg`'s order,
+/// and held by `held`.
+pub fn parse_faces(
+    cfg: &Config,
+    data: &[&'static [u8]],
+    held: &mut crate::pty::Held,
+) -> &'static [Face<'static>] {
+    held.leak(
+        data.iter()
+            .zip(&cfg.faces)
+            .map(|(d, f)| {
+                let mut face = Face::parse_index(d, f.index)
+                    .unwrap_or_else(|e| panic!("font {}: {e}", f.path));
+                // A variable face is drawn at the values discovery picked
+                // for its style (`discover::pick`).
+                face.set_variations(&f.variations);
+                for line in bitmap_refusals(&f.path, &face) {
+                    crate::warn!("{line}");
+                }
+                startup_mark(&format!(
+                    "parse {}",
+                    f.path.rsplit('/').next().unwrap_or("")
+                ));
+                face
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
+/// One line for a face whose `CBLC` sizes are not all read: how many, the
+/// first and why. A font that loses sizes to the specification's sorting rule
+/// says so once, at launch, rather than drawing from fewer sizes in silence;
+/// a face whose sizes all read, or that has none, says nothing.
+pub fn bitmap_refusals(path: &str, face: &Face<'_>) -> Vec<String> {
+    let strikes = face.strikes();
+    let mut first = None;
+    let mut refused = 0u32;
+    let mut i = Index::ZERO;
+    while strikes.holds(i) {
+        if let Some(StrikeState::Refused(why)) = face.strike(i) {
+            refused += 1;
+            first.get_or_insert((i, why));
+        }
+        i = i.next();
+    }
+    let Some((at, why)) = first else {
+        return Vec::new();
+    };
+    let ppem = face.strike_ppem(at).map_or(0, |p| p.value());
+    let reason = match why {
+        StrikeRefusal::Unsorted { at: j } => format!(
+            "lists its index subtable records out of order: record {} starts before record {}",
+            j.value(),
+            j.prev().map_or(0, |p| p.value())
+        ),
+        StrikeRefusal::PastTable => {
+            "points its index subtable records past the end of its table".to_string()
+        }
+    };
+    let n = strikes.value();
+    let head = if n == 1 {
+        "its one CBLC size is not read".to_string()
+    } else {
+        let verb = if refused == 1 { "is" } else { "are" };
+        format!("{refused} of its {n} CBLC sizes {verb} not read")
+    };
+    let tail = if n == 1 {
+        ""
+    } else if refused == n {
+        "; no size draws"
+    } else {
+        "; the other sizes still draw"
+    };
+    vec![format!(
+        "font {path}: {head}: size {} ({ppem} ppem) {reason}{tail}",
+        at.value()
+    )]
+}
+
+/// The launch clock: `startup_begin` is the first thing `main` does, and
+/// `startup_mark` prints how long after it a stage was reached -- when
+/// `BAUD_STARTUP` is set, so a normal launch prints nothing. What it cannot
+/// see is the time before `main`, the loader's; `startup-bench`, the example
+/// `crates/baud-bench/src/host/startup.rs` runs, measures that from outside and adds
+/// the two.
+static START: OnceLock<Instant> = OnceLock::new();
+static WANTED: OnceLock<Wanted> = OnceLock::new();
+/// The file the timeline is written to beside stderr ([`Timeline`]).
+static TIMELINE: OnceLock<std::sync::Mutex<Timeline>> = OnceLock::new();
+
+/// **The launch timeline's file**, beside stderr: a launch from the Dock,
+/// Finder or `open` has its stderr on `/dev/null`, so
+/// a line written there alone is lost, and with it every launch whose shell
+/// the account names. On macOS `~/Library/Logs/baud/startup.log`, the
+/// directory macOS keeps an app's log files in; on Linux
+/// `$XDG_STATE_HOME/baud/startup.log`, else `~/.local/state/baud/`, the
+/// XDG directory whose state "may contain ... logs". This is the
+/// opt-in timeline `BAUD_STARTUP` asks for, `open --env BAUD_STARTUP=1`
+/// included, and nothing is written without it. Each launch appends, under
+/// a line naming its process.
+pub(crate) struct Timeline {
+    file: Option<std::fs::File>,
+}
+
+impl Timeline {
+    /// Where the file is, from `home` and `state` (`$XDG_STATE_HOME`), each
+    /// only when absolute.
+    pub(crate) fn path(
+        home: Option<&std::path::Path>,
+        state: Option<&std::path::Path>,
+    ) -> Option<std::path::PathBuf> {
+        let home = home.filter(|h| h.is_absolute());
+        let dir = match cfg!(target_os = "macos") {
+            true => home.map(|h| h.join("Library/Logs/baud")),
+            false => state
+                .filter(|s| s.is_absolute())
+                .map(|s| s.join("baud"))
+                .or_else(|| home.map(|h| h.join(".local/state/baud"))),
+        }?;
+        Some(dir.join("startup.log"))
+    }
+
+    /// The file at `path` opened to append, its directory made, and the
+    /// launch's first line written; no file when it cannot be.
+    pub(crate) fn open(path: Option<&std::path::Path>) -> Timeline {
+        use std::io::Write;
+        let file = path.and_then(|p| {
+            std::fs::create_dir_all(p.parent()?).ok()?;
+            let mut f = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(p)
+                .ok()?;
+            writeln!(f, "startup: launch, pid {}", std::process::id()).ok()?;
+            Some(f)
+        });
+        Timeline { file }
+    }
+
+    /// `startup: text`, to `stderr` and to the file.
+    pub(crate) fn line(&mut self, stderr: &mut impl std::io::Write, text: &str) {
+        use std::io::Write;
+        let _ = writeln!(stderr, "startup: {text}");
+        if let Some(f) = self.file.as_mut() {
+            let _ = writeln!(f, "startup: {text}");
+        }
+    }
+}
+
+/// A timeline line, to stderr and the file.
+fn startup_line(text: &str) {
+    let mut err = std::io::stderr();
+    match TIMELINE.get() {
+        Some(t) => match t.lock() {
+            Ok(mut t) => t.line(&mut err, text),
+            Err(_) => Timeline { file: None }.line(&mut err, text),
+        },
+        None => Timeline { file: None }.line(&mut err, text),
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Wanted {
+    Print,
+    Quiet,
+}
+
+/// Tell the core how wide the configured text is: whether a `U+FE0F` widens
+/// its base (`vs16_width`), how many columns an East Asian Ambiguous
+/// character takes (`[text] ambiguous_width`) and whether a spacing mark
+/// takes one (`[text] join_spacing_marks`). One function for both drivers,
+/// called after `Term::new` and before the first feed, so the grid never
+/// holds cells measured under two policies.
+pub fn set_widths(
+    term: &mut baud_core::Term<'_>,
+    vs16: baud_domain::Vs16Width,
+    ambiguous: baud_domain::AmbiguousWidth,
+    marks: baud_domain::SpacingMarks,
+) {
+    term.set_vs16_width(vs16);
+    term.set_ambiguous_width(ambiguous);
+    term.set_spacing_marks(marks);
+}
+
+/// Tell the core whether a program's request for a screen checksum
+/// (DECRQCRA) is answered, from `[screen] checksum`. One function for both
+/// drivers, called after `Term::new` and before the first feed.
+pub fn set_checksum(term: &mut baud_core::Term<'_>, checksum: baud_domain::ChecksumReport) {
+    term.set_checksum_report(checksum);
+}
+
+/// Tell the core where a kitty graphics command ends, from `[images]
+/// kitty_string_end`. One function for both drivers, called after
+/// `Term::new` and before the first feed.
+pub fn set_control_string_end(term: &mut baud_core::Term<'_>, end: baud_domain::ControlStringEnd) {
+    term.set_control_string_end(end);
+}
+
+/// Tell the core the Set-up modes, from `[keyboard]`: DECARM, DECCKM and
+/// LNM as the power-up and `RIS` state, and the keypad's value kept for a
+/// later change (`Term::set_up_at_launch`). One function for both drivers,
+/// called after `Term::new` and before the first feed.
+pub fn set_up(term: &mut baud_core::Term<'_>, s: baud_domain::SetUp) {
+    term.set_up_at_launch(s);
+}
+
+/// Tell the core what a `SUB` draws, from `[screen] substitute_mark` and
+/// `substitute_character`. One function for both drivers, called after
+/// `Term::new` and before the first feed.
+pub fn set_substitute(term: &mut baud_core::Term<'_>, s: crate::config::Substitute) {
+    term.set_substitute_mark(s.mark());
+}
+
+/// Tell the core whether a shell's new prompt is drawn on the window's
+/// last row, from `[screen] prompt_at_bottom`. One function for both
+/// drivers, called after `Term::new` and before the first feed.
+pub fn set_prompt_at_bottom(term: &mut baud_core::Term<'_>, p: baud_domain::PromptAtBottom) {
+    term.set_prompt_at_bottom(p);
+}
+
+/// Tell the core whether a program's window operations reach the driver,
+/// from `[window] operations`. One function for both drivers, called after
+/// `Term::new` and before the first feed.
+pub fn set_window_ops(term: &mut baud_core::Term<'_>, ops: baud_domain::WindowOps) {
+    term.set_window_ops(ops);
+}
+
+/// Tell the core which window manipulations the driver carries out and
+/// whether it puts a program's `OSC 52` write on the clipboard, so `OSC
+/// 61 ; allowWindowOps` lists what it does not do: `winops::mac_abilities`
+/// or `winops::wayland_abilities`, and `[clipboard] osc52`; and the
+/// control characters every paste replaces (`paste::FILTER`), for `OSC 61
+/// ; allowPasteControls`. One function for both drivers, called before the
+/// first feed.
+pub fn set_window_abilities(
+    term: &mut baud_core::Term<'_>,
+    a: baud_core::WindowAbilities,
+    osc52: crate::config::Osc52,
+) {
+    term.set_window_abilities(a);
+    // Every paste goes through `paste.rs`, which replaces xterm's default
+    // controls on both systems, so `OSC 61 ; allowPasteControls` names them.
+    term.set_paste_controls(crate::paste::FILTER);
+    term.set_osc52_writes(match osc52 {
+        crate::config::Osc52::Write => baud_core::Osc52Writes::On,
+        crate::config::Osc52::Off => baud_core::Osc52Writes::Off,
+    });
+}
+
+/// Tell the core the `TERM` the child is given ([`crate::bell::TERM`]),
+/// which a program's XTGETTCAP `TN` asks for. One function for both
+/// drivers, called before the first feed.
+pub fn set_term_name(term: &mut baud_core::Term<'_>) {
+    if let Some(name) = baud_core::TermName::new(crate::bell::TERM.as_bytes()) {
+        term.set_term_name(name);
+    }
+}
+
+/// Tell the core the build's name, which a program's XTVERSION asks for and
+/// which `TERM_PROGRAM_VERSION` says too. One function for both drivers,
+/// called before the first feed.
+pub fn set_version_text(term: &mut baud_core::Term<'_>) {
+    term.set_version_text(&crate::version::TEXT);
+}
+
+/// Tell the core whether there is a pointer for DEC's locator, so `DSR
+/// ?55` answers "Locator ready" only where one is: macOS's, always, and
+/// the Wayland seat's while its capabilities name one. One function for
+/// both drivers, called before the first feed, and on Linux after every
+/// event the window gave.
+pub fn set_locator_device(term: &mut baud_core::Term<'_>, d: baud_domain::LocatorDevice) {
+    term.set_locator_device(d);
+}
+
+/// Tell the core whether the system has a Hebrew keyboard layout, which
+/// DECHEBM needs (`?35`): macOS's enabled input sources, at start and at
+/// every focus gain, and the Wayland keymap's layouts after every event
+/// the window gave. One function for both drivers.
+pub fn set_hebrew_layout(term: &mut baud_core::Term<'_>, l: baud_domain::HebrewLayout) {
+    term.set_hebrew_layout(l);
+}
+
+/// Tell the core whether a program may log what it sends (`?46`, `OSC
+/// 46`), from `[screen] logging`. One function for both drivers, called
+/// after `Term::new` and before the first feed; each driver writes the log
+/// through `hostlog::HostLog`, which its one feed is handed.
+pub fn set_logging(term: &mut baud_core::Term<'_>, logging: baud_domain::Logging) {
+    term.set_logging(logging);
+}
+
+/// Tell the core whether a program's `OSC 50` may change the font, from
+/// `[font] changes`. One function for both drivers, called after
+/// `Term::new` and before the first feed.
+pub fn set_font_changes(term: &mut baud_core::Term<'_>, c: baud_domain::FontChanges) {
+    term.set_font_changes(c);
+}
+
+/// Tell the core the name `OSC 50 ; ?` answers -- the one a program set
+/// for the face that leads, else that face's family (`Fonts::answer`) --
+/// and whether `points` is `configured`, the config's size, so the query
+/// answers what is drawn: at start-up and after every change of face or
+/// size, a program's or the View menu's.
+pub fn tell_font(
+    term: &mut baud_core::Term<'_>,
+    fonts: &crate::fonts::Fonts,
+    points: f32,
+    configured: f32,
+) {
+    term.set_font(
+        fonts.answer().as_bytes(),
+        crate::fonts::size_of(points, configured),
+    );
+}
+
+/// **What a program's font change does here**, planned against the faces
+/// loaded and the size bounds (`fonts.rs`): the plan, or `None` when it
+/// changes nothing -- a family baud has not loaded or a step past the
+/// bounds -- which is counted in `Term::fonts_refused` with the core's own
+/// refusals and said at info. A name for the face that already leads
+/// restacks nothing, so the core is told it here, at `drawn`, the size
+/// drawn now. One function for both drivers.
+pub fn plan_font(
+    term: &mut baud_core::Term<'_>,
+    fonts: &mut crate::fonts::Fonts,
+    change: &baud_core::FontChange,
+    points: f32,
+    drawn: f32,
+    configured: f32,
+) -> Option<crate::fonts::Plan> {
+    match fonts.plan(change, points, configured) {
+        Ok(plan) => {
+            if plan.face.is_some_and(|f| fonts.leads(f)) {
+                tell_font(term, fonts, drawn, configured);
+            }
+            Some(plan)
+        }
+        Err(why) => {
+            term.refuse_font_request();
+            crate::info!("OSC 50: {change:?} changes nothing: {why:?}");
+            None
+        }
+    }
+}
+
+/// Tell the core when a key hides the pointer at power-on and after `RIS`,
+/// from `[pointer] hide_while_typing`. One function for both drivers,
+/// called after `Term::new` and before the first feed.
+pub fn set_pointer_mode(term: &mut baud_core::Term<'_>, mode: baud_domain::PointerMode) {
+    term.set_initial_pointer_mode(mode);
+}
+
+/// Tell the core what the theme draws the default foreground and background
+/// as, so `OSC 10 ; ?` and `OSC 11 ; ?` answer on a fresh terminal -- the
+/// query every theme-aware program sends to learn whether it is on a light
+/// or a dark background. One function for both drivers, called wherever a
+/// theme is set, so a renderer and its core cannot disagree about the
+/// defaults: the renderer draws the theme's colour and the core reports it.
+pub fn tell_defaults(
+    term: &mut baud_core::Term<'_>,
+    theme: &baud_render::Theme,
+    overrides: baud_core::Overrides,
+) {
+    let rgb = |c: baud_render::Argb| (c.r().get(), c.g().get(), c.b().get());
+    // A selection colour that names the cell's own text or page goes as
+    // that: `OSC 17`/`19` answer the default cell's, the text or the page
+    // the theme draws, and kitty's `OSC 21`, which has an empty answer for
+    // a colour that is no one colour, answers empty.
+    let shown = |p: CellPaint<baud_render::Argb>| p.map(rgb);
+    // One call: the defaults, the table and the selection's colours, so an
+    // `OSC 4 ; c ; ?` for an entry nothing overrode, or an `OSC 17 ; ?` with
+    // no program colour, is answered with the colour drawn, and a `?2031`
+    // subscriber gets at most one `CSI ? 997 ; 1|2 n` for the whole change.
+    // Every caller that changes the theme comes through here, so the core's
+    // copy cannot fall out of step. `Drop` is an OS light/dark flip under
+    // `auto`, and only that (`palette_switch` in `app.rs`).
+    let palette = theme.palette.map(rgb);
+    term.set_theme(
+        &baud_core::ThemeColors {
+            fg: rgb(theme.fg),
+            bg: rgb(theme.bg),
+            palette: &palette,
+            selection: theme.selection.map(shown),
+            selection_text: theme.selection_text.map(shown),
+            // The cursor's colour, when it is one; a cell's own is drawn by
+            // the renderer and answers nothing, as no colour did before.
+            cursor: theme.cursor.and_then(CellPaint::colour).map(rgb),
+            // The text under a block cursor, likewise: what kitty's
+            // `OSC 21 ; cursor_text=?` answers while no program set one.
+            cursor_text: theme.cursor_text.and_then(CellPaint::colour).map(rgb),
+            // A kitty file's none, which the core resolves against the
+            // colours in force when asked, as the renderer does when drawn.
+            cursor_text_under: theme.cursor_text_under,
+            unset_selection_text: theme.unset_selection_text,
+        },
+        overrides,
+    );
+}
+
+/// **One line appended to `name`** beside the launch timeline's file
+/// ([`Timeline::path`]), its directory made; nothing when it cannot be
+/// opened.
+#[cfg(target_os = "macos")]
+pub(crate) fn append_log(name: &str, line: &str) {
+    use std::io::Write;
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let Some(path) = Timeline::path(home.as_deref(), None) else {
+        return;
+    };
+    let path = path.with_file_name(name);
+    let file = path.parent().and_then(|dir| {
+        std::fs::create_dir_all(dir).ok()?;
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .ok()
+    });
+    if let Some(mut file) = file {
+        let _ = writeln!(file, "{line}");
+    }
+}
+
+pub fn startup_begin() {
+    let _ = START.set(Instant::now());
+    let wanted = match std::env::var_os("BAUD_STARTUP") {
+        Some(_) => Wanted::Print,
+        None => Wanted::Quiet,
+    };
+    let _ = WANTED.set(wanted);
+    if wanted == Wanted::Print {
+        let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+        let state = std::env::var_os("XDG_STATE_HOME").map(std::path::PathBuf::from);
+        let path = Timeline::path(home.as_deref(), state.as_deref());
+        let _ = TIMELINE.set(std::sync::Mutex::new(Timeline::open(path.as_deref())));
+    }
+}
+
+pub fn startup_mark(stage: &str) {
+    if WANTED.get() != Some(&Wanted::Print) {
+        return;
+    }
+    let since = START.get().map_or(Duration::ZERO, Instant::elapsed);
+    startup_line(&format!("{stage:<18} {:9.3} ms", since.as_secs_f64() * 1e3));
+}
+
+/// A stage that happens many times and is worth printing once: the first
+/// frame committed, the first completion, the first present.
+pub fn startup_first(stage: &str, seen: &AtomicBool) {
+    if !seen.swap(true, Ordering::Relaxed) {
+        startup_mark(stage);
+    }
+}
+
+/// A free-form line under the same flag, for a count the stages cannot
+/// carry -- the first frame's map misses, a predicted inset that missed.
+#[cfg(target_os = "macos")]
+pub fn startup_note(text: &str) {
+    if WANTED.get() != Some(&Wanted::Print) {
+        return;
+    }
+    startup_line(text);
+}
+
+/// A line about the config, under the same flag on either driver: a
+/// `[glass]` dim raised so its text reads (`palette::glass_raised`), said
+/// once at launch as the window's notice row says it.
+pub fn startup_said(text: &str) {
+    if WANTED.get() != Some(&Wanted::Print) {
+        return;
+    }
+    startup_line(text);
+}
+
+#[cfg(target_os = "macos")]
+pub static FIRST_COMMIT: AtomicBool = AtomicBool::new(false);
+/// The first bytes the child wrote, and the first frame committed after
+/// them: what a user waits for, where `first commit` is an empty screen.
+#[cfg(target_os = "macos")]
+pub static FIRST_BYTES: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "macos")]
+pub static FIRST_CONTENT: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "macos")]
+pub static FIRST_DONE: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "macos")]
+pub static FIRST_TICK: AtomicBool = AtomicBool::new(false);
+/// The first display-link tick returned: what the tick's own work cost
+/// the main thread, which is where the Dock icon used to be set.
+#[cfg(target_os = "macos")]
+pub static FIRST_TICK_DONE: AtomicBool = AtomicBool::new(false);
+/// The first frame of the launch logo's plasma with a clock: the gap from
+/// `splash shown` is the tick it waited for, and from `shown` the window's
+/// time on screen before the logo.
+#[cfg(target_os = "macos")]
+pub static FIRST_SPLASH: AtomicBool = AtomicBool::new(false);
+/// The first wake the run loop delivers: the event loop has started.
+#[cfg(target_os = "macos")]
+pub static FIRST_WAKE: AtomicBool = AtomicBool::new(false);
+/// The first tick at which AppKit reports the window visible and not
+/// wholly covered, apart from `splash shown`, which also needs a frame on
+/// the layer.
+#[cfg(target_os = "macos")]
+pub static FIRST_VISIBLE: AtomicBool = AtomicBool::new(false);
+pub static FIRST_PRESENT: AtomicBool = AtomicBool::new(false);
+
+/// **The launch timeline reaches its file with stderr discarded**, as a
+/// Dock launch's is: a timeline opened at a scratch path, its stderr a
+/// sink, as `/dev/null` takes it, holds the launch's line and each line
+/// after it; a second launch appends. The control: the sink is given the
+/// same lines, so the file is a copy and not a different stream.
+#[cfg(test)]
+mod timeline_tests {
+    use super::Timeline;
+    use std::path::Path;
+
+    #[test]
+    fn the_timeline_reaches_its_file_with_stderr_discarded() {
+        let dir = std::env::temp_dir().join(format!("baud-timeline-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("Logs/baud/startup.log");
+        let mut t = Timeline::open(Some(&path));
+        t.line(&mut std::io::sink(), "splash: reads 12.0 ms, 469 bytes");
+        let mut err = Vec::new();
+        t.line(&mut err, "first frame 157.6 ms");
+        drop(t);
+        let mut t = Timeline::open(Some(&path));
+        t.line(&mut std::io::sink(), "pty 14.2 ms");
+        drop(t);
+        let text = std::fs::read_to_string(&path).expect("the file");
+        let pid = format!("startup: launch, pid {}", std::process::id());
+        assert_eq!(
+            text,
+            format!(
+                "{pid}\nstartup: splash: reads 12.0 ms, 469 bytes\nstartup: first frame 157.6 ms\n\
+                 {pid}\nstartup: pty 14.2 ms\n"
+            )
+        );
+        assert_eq!(err, b"startup: first frame 157.6 ms\n", "the control");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Where the file goes: the user's log directory on macOS, the XDG
+    /// state directory on Linux; nowhere from a relative home.
+    #[test]
+    fn the_timeline_lives_in_the_users_log_directory() {
+        let home = Path::new("/Users/me");
+        let at = Timeline::path(Some(home), Some(Path::new("/state")));
+        match cfg!(target_os = "macos") {
+            true => assert_eq!(
+                at.as_deref(),
+                Some(Path::new("/Users/me/Library/Logs/baud/startup.log"))
+            ),
+            false => assert_eq!(at.as_deref(), Some(Path::new("/state/baud/startup.log"))),
+        }
+        assert_eq!(Timeline::path(Some(Path::new("rel")), None), None);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use baud_core::{Chan, Owned, Term};
+    use baud_domain::{BytePos, ImagePx, ReadLen, WinSize};
+    use baud_render::Theme;
+
+    /// **The grid both drivers provision is within the rendition budget**:
+    /// `MAX_GRID` is admitted as it is, not clamped into it
+    /// (`baud_core::Provision`).
+    #[test]
+    fn the_provisioned_grid_is_within_the_rendition_budget() {
+        assert!(baud_core::Provision::of(&super::MAX_GRID).is_ok());
+    }
+
+    fn feed(t: &mut Term<'_>, bytes: &[u8]) {
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    }
+
+    /// **A font reload gives the last fonts back**: their file's mapping
+    /// unmapped and their parsed faces freed -- the config's, and the
+    /// stack's, which carries the embedded faces' narrower instances --
+    /// once the renderer is restacked on the new ones, and it draws from
+    /// those exactly as a renderer made on them does. A file that is not a
+    /// font changes nothing and gives back what it mapped.
+    #[test]
+    fn a_font_reload_gives_the_last_fonts_back() {
+        use baud_domain::{Cols, Rows};
+        use baud_render::{Blend, Damage, PxSize, Renderer, Target};
+        let dir = std::env::temp_dir().join(format!("baud-refont-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let font = |sub: &str, bytes: &[u8]| {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+            let p = dir.join(sub).join("Face.ttf");
+            std::fs::write(&p, bytes).unwrap();
+            p
+        };
+        let test_font = |name: &str| {
+            let p = format!(
+                "{}/../baud-font/tests/fonts/{name}",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            std::fs::read(p).expect("a test font")
+        };
+        let a = font("a", &test_font("FiraCode-Regular.ttf"));
+        let b = font("b", &test_font("JetBrainsMono-Regular.ttf"));
+        let broken = font("c", b"not a font");
+        let cfg_of = |p: &std::path::Path| {
+            let mut c = crate::config::Config::defaults();
+            assert!(
+                c.apply(&format!("fonts = [{:?}]\n", p.display().to_string()))
+                    .is_empty()
+            );
+            super::resolved(&mut c);
+            c
+        };
+        let (ws, px) = (
+            WinSize {
+                ws_row: 2,
+                ws_col: 8,
+            },
+            PxSize::of(26.0).unwrap(),
+        );
+        let renderer = |fonts: &crate::fonts::Fonts| {
+            Renderer::new(
+                super::stack(fonts),
+                px,
+                Theme::dark(),
+                Blend::Native,
+                Cols::of_index(8),
+                Rows::of_index(2),
+            )
+            .expect("metrics")
+        };
+        let draw = |r: &mut Renderer<'static, 'static>| {
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            feed(&mut t, b"baud Ag");
+            let (w, h) = r.whole_size();
+            let area = baud_font::Extent::new(w, h).cells().expect("an area");
+            let mut frame = vec![0u32; area];
+            let mut target = Target::new(&mut frame, w, w, h).expect("a target");
+            let seal = t.seal_writes();
+            let _ = r.render(&t, seal, &mut target, Damage::Full);
+            frame
+        };
+        let (ca, cb) = (cfg_of(&a), cfg_of(&b));
+        let (data, mut held) = super::map_faces(&ca);
+        let faces = super::parse_faces(&ca, &data, &mut held);
+        let mut fonts = crate::fonts::Fonts::new(&ca, data, faces, held);
+        let mut r = renderer(&fonts);
+        let drawn_a = draw(&mut r);
+        let given = super::refont(&mut r, &mut fonts, &cb, px).expect("b loads");
+        assert_eq!(
+            given,
+            crate::pty::Released {
+                unmapped: 1,
+                freed: 2
+            },
+            "a's file, its faces and its stack"
+        );
+        let drawn_b = draw(&mut r);
+        let (data, mut held) = super::map_faces(&cb);
+        let faces_b = super::parse_faces(&cb, &data, &mut held);
+        let fresh_b = draw(&mut renderer(&crate::fonts::Fonts::new(
+            &cb, data, faces_b, held,
+        )));
+        assert!(drawn_b == fresh_b, "drawn from b's faces");
+        assert!(drawn_b != drawn_a, "the control: a and b draw differently");
+        let cc = {
+            let mut c = crate::config::Config::defaults();
+            assert!(
+                c.apply(&format!("fonts = [{:?}]\n", broken.display().to_string()))
+                    .is_empty()
+            );
+            c
+        };
+        assert!(super::refont(&mut r, &mut fonts, &cc, px).is_err());
+        assert!(draw(&mut r) == drawn_b, "b stays");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A script no face of the default stack has draws from the system's
+    /// face, joined** (TUS 5.3: a box only where no font has the
+    /// character), on the path a launch takes -- `Config::defaults`, the
+    /// renderer's stack, a frame -- and then `follow_gaps`, as a driver
+    /// calls it after a frame. Before it, an Arabic word and a Syriac word
+    /// are the primary's `.notdef` boxes: an initial Syriac beth draws as
+    /// its isolated form does. After it, both draw from faces the system
+    /// answered, appended behind the chain; the Arabic word draws exactly
+    /// as its presentation forms in visual order do (`[[source:
+    /// unicode-ch9]]` 9.2.2), the initial beth differs from the isolated
+    /// one, and every frame is the one a renderer made on those faces
+    /// draws. Latin, Hebrew and Han keep their faces.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_system_draws_arabic_and_syriac_no_listed_face_has() {
+        use baud_domain::{Codepoint, Cols, Rows};
+        use baud_render::{Blend, Damage, PxSize, Renderer, Target};
+        let ws = WinSize {
+            ws_row: 3,
+            ws_col: 8,
+        };
+        let px = PxSize::of(26.0).unwrap();
+        let renderer = |fonts: &crate::fonts::Fonts| {
+            Renderer::new(
+                super::stack(fonts),
+                px,
+                Theme::dark(),
+                Blend::Native,
+                Cols::of_index(8),
+                Rows::of_index(3),
+            )
+            .expect("metrics")
+        };
+        let draw = |r: &mut Renderer<'static, 'static>, bytes: &[u8]| {
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            feed(&mut t, b"\x1b[?25l");
+            feed(&mut t, bytes);
+            let (w, h) = r.whole_size();
+            let area = baud_font::Extent::new(w, h).cells().expect("an area");
+            let mut frame = vec![0u32; area];
+            let mut target = Target::new(&mut frame, w, w, h).expect("a target");
+            let seal = t.seal_writes();
+            let _ = r.render(&t, seal, &mut target, Damage::Full);
+            frame
+        };
+        // A cell's pixels, row and column from the top left.
+        let cell = |r: &Renderer<'static, 'static>, frame: &[u32], row: usize, col: usize| {
+            let m = r.metrics();
+            let n = |p: baud_font::Px| usize::try_from(p.value()).expect("a size");
+            let (cw, ch) = (n(m.cell_w), n(m.cell_h));
+            let w = n(r.whole_size().0);
+            assert_eq!(w, 8 * cw, "no margin beside the grid");
+            (0..ch)
+                .flat_map(|y| {
+                    let at = (row * ch + y) * w + col * cw;
+                    frame[at..at + cw].to_vec()
+                })
+                .collect::<Vec<u32>>()
+        };
+        // An Arabic word on row 1, three Syriac beths on row 2, one on
+        // row 3: each a paragraph of its own, run right to left against
+        // the right edge, so the word's cells are columns 5-7 and the lone
+        // beth's column 7.
+        let scene =
+            "\x1b[1;1H\u{0628}\u{064A}\u{062A}\x1b[2;1H\u{0712}\u{0712}\u{0712}\x1b[3;1H\u{0712}";
+        // The word's presentation forms in visual order, BDSM reset:
+        // teh final, yeh medial, beh initial, from column 6.
+        let forms = "\x1b[8l\x1b[1;6H\u{FE96}\u{FEF4}\u{FE91}";
+        let mut cfg = crate::config::Config::defaults();
+        super::resolved(&mut cfg);
+        let (data, mut held) = super::map_faces(&cfg);
+        let faces = super::parse_faces(&cfg, &data, &mut held);
+        let mut fonts = crate::fonts::Fonts::new(&cfg, data, faces, held);
+        let mut r = renderer(&fonts);
+        let cp = |v| Codepoint::new(v).unwrap();
+        let (a, alef, han, beh, beth) = (cp(0x61), cp(0x05D0), cp(0x6C38), cp(0x0628), cp(0x0712));
+        let before = draw(&mut r, scene.as_bytes());
+        let stack = super::stack(&fonts);
+        let kept = [a, alef, han].map(|c| stack.select(c));
+        for c in [beh, beth] {
+            assert!(
+                faces.iter().all(|f| f.glyph(c).is_none()),
+                "the control: no face of the default stack maps U+{:04X}",
+                c.value()
+            );
+        }
+        assert!(
+            cell(&r, &before, 1, 7) == cell(&r, &before, 2, 7),
+            "the control: before, the initial and the isolated beth are one box"
+        );
+        let given = super::follow_gaps(&mut r, &mut fonts, px)
+            .expect("a system face added for the characters the frame met, which no face draws")
+            .expect("the system's faces load");
+        assert_eq!(
+            (given.unmapped, given.freed),
+            (0, 2),
+            "the last fonts' parsed faces and stack freed, and its six system files kept: \
+             the new stack is made of them too, and a file is mapped once"
+        );
+        let after = draw(&mut r, scene.as_bytes());
+        assert!(
+            super::follow_gaps(&mut r, &mut fonts, px).is_none(),
+            "the characters drawn again, on the new stack, ask nothing"
+        );
+        let added: Vec<&crate::config::FaceSpec> = fonts
+            .faces()
+            .iter()
+            .filter(|f| {
+                !cfg.faces
+                    .iter()
+                    .any(|g| g.path == f.path && g.index == f.index)
+            })
+            .collect();
+        assert!(!added.is_empty(), "faces were added");
+        let mut again = crate::config::Config::defaults();
+        again.faces = fonts.faces().to_vec();
+        let (data, mut held) = super::map_faces(&again);
+        let loaded = super::parse_faces(&again, &data, &mut held);
+        let again_fonts = crate::fonts::Fonts::new(&again, data, loaded, held);
+        let stack = super::stack(&again_fonts);
+        let place = super::places(&again_fonts);
+        for c in [beh, beth] {
+            let ix = place[stack.select(c).index()];
+            assert!(
+                loaded[ix].glyph(c).is_some(),
+                "U+{:04X} draws from a face that maps it",
+                c.value()
+            );
+            assert!(
+                added.iter().any(|f| f.path == again.faces[ix].path),
+                "U+{:04X} draws from {}, a system face added behind the chain",
+                c.value(),
+                again.faces[ix].path
+            );
+        }
+        assert_eq!(
+            [a, alef, han].map(|c| stack.select(c)),
+            kept,
+            "the rest keep their faces"
+        );
+        let reread = crate::config::Config::defaults().resolved();
+        for f in &added {
+            assert!(
+                reread
+                    .faces
+                    .iter()
+                    .any(|g| g.path == f.path && g.index == f.index),
+                "a config read again keeps {} behind its chain",
+                f.path
+            );
+        }
+        let fresh = draw(&mut renderer(&again_fonts), scene.as_bytes());
+        assert!(
+            after == fresh,
+            "drawn from the faces added, as a fresh stack draws them"
+        );
+        let joined = draw(&mut r, forms.as_bytes());
+        for col in 5..8 {
+            assert!(
+                cell(&r, &after, 0, col) == cell(&r, &joined, 0, col),
+                "column {col}: the Arabic word draws its joined forms"
+            );
+            assert!(
+                cell(&r, &after, 0, col) != cell(&r, &before, 0, col),
+                "column {col}: not the box"
+            );
+        }
+        assert!(
+            cell(&r, &after, 1, 7) != cell(&r, &after, 2, 7),
+            "the initial beth is not drawn as the isolated one"
+        );
+        assert!(
+            cell(&r, &after, 2, 7) != cell(&r, &before, 2, 7),
+            "the isolated beth is not the box"
+        );
+    }
+
+    /// **A face a program put in the lead keeps it when a system face is
+    /// added**: Menlo led by a program's `OSC 50`, an Arabic word drawn, and
+    /// `follow_gaps` restacks with Menlo still leading -- the fonts say it
+    /// leads, its slot moved by the face added ahead of the styled ones
+    /// matched by face, and the renderer draws Latin as a stack Menlo leads
+    /// draws it, not as the embedded font does.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_program_s_lead_stays_when_a_system_face_is_added() {
+        use baud_domain::{Cols, Rows};
+        use baud_render::{Blend, Damage, PxSize, Renderer, Stack, Target};
+        let ws = WinSize {
+            ws_row: 2,
+            ws_col: 8,
+        };
+        let px = PxSize::of(26.0).unwrap();
+        let make = |stack| {
+            Renderer::new(
+                stack,
+                px,
+                Theme::dark(),
+                Blend::Native,
+                Cols::of_index(8),
+                Rows::of_index(2),
+            )
+            .expect("metrics")
+        };
+        let draw = |r: &mut Renderer<'static, 'static>, bytes: &[u8]| {
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            feed(&mut t, bytes);
+            let (w, h) = r.whole_size();
+            let area = baud_font::Extent::new(w, h).cells().expect("an area");
+            let mut frame = vec![0u32; area];
+            let mut target = Target::new(&mut frame, w, w, h).expect("a target");
+            let seal = t.seal_writes();
+            let _ = r.render(&t, seal, &mut target, Damage::Full);
+            frame
+        };
+        let mut cfg = crate::config::Config::defaults();
+        super::resolved(&mut cfg);
+        let (data, mut held) = super::map_faces(&cfg);
+        let faces = super::parse_faces(&cfg, &data, &mut held);
+        let mut fonts = crate::fonts::Fonts::new(&cfg, data, faces, held);
+        let mut r = make(super::stack(&fonts));
+        let embedded = draw(&mut r, b"Ag");
+        let menlo = fonts
+            .resolve(b"Menlo")
+            .expect("Menlo, in the default stack");
+        let built = fonts.stack(menlo).expect("its stack");
+        r.restack(Stack::with_roles(built.faces, &built.roles).unwrap(), px)
+            .expect("restacked");
+        fonts.set(menlo);
+        let _ = draw(&mut r, "\u{0628}\u{064A}\u{062A}".as_bytes());
+        super::follow_gaps(&mut r, &mut fonts, px)
+            .expect("a system face added")
+            .expect("it loads");
+        let menlo = fonts.resolve(b"Menlo").expect("Menlo, after");
+        assert!(fonts.leads(menlo), "Menlo still leads");
+        assert_eq!(fonts.family(), "Menlo");
+        let built = fonts.stack(menlo).expect("its stack");
+        let led = draw(
+            &mut make(Stack::with_roles(built.faces, &built.roles).unwrap()),
+            b"Ag",
+        );
+        let drawn = draw(&mut r, b"Ag");
+        assert!(drawn == led, "drawn as the stack Menlo leads draws");
+        assert!(
+            drawn != embedded,
+            "the control: the embedded font draws Ag otherwise"
+        );
+    }
+
+    /// The default stack loads with the embedded faces read from the binary
+    /// rather than looked for as files -- their names are no paths, so a
+    /// loader that mapped them would panic here -- and draws bold, italic
+    /// and bold-italic text from the embedded styles, an icon of any style
+    /// from the icon face, and regular text from the regular face.
+    #[test]
+    fn the_default_stack_loads_the_embedded_faces() {
+        use baud_render::FaceStyle;
+        let mut cfg = crate::config::Config::defaults();
+        let l = super::load_faces(&mut cfg);
+        let (faces, stack) = (l.faces, &l.stack);
+        assert_eq!(faces.len(), cfg.faces.len());
+        let a = baud_domain::Codepoint::new(u32::from('a')).unwrap();
+        let folder = baud_domain::Codepoint::new(0xF07B).unwrap();
+        // The badge's face last, behind the three styles.
+        let n = faces.len() - 1;
+        assert_eq!(l.place[stack.badge().index()], n, "the badge's face");
+        for (style, face) in [
+            (FaceStyle::Regular, 0),
+            (FaceStyle::Bold, n - 3),
+            (FaceStyle::Italic, n - 2),
+            (FaceStyle::BoldItalic, n - 1),
+        ] {
+            assert_eq!(
+                l.place[stack.select_styled(a, style).index()],
+                face,
+                "{style:?}"
+            );
+            assert_eq!(
+                l.place[stack.select_styled(folder, style).index()],
+                1,
+                "{style:?}"
+            );
+        }
+    }
+
+    /// **Every stack draws the badge in the embedded Bold, whatever the
+    /// text's font**: the default stack, Fira Code configured, and Fira Code
+    /// configured with `font_fallback = false` each give `Stack::badge` the
+    /// embedded JetBrains Mono Bold, as iTerm2's badge has a face of its
+    /// own, and the text's `a` is drawn from another face in every style.
+    #[test]
+    fn every_stack_draws_the_badge_in_the_embedded_bold() {
+        use crate::config::FaceFrom;
+        use baud_render::{FaceRole, FaceStyle};
+        let fira = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-font/tests/fonts/FiraCode-Regular.ttf"
+        );
+        let a = baud_domain::Codepoint::new(u32::from('a')).unwrap();
+        for text in [
+            String::new(),
+            format!("fonts = [\"{fira}\"]\n"),
+            format!("font_fallback = false\nfonts = [\"{fira}\"]\n"),
+        ] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(&text);
+            assert!(said.is_empty(), "{said:?}");
+            let l = super::load_faces(&mut cfg);
+            let stack = &l.stack;
+            let ix = l.place[stack.badge().index()];
+            assert_eq!(cfg.faces[ix].role, FaceRole::Badge, "{text:?}");
+            assert!(
+                matches!(cfg.faces[ix].from,
+                    FaceFrom::Embedded(b) if b == crate::embedded::BOLD.bytes),
+                "{text:?}: {}",
+                cfg.faces[ix].path
+            );
+            for style in FaceStyle::ALL {
+                assert_ne!(
+                    l.place[stack.select_styled(a, style).index()],
+                    ix,
+                    "{text:?} {style:?}"
+                );
+            }
+        }
+    }
+
+    /// **The default stack draws Hebrew from the embedded font** -- the boxes
+    /// Hebrew drew as until 2026-10-08, on the path a launch takes:
+    /// `Config::defaults`, `load_faces`, the renderer's stack. Alef, shin and
+    /// sheva -- two letters and a point -- map in the embedded Regular, which
+    /// regular text draws from, and bold, italic and bold-italic text draw them
+    /// from the embedded Bold, Italic and Bold Italic. Linux loads its faces
+    /// through the same two calls.
+    #[test]
+    fn the_default_stack_draws_hebrew_from_the_embedded_font() {
+        use baud_render::FaceStyle;
+        let mut cfg = crate::config::Config::defaults();
+        let l = super::load_faces(&mut cfg);
+        let (faces, stack) = (l.faces, &l.stack);
+        // The badge's face last, behind the three styles.
+        let n = faces.len() - 1;
+        for cp in [0x05D0, 0x05E9, 0x05B0] {
+            let c = baud_domain::Codepoint::new(cp).unwrap();
+            assert!(
+                faces[0].glyph(c).is_some(),
+                "U+{cp:04X}: the embedded Regular, faces[0], does not map it, so it draws as \
+                 the primary's .notdef box"
+            );
+            assert_eq!(
+                l.place[stack.select_styled(c, FaceStyle::Regular).index()],
+                0
+            );
+            assert!(faces[n - 3].glyph(c).is_some(), "U+{cp:04X}: the Bold face");
+            assert_eq!(
+                l.place[stack.select_styled(c, FaceStyle::Bold).index()],
+                n - 3,
+                "U+{cp:04X}: bold Hebrew draws from the embedded Bold"
+            );
+            for (style, ix) in [(FaceStyle::Italic, n - 2), (FaceStyle::BoldItalic, n - 1)] {
+                assert!(
+                    faces[ix].glyph(c).is_some(),
+                    "U+{cp:04X}, {style:?}: the embedded italic face"
+                );
+                assert_eq!(
+                    l.place[stack.select_styled(c, style).index()],
+                    ix,
+                    "U+{cp:04X}, {style:?}: italic Hebrew draws from the embedded italic face, \
+                     not upright from the embedded Regular"
+                );
+            }
+        }
+    }
+
+    /// **A configured stack draws Hebrew from the embedded Regular behind
+    /// it**: the configured faces, then baud's embedded font, then the
+    /// system's faces, which a frame that needs one adds (`follow_gaps`).
+    /// FiraCode, named alone in `fonts`, maps no Hebrew; the embedded
+    /// Regular follows it, ahead of the icon face and STIX, and draws
+    /// alef, while Latin stays with FiraCode. With `font_fallback = false`
+    /// the stack is FiraCode alone and alef is its `.notdef`.
+    #[test]
+    fn a_configured_stack_draws_hebrew_from_the_embedded_regular() {
+        let font = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-font/tests/fonts/FiraCode-Regular.ttf"
+        );
+        let alef = baud_domain::Codepoint::new(0x05D0).unwrap();
+        let a = baud_domain::Codepoint::new(u32::from('a')).unwrap();
+        for (extra, faces, alef_in) in [("", 4, 1), ("font_fallback = false\n", 1, 0)] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(&format!("{extra}fonts = [\"{font}\"]\n"));
+            assert!(said.is_empty(), "{said:?}");
+            let l = super::load_faces(&mut cfg);
+            // The chain; the family's styled faces beside the file follow
+            // it, out of the chain.
+            let chain = cfg
+                .faces
+                .iter()
+                .filter(|f| f.role == baud_render::FaceRole::Fallback)
+                .count();
+            assert_eq!(chain, faces, "{extra:?}");
+            assert!(
+                l.faces[0].glyph(alef).is_none(),
+                "the control: FiraCode has no Hebrew"
+            );
+            let stack = &l.stack;
+            assert_eq!(
+                l.place[stack.select(a).index()],
+                0,
+                "{extra:?}: Latin stays"
+            );
+            assert_eq!(l.place[stack.select(alef).index()], alef_in, "{extra:?}");
+            if alef_in != 0 {
+                assert!(
+                    matches!(cfg.faces[alef_in].from,
+                        crate::config::FaceFrom::Embedded(b) if b == crate::embedded::REGULAR.bytes),
+                    "alef is drawn by the embedded Regular, not by {}",
+                    cfg.faces[alef_in].path
+                );
+            }
+        }
+    }
+
+    /// **A configured font's own Bold, Italic and Bold Italic are its
+    /// styled faces in the renderer's stack, for both drivers**, which
+    /// both load through `Config::launch`, `load_faces`' path and `stack`:
+    /// JetBrains Mono named by its Regular's path brings the three styles
+    /// beside it, each style is drawn from its own face, the embedded
+    /// styled faces are not among them, and a program's `OSC 50` that
+    /// names the family again keeps them (`Fonts::stack`).
+    #[test]
+    fn a_configured_fonts_styles_reach_the_renderer() {
+        use baud_render::{FaceRole, FaceStyle};
+        let font = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf"
+        );
+        let mut cfg = crate::config::Config::defaults();
+        let said = cfg.apply(&format!("fonts = [\"{font}\"]\n"));
+        assert!(said.is_empty(), "{said:?}");
+        let stack = super::load_faces(&mut cfg).stack;
+        for (style, file) in [
+            (FaceStyle::Bold, "JetBrainsMono-Bold.ttf"),
+            (FaceStyle::Italic, "JetBrainsMono-Italic.ttf"),
+            (FaceStyle::BoldItalic, "JetBrainsMono-BoldItalic.ttf"),
+        ] {
+            assert_eq!(stack.effective(style), style);
+            let at = cfg
+                .faces
+                .iter()
+                .position(|f| f.role == FaceRole::Style(style))
+                .expect("a styled face");
+            assert!(cfg.faces[at].path.ends_with(file), "{}", cfg.faces[at].path);
+            assert!(
+                !matches!(cfg.faces[at].from, crate::config::FaceFrom::Embedded(_)),
+                "the configured family's, not the embedded one's"
+            );
+        }
+        let (data, mut held) = super::map_faces(&cfg);
+        let faces = super::parse_faces(&cfg, &data, &mut held);
+        let mut fonts = crate::fonts::Fonts::new(&cfg, data, faces, held);
+        let slot = fonts.resolve(b"JETBRAINS MONO").expect("the family");
+        let built = fonts.stack(slot).expect("its stack");
+        let styled = built
+            .roles
+            .iter()
+            .filter(|r| matches!(r, FaceRole::Style(_)))
+            .count();
+        assert_eq!(styled, 3);
+    }
+
+    /// **An icon the configured font lacks draws from the embedded one.**
+    /// The committed plain JetBrains Mono carries the Powerline arrows but
+    /// not the Nerd Fonts icons; named alone in `fonts`, the renderer's stack
+    /// still finds Font Awesome's folder, U+F07B, in the embedded icon face
+    /// behind it, and text stays with the named face. Four faces, the icon
+    /// face third: the embedded Regular follows a configured stack ahead of
+    /// it, and has no icons either. With `font_fallback = false` the stack is
+    /// the named face alone and the folder falls to its `.notdef`.
+    #[test]
+    fn an_icon_the_configured_font_lacks_draws_from_the_embedded_one() {
+        let font = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf"
+        );
+        let folder = baud_domain::Codepoint::new(0xF07B).unwrap();
+        let a = baud_domain::Codepoint::new(u32::from('a')).unwrap();
+        for (extra, faces, folder_in) in [("", 4, 2), ("font_fallback = false\n", 1, 0)] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(&format!("{extra}fonts = [\"{font}\"]\n"));
+            assert!(said.is_empty(), "{said:?}");
+            let l = super::load_faces(&mut cfg);
+            // The chain; the family's styled faces beside the file follow
+            // it, out of the chain.
+            let chain = cfg
+                .faces
+                .iter()
+                .filter(|f| f.role == baud_render::FaceRole::Fallback)
+                .count();
+            assert_eq!(chain, faces, "{extra:?}");
+            assert!(
+                l.faces[0].glyph(folder).is_none(),
+                "the control: no icon in it"
+            );
+            let stack = &l.stack;
+            assert_eq!(l.place[stack.select(a).index()], 0, "{extra:?}");
+            assert_eq!(
+                l.place[stack.select(folder).index()],
+                folder_in,
+                "{extra:?}"
+            );
+        }
+    }
+
+    /// **A refused `CBLC` size is said once, at launch.** The Noto subset
+    /// with its first two index subtable records swapped lists them out of
+    /// order, and with 100 records claimed they run past its table: either
+    /// way its one size is refused and the launch log says which and why. The
+    /// cases fixture refuses two of six sizes and names the first. The clean
+    /// subset, the `sbix` fixture and JetBrains Mono say nothing.
+    #[test]
+    fn a_refused_size_is_reported_and_a_clean_face_is_not() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../baud-font/tests/fonts/");
+        let noto = std::fs::read(format!("{dir}NotoColorEmoji-subset.ttf")).unwrap();
+        let n = usize::from(u16::from_be_bytes([noto[4], noto[5]]));
+        let r = (0..n)
+            .map(|i| 12 + 16 * i)
+            .find(|&r| &noto[r..r + 4] == b"CBLC")
+            .unwrap();
+        let at =
+            usize::try_from(u32::from_be_bytes(noto[r + 8..r + 12].try_into().unwrap())).unwrap();
+        let mut swapped = noto.clone();
+        swapped[at + 56..at + 64].copy_from_slice(&noto[at + 64..at + 72]);
+        swapped[at + 64..at + 72].copy_from_slice(&noto[at + 56..at + 64]);
+        let face = baud_font::Face::parse(&swapped).unwrap();
+        assert_eq!(
+            super::bitmap_refusals("noto.ttf", &face),
+            vec![
+                "font noto.ttf: its one CBLC size is not read: size 0 (109 ppem) lists its index subtable \
+                 records out of order: record 1 starts before record 0"
+                    .to_string()
+            ]
+        );
+        // The records claimed past the table: 100 of them, at CBLC+16.
+        let mut past = noto.clone();
+        past[at + 16..at + 20].copy_from_slice(&100u32.to_be_bytes());
+        let face = baud_font::Face::parse(&past).unwrap();
+        assert_eq!(
+            super::bitmap_refusals("noto.ttf", &face),
+            vec![
+                "font noto.ttf: its one CBLC size is not read: size 0 (109 ppem) points its index \
+                 subtable records past the end of its table"
+                    .to_string()
+            ]
+        );
+        // Several sizes, two refused: the first is named and the rest still draw.
+        let cases = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-font/tests/bitmap/cblc-cases.ttf"
+        ))
+        .unwrap();
+        let face = baud_font::Face::parse(&cases).unwrap();
+        assert_eq!(
+            super::bitmap_refusals("cases.ttf", &face),
+            vec![
+                "font cases.ttf: 2 of its 6 CBLC sizes are not read: size 1 (30 ppem) lists its index \
+                 subtable records out of order: record 1 starts before record 0; the other sizes still draw"
+                    .to_string()
+            ]
+        );
+        for clean in [
+            "NotoColorEmoji-subset.ttf",
+            "sbix-strikes.ttf",
+            "JetBrainsMono-Regular.ttf",
+        ] {
+            let data = std::fs::read(format!("{dir}{clean}")).unwrap();
+            let face = baud_font::Face::parse(&data).unwrap();
+            assert!(super::bitmap_refusals(clean, &face).is_empty(), "{clean}");
+        }
+    }
+
+    /// **Claude Code's arrow and bullet draw from STIX behind a configured
+    /// font**. The committed plain JetBrains Mono has neither U+23F5 nor
+    /// U+23FA, and neither has the embedded Regular behind it nor the icon
+    /// face, so the renderer's stack selects STIX, fourth; with
+    /// `font_fallback = false` both fall to the named face's `.notdef`.
+    #[test]
+    fn claude_codes_symbols_draw_from_stix_behind_a_configured_font() {
+        let font = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf"
+        );
+        let arrow = baud_domain::Codepoint::new(0x23F5).unwrap();
+        let bullet = baud_domain::Codepoint::new(0x23FA).unwrap();
+        for (extra, faces, drawn_by) in [("", 4, 3), ("font_fallback = false\n", 1, 0)] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(&format!("{extra}fonts = [\"{font}\"]\n"));
+            assert!(said.is_empty(), "{said:?}");
+            let l = super::load_faces(&mut cfg);
+            // The chain; the family's styled faces beside the file follow
+            // it, out of the chain.
+            let chain = cfg
+                .faces
+                .iter()
+                .filter(|f| f.role == baud_render::FaceRole::Fallback)
+                .count();
+            assert_eq!(chain, faces, "{extra:?}");
+            for c in [arrow, bullet] {
+                assert!(
+                    l.faces[0].glyph(c).is_none(),
+                    "the control: not in the named face"
+                );
+            }
+            let stack = &l.stack;
+            assert_eq!(l.place[stack.select(arrow).index()], drawn_by, "{extra:?}");
+            assert_eq!(l.place[stack.select(bullet).index()], drawn_by, "{extra:?}");
+        }
+    }
+
+    /// **The default stack draws the half circles from the embedded
+    /// Regular.** U+25D0 and U+25D1 map in the embedded Regular, `faces[0]`,
+    /// and the stack selects it, so no face behind it is reached. STIX,
+    /// further down the chain, maps both too: the Regular is chosen by its
+    /// place, not because it alone has them.
+    #[test]
+    fn the_default_stack_draws_the_half_circles_from_the_embedded_regular() {
+        let mut cfg = crate::config::Config::defaults();
+        let l = super::load_faces(&mut cfg);
+        let (faces, stack) = (l.faces, &l.stack);
+        assert!(
+            matches!(cfg.faces[0].from,
+                crate::config::FaceFrom::Embedded(b) if b == crate::embedded::REGULAR.bytes),
+            "{}",
+            cfg.faces[0].path
+        );
+        let stix = cfg
+            .faces
+            .iter()
+            .position(|f| {
+                matches!(f.from,
+                    crate::config::FaceFrom::Embedded(b) if b == crate::embedded::STIX.bytes)
+            })
+            .expect("STIX in the default stack");
+        for cp in [0x25D0, 0x25D1] {
+            let c = baud_domain::Codepoint::new(cp).unwrap();
+            assert!(
+                faces[stix].glyph(c).is_some(),
+                "U+{cp:04X}, the control: STIX maps it"
+            );
+            assert!(
+                faces[0].glyph(c).is_some(),
+                "U+{cp:04X}: the embedded Regular, faces[0], does not map it"
+            );
+            assert_eq!(l.place[stack.select(c).index()], 0, "U+{cp:04X}");
+        }
+    }
+
+    /// **The half circles draw from the embedded Regular behind a
+    /// configured font.** The committed plain JetBrains Mono maps neither
+    /// U+25D0 nor U+25D1; the embedded Regular follows it in the chain,
+    /// ahead of the icon face and STIX, and draws both, though STIX maps
+    /// them too.
+    #[test]
+    fn the_half_circles_draw_from_the_embedded_regular_behind_a_configured_font() {
+        let font = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf"
+        );
+        let mut cfg = crate::config::Config::defaults();
+        let said = cfg.apply(&format!("fonts = [\"{font}\"]\n"));
+        assert!(said.is_empty(), "{said:?}");
+        let l = super::load_faces(&mut cfg);
+        let chain = cfg
+            .faces
+            .iter()
+            .filter(|f| f.role == baud_render::FaceRole::Fallback)
+            .count();
+        assert_eq!(chain, 4);
+        assert!(
+            matches!(cfg.faces[1].from,
+                crate::config::FaceFrom::Embedded(b) if b == crate::embedded::REGULAR.bytes),
+            "{}",
+            cfg.faces[1].path
+        );
+        assert!(
+            matches!(cfg.faces[3].from,
+                crate::config::FaceFrom::Embedded(b) if b == crate::embedded::STIX.bytes),
+            "{}",
+            cfg.faces[3].path
+        );
+        let stack = &l.stack;
+        for cp in [0x25D0, 0x25D1] {
+            let c = baud_domain::Codepoint::new(cp).unwrap();
+            assert!(
+                l.faces[0].glyph(c).is_none(),
+                "U+{cp:04X}, the control: not in the named face"
+            );
+            assert!(
+                l.faces[3].glyph(c).is_some(),
+                "U+{cp:04X}, the control: STIX maps it"
+            );
+            assert_eq!(l.place[stack.select(c).index()], 1, "U+{cp:04X}");
+        }
+    }
+
+    /// **The default stack draws the parallelograms from the embedded
+    /// Regular.** U+25B0 and U+25B1 map in the embedded Regular, `faces[0]`,
+    /// and the stack selects it, so no face behind it is reached. STIX,
+    /// further down the chain, maps both too: the Regular is chosen by its
+    /// place, not because it alone has them.
+    #[test]
+    fn the_default_stack_draws_the_parallelograms_from_the_embedded_regular() {
+        let mut cfg = crate::config::Config::defaults();
+        let l = super::load_faces(&mut cfg);
+        let (faces, stack) = (l.faces, &l.stack);
+        assert!(
+            matches!(cfg.faces[0].from,
+                crate::config::FaceFrom::Embedded(b) if b == crate::embedded::REGULAR.bytes),
+            "{}",
+            cfg.faces[0].path
+        );
+        let stix = cfg
+            .faces
+            .iter()
+            .position(|f| {
+                matches!(f.from,
+                    crate::config::FaceFrom::Embedded(b) if b == crate::embedded::STIX.bytes)
+            })
+            .expect("STIX in the default stack");
+        for cp in [0x25B0, 0x25B1] {
+            let c = baud_domain::Codepoint::new(cp).unwrap();
+            assert!(
+                faces[stix].glyph(c).is_some(),
+                "U+{cp:04X}, the control: STIX maps it"
+            );
+            assert!(
+                faces[0].glyph(c).is_some(),
+                "U+{cp:04X}: the embedded Regular, faces[0], does not map it"
+            );
+            assert_eq!(l.place[stack.select(c).index()], 0, "U+{cp:04X}");
+        }
+    }
+
+    /// **The parallelograms draw from the embedded Regular behind a
+    /// configured font.** The committed plain JetBrains Mono maps neither
+    /// U+25B0 nor U+25B1; the embedded Regular follows it in the chain,
+    /// ahead of the icon face and STIX, and draws both, though STIX maps
+    /// them too.
+    #[test]
+    fn the_parallelograms_draw_from_the_embedded_regular_behind_a_configured_font() {
+        let font = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf"
+        );
+        let mut cfg = crate::config::Config::defaults();
+        let said = cfg.apply(&format!("fonts = [\"{font}\"]\n"));
+        assert!(said.is_empty(), "{said:?}");
+        let l = super::load_faces(&mut cfg);
+        let chain = cfg
+            .faces
+            .iter()
+            .filter(|f| f.role == baud_render::FaceRole::Fallback)
+            .count();
+        assert_eq!(chain, 4);
+        assert!(
+            matches!(cfg.faces[1].from,
+                crate::config::FaceFrom::Embedded(b) if b == crate::embedded::REGULAR.bytes),
+            "{}",
+            cfg.faces[1].path
+        );
+        assert!(
+            matches!(cfg.faces[3].from,
+                crate::config::FaceFrom::Embedded(b) if b == crate::embedded::STIX.bytes),
+            "{}",
+            cfg.faces[3].path
+        );
+        let stack = &l.stack;
+        for cp in [0x25B0, 0x25B1] {
+            let c = baud_domain::Codepoint::new(cp).unwrap();
+            assert!(
+                l.faces[0].glyph(c).is_none(),
+                "U+{cp:04X}, the control: not in the named face"
+            );
+            assert!(
+                l.faces[3].glyph(c).is_some(),
+                "U+{cp:04X}, the control: STIX maps it"
+            );
+            assert_eq!(l.place[stack.select(c).index()], 1, "U+{cp:04X}");
+        }
+    }
+
+    /// **The configured widths reach the core.** After `set_widths`, `±`
+    /// (East Asian Ambiguous) takes the configured columns, U+E0B0 (a
+    /// Nerd Fonts separator, private use) one under either, a heart with
+    /// `U+FE0F` the configured `vs16_width`, and कि one column more unless
+    /// spacing marks are joined; `DECRQM ?1021` says which.
+    #[test]
+    fn set_widths_reaches_the_core() {
+        use baud_domain::{AmbiguousWidth, SpacingMarks, Vs16Width};
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        for (vs16, ambiguous, marks, cols, rqm) in [
+            (
+                Vs16Width::Two,
+                AmbiguousWidth::Narrow,
+                SpacingMarks::Column,
+                6,
+                "2",
+            ),
+            (
+                Vs16Width::Two,
+                AmbiguousWidth::Wide,
+                SpacingMarks::Column,
+                7,
+                "1",
+            ),
+            (
+                Vs16Width::One,
+                AmbiguousWidth::Wide,
+                SpacingMarks::Joined,
+                5,
+                "1",
+            ),
+        ] {
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::set_widths(&mut t, vs16, ambiguous, marks);
+            feed(&mut t, "±\u{E0B0}\u{2764}\u{FE0F}कि".as_bytes());
+            assert_eq!(
+                t.cursor().1.index(),
+                cols,
+                "{vs16:?} {ambiguous:?} {marks:?}"
+            );
+            feed(&mut t, b"\x1b[?1021$p");
+            let want = format!("\x1b[?1021;{rqm}$y");
+            assert_eq!(t.reply(), want.as_bytes(), "{ambiguous:?}");
+        }
+    }
+
+    /// **`[images] kitty_string_end` reaches the core, from both
+    /// drivers.** The config text read into a `Config`, handed to
+    /// `set_control_string_end`, decides where an `APC G` ends: by default
+    /// a bare `ESC` cancels it and the `CUP` after it runs; with `"kitty"`
+    /// the `CUP` is the command's payload. Both drivers' calls are held in
+    /// the source, as `the_checksum_setting_reaches_the_core` holds theirs.
+    #[test]
+    fn the_kitty_string_end_setting_reaches_the_core() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        for (text, row) in [("", 2), ("[images]\nkitty_string_end = \"kitty\"\n", 0)] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(text);
+            assert!(said.is_empty(), "{said:?}");
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::set_control_string_end(&mut t, cfg.kitty_string_end);
+            feed(&mut t, b"\x1b_Ga=q;\x1b[3;1H\x1b\\");
+            assert_eq!(t.cursor().0.index(), row, "{text:?}");
+        }
+        const CALL: &str = concat!("crate::host::", "set_control_string_end(&mut term, ");
+        for (driver, src, arg) in [
+            (
+                "macOS",
+                crate::app_source::app_source(),
+                "kitty_string_end);",
+            ),
+            (
+                "Linux",
+                &super::linux_driver_src(),
+                "cfg.kitty_string_end);",
+            ),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            let rest = src.split(CALL).nth(1).expect("the call");
+            assert!(
+                rest.starts_with(arg),
+                "{driver} passes the configured value"
+            );
+        }
+        assert_eq!(
+            crate::app_source::app_source()
+                .matches("kitty_string_end: cfg.kitty_string_end,")
+                .count(),
+            1,
+            "macOS carries it from the config"
+        );
+    }
+
+    /// **`[screen] checksum` reaches the core, from both drivers.** The
+    /// config text read into a `Config`, handed to `set_checksum`, decides
+    /// whether DECRQCRA is answered: by default with the checksum report,
+    /// with `"off"` with nothing, counted. Both drivers start AppKit or
+    /// Wayland, which no test drives, so their call is held in the source:
+    /// each calls `set_checksum` once with the configured value.
+    #[test]
+    fn the_checksum_setting_reaches_the_core() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        for (text, answered) in [("", true), ("[screen]\nchecksum = \"off\"\n", false)] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(text);
+            assert!(said.is_empty(), "{said:?}");
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::set_checksum(&mut t, cfg.checksum);
+            feed(&mut t, b"A\x1b[1;1;1;1;1;1*y");
+            let want: &[u8] = if answered { b"\x1bP1!~FFBF\x1b\\" } else { b"" };
+            assert_eq!(t.reply(), want, "{text:?}");
+            assert_eq!(t.checksums_refused, usize::from(!answered), "{text:?}");
+        }
+        // Spelled apart, so this test's own text is not what it finds.
+        const CALL: &str = concat!("crate::host::", "set_checksum(&mut term, ");
+        for (driver, src, arg) in [
+            ("macOS", crate::app_source::app_source(), "checksum);"),
+            ("Linux", &super::linux_driver_src(), "cfg.checksum);"),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            let rest = src.split(CALL).nth(1).expect("the call");
+            assert!(
+                rest.starts_with(arg),
+                "{driver} passes the configured value"
+            );
+        }
+        assert_eq!(
+            crate::app_source::app_source()
+                .matches("checksum: cfg.checksum,")
+                .count(),
+            1,
+            "macOS carries it from the config"
+        );
+    }
+
+    /// **`[keyboard]` reaches the core, from both drivers.** The config
+    /// text read into a `Config`, handed to `set_up`, is the power-up
+    /// state: DECRQM reports DECARM, DECCKM and LNM as the config says and
+    /// the keypad Numeric, which power-up selects (`Term::set_up_at_launch`).
+    /// Both drivers start AppKit or Wayland, which no test drives, so their
+    /// call is held in the source: each calls `set_up` once with the
+    /// configured value, and hands a changed `[keyboard]` to
+    /// `Term::change_set_up`.
+    #[test]
+    fn the_keyboard_settings_reach_the_core() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let turned = "[keyboard]\nauto_repeat = \"off\"\napplication_cursor_keys = \"on\"\n\
+                      application_keypad = \"on\"\nnew_line = \"on\"\n";
+        for (text, want) in [
+            ("", [&b"?8;1"[..], b"?1;2", b"?66;2", b"20;2"]),
+            (turned, [&b"?8;2"[..], b"?1;1", b"?66;2", b"20;1"]),
+        ] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(text);
+            assert!(said.is_empty(), "{said:?}");
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::set_up(&mut t, cfg.set_up);
+            for (ask, rpm) in [&b"\x1b[?8$p"[..], b"\x1b[?1$p", b"\x1b[?66$p", b"\x1b[20$p"]
+                .into_iter()
+                .zip(want)
+            {
+                t.clear_reply();
+                feed(&mut t, ask);
+                let mut answer = b"\x1b[".to_vec();
+                answer.extend_from_slice(rpm);
+                answer.extend_from_slice(b"$y");
+                assert_eq!(t.reply(), answer, "{text:?}");
+            }
+        }
+        // Spelled apart, so this test's own text is not what it finds.
+        const CALL: &str = concat!("crate::host::", "set_up(&mut term, ");
+        const CHANGE: &str = concat!("Part::Keyboard => ", "self.");
+        for (driver, src, arg, term) in [
+            (
+                "macOS",
+                crate::app_source::app_source(),
+                "set_up);",
+                "app.term.change_set_up(c.set_up),",
+            ),
+            (
+                "Linux",
+                &super::linux_driver_src(),
+                "cfg.set_up);",
+                "term.change_set_up(c.set_up),",
+            ),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            let rest = src.split(CALL).nth(1).expect("the call");
+            assert!(
+                rest.starts_with(arg),
+                "{driver} passes the configured value"
+            );
+            assert_eq!(src.matches(CHANGE).count(), 1, "{driver} hands a change on");
+            let rest = src.split(CHANGE).nth(1).expect("the change");
+            assert!(rest.starts_with(term), "{driver} hands the new Set-up");
+        }
+        assert_eq!(
+            crate::app_source::app_source()
+                .matches("set_up: cfg.set_up,")
+                .count(),
+            1,
+            "macOS carries it from the config"
+        );
+    }
+
+    /// **`[screen] substitute_mark` reaches the core, from both drivers.**
+    /// The config read into a `Config`, handed to `set_substitute`, decides
+    /// what a `SUB` draws: nothing by default, DEC's mark with `"on"`, the
+    /// named character with `substitute_character`. Both drivers start
+    /// AppKit or Wayland, which no test drives, so their call is held in
+    /// the source. Perturbation: leave the call out of `term_options` --
+    /// the reload half fails.
+    #[test]
+    fn the_substitute_setting_reaches_the_core() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let drawn = |t: &Term<'_>| {
+            let row = t.row(baud_core::Row::from_index(0)).expect("a row");
+            t.base_of(row[1]).as_codepoint().map(|c| c.value())
+        };
+        for (text, want) in [
+            ("", Some(u32::from('b'))),
+            ("[screen]\nsubstitute_mark = \"on\"\n", Some(0x2426)),
+            (
+                "[screen]\nsubstitute_mark = \"on\"\nsubstitute_character = \"#\"\n",
+                Some(u32::from('#')),
+            ),
+        ] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(text);
+            assert!(said.is_empty(), "{said:?}");
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::set_substitute(&mut t, cfg.substitute);
+            feed(&mut t, b"a\x1ab");
+            assert_eq!(drawn(&t), want, "{text:?}");
+            // A save that turns it off reaches a running core the same way.
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            crate::live::term_options(&mut t, &cfg, baud_core::WindowAbilities::NONE);
+            feed(&mut t, b"a\x1ab");
+            assert_eq!(drawn(&t), want, "reloaded {text:?}");
+        }
+        const CALL: &str = concat!("crate::host::", "set_substitute(&mut term, ");
+        for (driver, src, arg) in [
+            ("macOS", crate::app_source::app_source(), "substitute);"),
+            ("Linux", &super::linux_driver_src(), "cfg.substitute);"),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            let rest = src.split(CALL).nth(1).expect("the call");
+            assert!(
+                rest.starts_with(arg),
+                "{driver} passes the configured value"
+            );
+        }
+    }
+
+    /// **`[screen] prompt_at_bottom` reaches the core, from both drivers
+    /// and from a reload**: a drawn prompt's input mark puts the prompt on
+    /// the last row with it on and leaves it where the cursor is by default. Both
+    /// drivers start AppKit or Wayland, which no test drives, so their call
+    /// is held in the source. Perturbation: leave the call out of
+    /// `term_options` -- the reload half fails.
+    #[test]
+    fn the_prompt_at_bottom_setting_reaches_the_core() {
+        let ws = WinSize {
+            ws_row: 6,
+            ws_col: 20,
+        };
+        for (text, row) in [("", 0), ("[screen]\nprompt_at_bottom = \"on\"\n", 5)] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(text);
+            assert!(said.is_empty(), "{said:?}");
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::set_prompt_at_bottom(&mut t, cfg.prompt_at_bottom);
+            feed(&mut t, b"\x1b]133;A\x07$ \x1b]133;B\x07");
+            assert_eq!(t.cursor().0.index(), row, "{text:?}");
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            crate::live::term_options(&mut t, &cfg, baud_core::WindowAbilities::NONE);
+            feed(&mut t, b"\x1b]133;A\x07$ \x1b]133;B\x07");
+            assert_eq!(t.cursor().0.index(), row, "reloaded {text:?}");
+        }
+        const CALL: &str = concat!("crate::host::", "set_prompt_at_bottom(&mut term, ");
+        for (driver, src, arg) in [
+            (
+                "macOS",
+                crate::app_source::app_source(),
+                "prompt_at_bottom);",
+            ),
+            (
+                "Linux",
+                &super::linux_driver_src(),
+                "cfg.prompt_at_bottom);",
+            ),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            let rest = src.split(CALL).nth(1).expect("the call");
+            assert!(
+                rest.starts_with(arg),
+                "{driver} passes the configured value"
+            );
+        }
+    }
+
+    /// **A user variable is never read back**, whatever the config says:
+    /// `ReportVariable` answers `user.<name>` with the empty value, as
+    /// iTerm2 answers a variable the user has not allowed, and the value
+    /// stays for the embedder alone (`Term::user_var`). There is no
+    /// `[screen] user_variables`, so a config naming one is told so.
+    #[test]
+    fn a_user_variable_is_never_read_back() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        // `user.host` is "box": `dXNlci5ob3N0` and `Ym94` in base64.
+        let bytes = b"\x1b]1337;SetUserVar=host=Ym94\x07\x1b]1337;ReportVariable=dXNlci5ob3N0\x07";
+        for (text, said_n) in [("", 0), ("[screen]\nuser_variables = \"on\"\n", 1)] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(text);
+            assert_eq!(said.len(), said_n, "{said:?}");
+            assert!(
+                said.iter().all(|m| m.contains("user_variables")),
+                "{said:?}"
+            );
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            feed(&mut t, bytes);
+            assert_eq!(t.user_var(b"host"), Some(&b"box"[..]), "{text:?}");
+            assert_eq!(t.reply(), b"\x1b]1337;ReportVariable=\x07", "{text:?}");
+        }
+    }
+
+    /// **`[window] operations` reaches the core, from both drivers.** The
+    /// config text read into a `Config`, handed to `set_window_ops`,
+    /// decides whether `CSI 2 t` reaches the driver: by default as a
+    /// request, with `"off"` not at all, counted. Both drivers start AppKit
+    /// or Wayland, which no test drives, so their call is held in the
+    /// source: each calls `set_window_ops` once with the configured value,
+    /// and drains the requests in the per-read callback of its one feed.
+    #[test]
+    fn the_window_operations_setting_reaches_the_core() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        for (text, on) in [("", true), ("[window]\noperations = \"off\"\n", false)] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(text);
+            assert!(said.is_empty(), "{said:?}");
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            let refused = t.window_ops_refused();
+            super::set_window_ops(&mut t, cfg.window_ops);
+            feed(&mut t, b"\x1b[2t");
+            let want: &[baud_core::WindowRequest] = if on {
+                &[baud_core::WindowRequest::Iconify]
+            } else {
+                &[]
+            };
+            assert_eq!(t.window_requests(), want, "{text:?}");
+            assert_eq!(t.window_ops_refused() != refused, !on, "{text:?}");
+        }
+        // Spelled apart, so this test's own text is not what it finds.
+        const CALL: &str = concat!("crate::host::", "set_window_ops(&mut term, ");
+        const DRAIN: &str = concat!("t.clear_", "window_requests();");
+        for (driver, src, arg, body) in [
+            (
+                "macOS",
+                crate::app_source::app_source(),
+                "window_ops);",
+                "    fn pump(&mut self, trigger: Trigger) {",
+            ),
+            (
+                "Linux",
+                &super::linux_driver_src(),
+                "cfg.window_ops);",
+                "    fn feed(&mut self, bytes: &[u8], tag: Taken) -> Vec<Taken> {",
+            ),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            let rest = src.split(CALL).nth(1).expect("the call");
+            assert!(
+                rest.starts_with(arg),
+                "{driver} passes the configured value"
+            );
+            assert_eq!(src.matches(DRAIN).count(), 1, "{driver} drains once");
+            let feed = crate::app_source::split_once_in(src, body)
+                .expect("the driver's feed")
+                .1
+                .split_once(concat!("crate::reads::", "paced("))
+                .expect("the feed")
+                .1;
+            let call = &feed[..feed.find("\n        );").expect("its end")];
+            assert!(call.contains(DRAIN), "{driver} drains inside the feed");
+        }
+        assert_eq!(
+            crate::app_source::app_source()
+                .matches("window_ops: cfg.window_ops,")
+                .count(),
+            1,
+            "macOS carries it from the config"
+        );
+    }
+
+    /// **`OSC 61 ; allowWindowOps` says what each driver does**: macOS
+    /// every manipulation, Linux all but what xdg-shell lacks, and both name
+    /// `SetSelection` under `[clipboard] osc52 = "off"`, which refuses the
+    /// copy the core stored. Each driver's call is held in the source, as
+    /// the window operations' setting is.
+    #[test]
+    fn the_window_abilities_reach_the_core_from_both_drivers() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let ask = |a, osc52| {
+            let mut s = Owned::new(&ws).with_clipboard(baud_core::ClipboardBudget::of_text(64));
+            let mut t = Term::new(s.storage(), &ws);
+            super::set_window_abilities(&mut t, a, osc52);
+            feed(&mut t, b"\x1b]61;allowWindowOps\x07");
+            String::from_utf8_lossy(t.reply()).into_owned()
+        };
+        let write = crate::config::Osc52::Write;
+        let mac = ask(crate::winops::mac_abilities(), write);
+        assert!(mac.starts_with("\x1b]61;GetWinState,"), "{mac:?}");
+        assert!(mac.ends_with(",GetWinTitle,GetSelection\x07"), "{mac:?}");
+        let linux = ask(
+            crate::winops::wayland_abilities(crate::winops::BoundsEvent::Offered),
+            write,
+        );
+        assert!(
+            linux.starts_with("\x1b]61;RestoreWin,SetWinPosition,RaiseWin,LowerWin,MaximizeWin,"),
+            "{linux}"
+        );
+        let off = ask(crate::winops::mac_abilities(), crate::config::Osc52::Off);
+        assert!(off.ends_with(",GetSelection,SetSelection\x07"), "{off}");
+        // The paste controls both drivers' pastes replace, named.
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        super::set_window_abilities(&mut t, crate::winops::mac_abilities(), write);
+        feed(&mut t, b"\x1b]61;allowPasteControls\x07");
+        assert_eq!(t.reply(), b"\x1b]61;NUL,EOT,ENQ,BS,ESC,DEL,STTY\x07");
+        // Spelled apart, so this test's own text is not what it finds.
+        const CALL: &str = concat!("crate::host::", "set_window_abilities(");
+        for (driver, src, policy, osc52) in [
+            (
+                "macOS",
+                crate::app_source::app_source(),
+                "crate::winops::mac_abilities(),",
+                "clipboard.osc52,",
+            ),
+            (
+                "Linux",
+                &super::linux_driver_src(),
+                "crate::winops::wayland_abilities(crate::winops::BoundsEvent::Never),",
+                "cfg.clipboard.osc52,",
+            ),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            let rest = src.split(CALL).nth(1).expect("the call");
+            let args = &rest[..rest.find(");").expect("its end")];
+            assert!(args.contains(policy), "{driver} tells its own policy");
+            assert!(args.contains(osc52), "{driver} tells its setting");
+        }
+        // Linux tells it again once the bound `xdg_wm_base` is known.
+        let linux = &super::linux_driver_src();
+        let told = linux
+            .split("match d.window.configure_bounds()")
+            .nth(1)
+            .expect("the version read after each turn's events");
+        assert!(
+            told[..told.find("// The step").expect("the next step")]
+                .contains(".set_window_abilities(crate::winops::wayland_abilities(bounds))"),
+            "Linux tells the core the abilities the version allows"
+        );
+    }
+
+    /// **Both drivers tell the core whether there is a pointer**, so `DSR
+    /// ?55` says a locator is ready only where one is: macOS once, before
+    /// the first feed, and Linux after each turn's events, from the seat.
+    /// Untold, the core says there is none. The drivers start AppKit or
+    /// Wayland, which no test drives, so their calls are held in the
+    /// source.
+    #[test]
+    fn the_pointer_reaches_the_core_from_both_drivers() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        feed(&mut t, b"\x1b[?55n");
+        assert_eq!(t.reply(), b"\x1b[?53n", "untold: no locator");
+        t.clear_reply();
+        super::set_locator_device(&mut t, baud_domain::LocatorDevice::Present);
+        feed(&mut t, b"\x1b[?55n");
+        assert_eq!(t.reply(), b"\x1b[?50n", "told: ready");
+        // Spelled apart, so this test's own text is not what it finds.
+        const CALL: &str = concat!("crate::host::", "set_locator_device(");
+        for (driver, src, arg) in [
+            (
+                "macOS",
+                crate::app_source::app_source(),
+                "&mut term, baud_domain::LocatorDevice::Present);",
+            ),
+            (
+                "Linux",
+                &super::linux_driver_src(),
+                "&mut d.term, d.window.pointer_device());",
+            ),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            let rest = src.split(CALL).nth(1).expect("the call");
+            assert!(rest.starts_with(arg), "{driver} says what it has");
+        }
+        let linux = &super::linux_driver_src();
+        let events = linux
+            .split_once(concat!("while let Some(e) = ", "d.window.next_event()"))
+            .expect("the event loop")
+            .1;
+        let end = events
+            .find(concat!("Event::Closed => ", "break 'run,"))
+            .expect("its end");
+        assert!(
+            events[end..].find(CALL).is_some_and(|at| at < 400),
+            "Linux tells it straight after the turn's events"
+        );
+    }
+
+    /// **Both drivers tell the core the `TERM` the child is given**, so a
+    /// program's XTGETTCAP `TN` names it; untold, the core refuses `TN`.
+    /// The drivers' calls are held in the source, as the pointer's are.
+    #[test]
+    fn the_term_name_reaches_the_core_from_both_drivers() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        // `TN`, hex-encoded.
+        feed(&mut t, b"\x1bP+q544E\x1b\\");
+        assert_eq!(t.reply(), b"\x1bP0+r\x1b\\", "untold: refused");
+        t.clear_reply();
+        super::set_term_name(&mut t);
+        feed(&mut t, b"\x1bP+q544E\x1b\\");
+        let hex: String = crate::bell::TERM
+            .bytes()
+            .map(|b| format!("{b:02X}"))
+            .collect();
+        assert_eq!(t.reply(), format!("\x1bP1+r544E={hex}\x1b\\").as_bytes());
+        assert_eq!(crate::bell::TERM, "xterm-256color");
+        const CALL: &str = concat!("crate::host::", "set_term_name(");
+        // What XTVERSION names, told the same way: the app's terminal answers
+        // the build's name, and both drivers say it once.
+        const VERSION: &str = concat!("crate::host::", "set_version_text(");
+        for (driver, src) in [
+            ("macOS", crate::app_source::app_source()),
+            ("Linux", &super::linux_driver_src()),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            assert_eq!(src.matches(VERSION).count(), 1, "{driver}: the version");
+        }
+    }
+
+    /// **`[screen] logging` reaches the core, from both drivers, and each
+    /// hands its log to its one feed.** By default `?46 h` starts a log,
+    /// with `"off"` it is refused and counted. The drivers' calls are held
+    /// in the source, as the window operations' are.
+    #[test]
+    fn the_logging_setting_reaches_the_core() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        for (text, want) in [
+            ("", baud_core::LogMode::Started),
+            ("[screen]\nlogging = \"off\"\n", baud_core::LogMode::Stopped),
+        ] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(text);
+            assert!(said.is_empty(), "{said:?}");
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::set_logging(&mut t, cfg.logging);
+            feed(&mut t, b"\x1b[?46h");
+            assert_eq!(t.log_mode(), want, "{text:?}");
+        }
+        const CALL: &str = concat!("crate::host::", "set_logging(&mut term, ");
+        for (driver, src, arg, log) in [
+            (
+                "macOS",
+                crate::app_source::app_source(),
+                "logging);",
+                "            hostlog,\n            &mut took,\n        );",
+            ),
+            (
+                "Linux",
+                &super::linux_driver_src(),
+                "cfg.logging);",
+                "            &mut self.hostlog,\n            &mut took,\n        );",
+            ),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            let rest = src.split(CALL).nth(1).expect("the call");
+            assert!(
+                rest.starts_with(arg),
+                "{driver} passes the configured value"
+            );
+            assert_eq!(
+                src.matches(log).count(),
+                1,
+                "{driver} hands its feed the log"
+            );
+        }
+        assert_eq!(
+            crate::app_source::app_source()
+                .matches("logging: cfg.logging,")
+                .count(),
+            1,
+            "macOS carries it from the config"
+        );
+    }
+
+    /// **`[pointer] hide_while_typing` reaches the core, from both drivers,
+    /// and each driver asks the policy at a key that sent bytes and after a
+    /// read.** The config text read into a `Config`, handed to
+    /// `set_pointer_mode`, decides whether a key hides the pointer at
+    /// power-on and after `RIS`. Both drivers start AppKit or Wayland, which
+    /// no test drives, so their calls are held in the source.
+    #[test]
+    fn the_pointer_setting_reaches_the_core_and_both_drivers_ask() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        for (text, hides) in [
+            ("", baud_core::PointerHides::Yes),
+            (
+                "[pointer]\nhide_while_typing = \"off\"\n",
+                baud_core::PointerHides::No,
+            ),
+        ] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(text);
+            assert!(said.is_empty(), "{said:?}");
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::set_pointer_mode(&mut t, cfg.pointer_mode);
+            feed(&mut t, b"\x1b[>2p\x1bc");
+            assert_eq!(t.hides_pointer_on_key(), hides, "{text:?}: RIS returns it");
+        }
+        const CALL: &str = concat!("crate::host::", "set_pointer_mode(&mut term, ");
+        for (driver, src, arg, key, read) in [
+            (
+                "macOS",
+                crate::app_source::app_source(),
+                "pointer_mode);",
+                concat!("let act = self.hiding.", "key(&self.app.term);"),
+                concat!("hide_pointer(self.hiding.", "read(&self.app.term));"),
+            ),
+            (
+                "Linux",
+                &super::linux_driver_src(),
+                "cfg.pointer_mode);",
+                concat!("let act = self.hiding.", "key(&self.term);"),
+                concat!("let act = self.hiding.", "read(&self.term);"),
+            ),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            let rest = src.split(CALL).nth(1).expect("the call");
+            assert!(
+                rest.starts_with(arg),
+                "{driver} passes the configured value"
+            );
+            assert_eq!(src.matches(key).count(), 1, "{driver} asks at a key");
+            assert_eq!(src.matches(read).count(), 1, "{driver} asks after a read");
+        }
+    }
+
+    /// **`[font] changes` and the font in use reach the core, from both
+    /// drivers, and each drains a program's font changes inside its feed
+    /// and performs them through `fonts.rs`.** The config's value handed to
+    /// `set_font_changes` decides whether `OSC 50 ; Menlo` is queued; the
+    /// family `tell_font` gives is what `OSC 50 ; ?` answers. The drivers
+    /// start AppKit or Wayland, so their calls are held in the source.
+    #[test]
+    fn the_font_setting_and_family_reach_the_core_from_both_drivers() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        for (text, queued) in [("", 1), ("[font]\nchanges = \"off\"\n", 0)] {
+            let mut cfg = crate::config::Config::defaults();
+            assert!(cfg.apply(text).is_empty());
+            super::resolved(&mut cfg);
+            let (data, mut held) = super::map_faces(&cfg);
+            let faces = super::parse_faces(&cfg, &data, &mut held);
+            let fonts = crate::fonts::Fonts::new(&cfg, data, faces, held);
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::set_font_changes(&mut t, cfg.font_changes);
+            super::tell_font(&mut t, &fonts, cfg.font_size, cfg.font_size);
+            feed(&mut t, b"\x1b]50;Menlo\x07\x1b]50;?\x07");
+            assert_eq!(t.font_requests().len(), queued, "{text:?}");
+            assert_eq!(t.reply(), b"\x1b]50;baud Mono\x07", "{text:?}");
+        }
+        for (driver, src, setting, told, drain, perform) in [
+            (
+                "macOS",
+                crate::app_source::app_source(),
+                "crate::host::set_font_changes(&mut term, font_changes);",
+                "crate::host::tell_font(&mut term, &fonts, font_size, font_size);",
+                concat!(
+                    "fonts_asked.extend_from_slice(t.font_requests());\n",
+                    "                t.clear_font_requests();"
+                ),
+                concat!(
+                    "crate::host::plan_font(\n",
+                    "                &mut app.term,\n",
+                    "                app.renderer.fonts_mut(),\n",
+                    "                c,\n",
+                    "                at,\n",
+                    "                app.font_size,\n",
+                    "                app.font_base,\n",
+                    "            );"
+                ),
+            ),
+            (
+                "Linux",
+                &super::linux_driver_src(),
+                "crate::host::set_font_changes(&mut term, cfg.font_changes);",
+                "crate::host::tell_font(&mut term, fonts, cfg.font_size, cfg.font_size);",
+                concat!(
+                    "fonts_asked.extend_from_slice(t.font_requests());\n",
+                    "                t.clear_font_requests();"
+                ),
+                concat!(
+                    "let (at, base) = (self.font_size, self.font_base);\n",
+                    "            let plan = crate::host::plan_font(",
+                    "&mut self.term, &mut self.fonts, &c, at, at, base);"
+                ),
+            ),
+        ] {
+            for needle in [setting, told, drain, perform] {
+                assert_eq!(src.matches(needle).count(), 1, "{driver}: {needle}");
+            }
+        }
+    }
+
+    /// **A change the app cannot make is counted in the core**: a family
+    /// baud has not loaded and a step past the bounds change nothing and
+    /// move `Term::fonts_refused`; one it can make plans and moves nothing.
+    #[test]
+    fn a_change_the_app_cannot_make_is_counted_in_the_core() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let mut cfg = crate::config::Config::defaults();
+        super::resolved(&mut cfg);
+        let (data, mut held) = super::map_faces(&cfg);
+        let faces = super::parse_faces(&cfg, &data, &mut held);
+        let mut fonts = crate::fonts::Fonts::new(&cfg, data, faces, held);
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        super::tell_font(&mut t, &fonts, cfg.font_size, cfg.font_size);
+        for (pt, plans) in [
+            (&b"Nowhere Mono"[..], false),
+            (b"#+100", false),
+            (b"#-100", false),
+            (b"#+1", true),
+            (b"baud Mono", true),
+        ] {
+            feed(&mut t, &[&b"\x1b]50;"[..], pt, b"\x07"].concat());
+            let asked = t.font_requests().to_vec();
+            t.clear_font_requests();
+            assert_eq!(asked.len(), 1, "{pt:?}");
+            let before = t.fonts_refused();
+            let (at, base) = (cfg.font_size, cfg.font_size);
+            let plan = super::plan_font(&mut t, &mut fonts, &asked[0], at, at, base);
+            assert_eq!(plan.is_some(), plans, "{pt:?}");
+            assert_eq!(t.fonts_refused() == before, plans, "{pt:?}");
+        }
+    }
+
+    /// **The core's copy of the palette is the renderer's.** After
+    /// `tell_defaults`, an `OSC 4 ; c ; ?` for every entry answers exactly the
+    /// colour the theme draws -- the invariant `set_default_colors` already
+    /// holds for the foreground and background, over all 256 entries and both
+    /// themes, so a table pushed from the wrong place or not at all fails here.
+    #[test]
+    fn every_osc_4_answer_is_the_colour_the_theme_draws() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        for theme in [Theme::dark(), Theme::light()] {
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::tell_defaults(&mut t, &theme, baud_core::Overrides::Keep);
+            for i in 0..=255u8 {
+                feed(&mut t, format!("\x1b]4;{i};?\x07").as_bytes());
+                let c = theme.palette[usize::from(i)];
+                let (r, g, b) = (c.r().get(), c.g().get(), c.b().get());
+                let want =
+                    format!("\x1b]4;{i};rgb:{r:02x}{r:02x}/{g:02x}{g:02x}/{b:02x}{b:02x}\x07");
+                assert_eq!(t.reply(), want.as_bytes(), "entry {i}");
+                t.clear_reply();
+            }
+            assert_eq!(
+                t.palette(Chan::from_u8(1)),
+                None,
+                "the table became an override"
+            );
+        }
+    }
+
+    /// The light theme's entry 2 is Modus Operandi's green, and the core
+    /// answers it: the table the renderer draws is the table the query reads.
+    #[test]
+    fn osc_4_answers_the_light_themes_modus_green() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        super::tell_defaults(&mut t, &Theme::light(), baud_core::Overrides::Keep);
+        feed(&mut t, b"\x1b]4;2;?\x07");
+        assert_eq!(t.reply(), b"\x1b]4;2;rgb:0000/6868/0000\x07");
+    }
+
+    /// **The theme's selection colours are what `OSC 17`/`19 ; ?` answer**:
+    /// the colour the renderer draws the selection in, pushed with the rest
+    /// of the theme, and reverse video's colours on a theme with none.
+    #[test]
+    fn osc_17_and_19_answer_the_themes_selection() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        let page = baud_render::Argb::rgb(
+            Chan::from_u8(0x33),
+            Chan::from_u8(0x4e),
+            Chan::from_u8(0x5e),
+        );
+        let theme = Theme {
+            selection: Some(baud_domain::themefile::CellPaint::Colour(page)),
+            ..Theme::dark()
+        };
+        super::tell_defaults(&mut t, &theme, baud_core::Overrides::Keep);
+        feed(&mut t, b"\x1b]17;?\x07");
+        assert_eq!(t.reply(), b"\x1b]17;rgb:3333/4e4e/5e5e\x07");
+        t.clear_reply();
+        super::tell_defaults(&mut t, &Theme::dark(), baud_core::Overrides::Keep);
+        feed(&mut t, b"\x1b]17;?\x07");
+        assert_eq!(
+            t.reply(),
+            b"\x1b]17;rgb:d8d8/d8d8/d8d8\x07",
+            "the text shown"
+        );
+    }
+
+    /// **A selection that takes each cell's own colours has no one colour
+    /// for `OSC 21` to answer**, so selection_foreground=? answers empty,
+    /// "the value must be empty" (`[[source: kitty-6d5d0c4-color-stack]]`),
+    /// while `OSC 19 ; ?`, which has no empty answer, still answers the text
+    /// the theme draws; a selection page that is one colour answers it.
+    #[test]
+    fn a_selection_in_each_cells_colours_answers_osc_21_empty() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        let page = baud_render::Argb::rgb(
+            Chan::from_u8(0x33),
+            Chan::from_u8(0x4e),
+            Chan::from_u8(0x5e),
+        );
+        let theme = Theme {
+            selection: Some(baud_domain::themefile::CellPaint::Colour(page)),
+            selection_text: Some(baud_domain::themefile::CellPaint::Text),
+            ..Theme::dark()
+        };
+        super::tell_defaults(&mut t, &theme, baud_core::Overrides::Keep);
+        feed(
+            &mut t,
+            b"\x1b]21;selection_foreground=?;selection_background=?\x1b\\",
+        );
+        assert_eq!(
+            t.reply(),
+            b"\x1b]21;selection_foreground=;selection_background=rgb:33/4e/5e\x1b\\"
+        );
+        t.clear_reply();
+        feed(&mut t, b"\x1b]19;?\x07");
+        assert_eq!(
+            t.reply(),
+            b"\x1b]19;rgb:d8d8/d8d8/d8d8\x07",
+            "the text shown"
+        );
+    }
+
+    /// **A kitty theme's special values answer as they are drawn**, against
+    /// the colours in force when asked. selection_foreground none over a
+    /// selection colour is each cell's own text, so `OSC 19 ; ?` answers the
+    /// default text and selection_foreground=? answers empty; a program's
+    /// empty selection_background makes the selection reverse video, whose
+    /// text `OSC 19` answers as the page. Under cursor none the file's
+    /// cursor_text_color is ignored, a colour with no defined value, which
+    /// "must be empty" (`[[source: kitty-6d5d0c4-color-stack]]`), and a
+    /// program's `OSC 12` colour brings it back (`[[source:
+    /// kitty-options-definition]]` 353-379, 2641-2657). Both are the
+    /// theme's, which `RIS` keeps.
+    #[test]
+    fn a_kitty_themes_none_answers_as_it_is_drawn() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        let file = b"selection_background #334e5e\nselection_foreground none\n\
+                     cursor_text_color #111111\ncursor none\n";
+        let scheme = baud_domain::themefile::kitty(file, |_, _, _| {}).unwrap();
+        let mut theme = Theme::dark();
+        theme.take_scheme(&scheme);
+        super::tell_defaults(&mut t, &theme, baud_core::Overrides::Keep);
+        let ask = |t: &mut Term<'_>, bytes: &[u8]| {
+            feed(t, bytes);
+            let r = t.reply().to_vec();
+            t.clear_reply();
+            r
+        };
+        assert_eq!(
+            ask(&mut t, b"\x1b]19;?\x07"),
+            b"\x1b]19;rgb:d8d8/d8d8/d8d8\x07",
+            "the text shown"
+        );
+        assert_eq!(
+            ask(
+                &mut t,
+                b"\x1b]21;selection_foreground=?;cursor_text=?;cursor=?\x1b\\",
+            ),
+            b"\x1b]21;selection_foreground=;cursor_text=;cursor=\x1b\\"
+        );
+        assert_eq!(
+            ask(&mut t, b"\x1bc\x1b]19;?\x07\x1b]21;cursor_text=?\x1b\\"),
+            b"\x1b]19;rgb:d8d8/d8d8/d8d8\x07\x1b]21;cursor_text=\x1b\\",
+            "configured, so RIS keeps them"
+        );
+        assert_eq!(
+            ask(&mut t, b"\x1b]21;selection_background=\x07\x1b]19;?\x07"),
+            b"\x1b]19;rgb:1010/1010/1010\x07",
+            "reverse video's text"
+        );
+        assert_eq!(
+            ask(&mut t, b"\x1b]12;#ff8800\x07\x1b]21;cursor_text=?\x1b\\"),
+            b"\x1b]21;cursor_text=rgb:11/11/11\x1b\\",
+            "under a cursor colour, the file's text"
+        );
+    }
+
+    /// **The theme's cursor colour is what `OSC 12 ; ?` answers and what
+    /// `OSC 112` returns to**, pushed with the rest of the theme; a cursor
+    /// that takes the cell's own colours answers nothing, as before.
+    #[test]
+    fn osc_12_answers_the_themes_cursor() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        let theme = Theme {
+            cursor: Some(baud_domain::themefile::CellPaint::Colour(
+                baud_render::Argb::rgb(
+                    Chan::from_u8(0xff),
+                    Chan::from_u8(0x88),
+                    Chan::from_u8(0x00),
+                ),
+            )),
+            ..Theme::dark()
+        };
+        super::tell_defaults(&mut t, &theme, baud_core::Overrides::Keep);
+        feed(&mut t, b"\x1b]12;#000080\x07\x1b]112\x07\x1b]12;?\x07");
+        assert_eq!(t.reply(), b"\x1b]12;rgb:ffff/8888/0000\x07");
+        t.clear_reply();
+        let cell = Theme {
+            cursor: Some(baud_domain::themefile::CellPaint::Page),
+            ..Theme::dark()
+        };
+        super::tell_defaults(&mut t, &cell, baud_core::Overrides::Keep);
+        feed(&mut t, b"\x1b]12;?\x07");
+        assert_eq!(t.reply(), b"", "a cell's own colour is no colour to answer");
+    }
+
+    /// **baud's amber is what `OSC 12 ; ?` answers by default, a program's
+    /// `OSC 12` wins until its `OSC 112`, which returns to the amber**, on
+    /// both built-in themes, as xterm returns to its `cursorColor`; and
+    /// kitty's `OSC 21 ; cursor_text=?` answers the brand's ground under
+    /// any cursor colour, the amber or the program's.
+    #[test]
+    fn osc_112_returns_to_bauds_amber() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let answer = |c: baud_render::Argb| {
+            let [_, r, g, b] = c.0.to_be_bytes();
+            format!("\x1b]12;rgb:{r:02x}{r:02x}/{g:02x}{g:02x}/{b:02x}{b:02x}\x07").into_bytes()
+        };
+        for (theme, b) in [
+            (Theme::dark(), baud_render::BaudCursor::dark()),
+            (Theme::light(), baud_render::BaudCursor::light()),
+        ] {
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::tell_defaults(&mut t, &theme, baud_core::Overrides::Keep);
+            let ask = |t: &mut Term<'_>, bytes: &[u8]| {
+                feed(t, bytes);
+                let r = t.reply().to_vec();
+                t.clear_reply();
+                r
+            };
+            assert_eq!(ask(&mut t, b"\x1b]12;?\x07"), answer(b.fill), "the default");
+            let [_, r, g, bb] = b.text.0.to_be_bytes();
+            let ground = format!("\x1b]21;cursor_text=rgb:{r:02x}/{g:02x}/{bb:02x}\x1b\\");
+            assert_eq!(
+                ask(&mut t, b"\x1b]21;cursor_text=?\x1b\\"),
+                ground.as_bytes(),
+                "the ground under the amber"
+            );
+            let red = baud_render::Argb(0xFF_FF_00_00);
+            assert_eq!(
+                ask(&mut t, b"\x1b]12;#ff0000\x07\x1b]12;?\x07"),
+                answer(red),
+                "the program's"
+            );
+            assert_eq!(
+                ask(&mut t, b"\x1b]21;cursor_text=?\x1b\\"),
+                ground.as_bytes(),
+                "kept under the program's"
+            );
+            assert_eq!(
+                ask(&mut t, b"\x1b]112\x07\x1b]12;?\x07"),
+                answer(b.fill),
+                "OSC 112 returns to the amber"
+            );
+        }
+    }
+
+    /// **An OS flip under `auto` drops the application's colours and reports
+    /// once**, through the call the app makes. A
+    /// program subscribed with `?2031` has set palette entry 1 and the
+    /// background; the flip to the light theme clears both and sends one
+    /// `CSI ? 997 ; 2 n`. The same flip with `Keep` clears nothing, the
+    /// control that the drop is the flag's.
+    #[test]
+    fn a_flip_drops_the_applications_colours_and_reports_once() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        for (overrides, dropped) in [
+            (baud_core::Overrides::Drop, true),
+            (baud_core::Overrides::Keep, false),
+        ] {
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::tell_defaults(&mut t, &Theme::dark(), baud_core::Overrides::Keep);
+            feed(
+                &mut t,
+                b"\x1b[?2031h\x1b]4;1;rgb:12/34/56\x07\x1b]11;rgb:20/20/20\x07",
+            );
+            assert_eq!(t.reply(), b"", "an application's own colours send nothing");
+            super::tell_defaults(&mut t, &Theme::light(), overrides);
+            assert_eq!(
+                t.palette(Chan::from_u8(1)).is_none(),
+                dropped,
+                "{overrides:?}"
+            );
+            let report: &[u8] = if dropped { b"\x1b[?997;2n" } else { b"" };
+            assert_eq!(t.reply(), report, "{overrides:?}");
+        }
+    }
+
+    /// **A refusal is said by the limit it hit, with the sizes and the key
+    /// that raises it** -- and only when a counter moved across the pump, so
+    /// a snapshot whose last sizes are set says nothing again on the next
+    /// pump. An image with no pixels is no limit and is not said. The arena
+    /// cases are an image over the whole 95 MiB arena and one inside it that
+    /// found no gap, which are different fixes.
+    #[test]
+    fn a_refusal_is_said_by_the_limit_it_hit() {
+        use baud_domain::ImageRefusals;
+        let say = |a: &ImageRefusals, b: &ImageRefusals| {
+            super::describe_refusals(a, b, &super::IMAGE_BUDGET)
+        };
+        let none = ImageRefusals::NONE;
+        assert_eq!(say(&none, &none), None, "nothing moved");
+        let empty = ImageRefusals { empty: 1, ..none };
+        assert_eq!(say(&none, &empty), None, "no pixels is no limit");
+
+        let over = ImageRefusals {
+            arena: 1,
+            arena_width: ImagePx::of(8192),
+            arena_height: ImagePx::of(4096),
+            ..none
+        };
+        let line = say(&none, &over).expect("an arena refusal is said");
+        for want in [
+            "8192x4096",
+            "33554432 pixels",
+            "95 MiB arena",
+            "larger than the whole",
+            "pixels_mb",
+        ] {
+            assert!(line.contains(want), "{want:?} in {line:?}");
+        }
+        assert_eq!(say(&over, &over), None, "said once, not every pump after");
+        let more = ImageRefusals { arena: 3, ..over };
+        assert!(say(&over, &more).unwrap().contains("2 images"), "a count");
+        let gap = ImageRefusals {
+            arena_width: ImagePx::of(600),
+            arena_height: ImagePx::of(800),
+            ..over
+        };
+        let line = say(&none, &gap).unwrap();
+        assert!(
+            line.contains("600x800 = 480000 pixels (1875 KiB"),
+            "{line:?}"
+        );
+        assert!(line.contains("no free gap"), "inside the arena: {line:?}");
+
+        let slot = ImageRefusals { slot: 1, ..none };
+        assert!(say(&none, &slot).unwrap().contains("every image slot"));
+
+        let both = ImageRefusals { slot: 1, ..gap };
+        let line = say(&none, &both).unwrap();
+        assert!(
+            line.contains("every image slot") && line.contains("pixels_mb") && !line.contains('\n'),
+            "two limits in one pump are one line: {line:?}"
+        );
+    }
+
+    /// Feed `bytes` the way the pump does, a `READ_CHUNK` read at a time:
+    /// a body past the 1 MiB read arena cannot be written in one.
+    fn pump(t: &mut Term<'_>, bytes: &[u8]) {
+        for read in bytes.chunks(baud_core::READ_CHUNK) {
+            feed(t, read);
+        }
+    }
+
+    /// A terminal provisioned the way the app provisions one, at the default
+    /// image budget, 200x60. The caller gives it the walk's cell, 17x34, the
+    /// size the capture's reply named. A cell size of zero, a headless
+    /// terminal's default, frees no image text is written over
+    /// (`Term::set_cell_size`), so without it the walk's previews are never
+    /// freed and nine of them find the arena full.
+    fn at_default() -> (Owned, WinSize) {
+        let ws = WinSize {
+            ws_row: 60,
+            ws_col: 200,
+        };
+        (Owned::new(&ws).with_images(super::IMAGE_BUDGET), ws)
+    }
+
+    /// A zlib stream of one 3840x2160 RGB screen of zeros in one
+    /// fixed-Huffman block (`[[source: rfc1951-deflate]]` 3.2.6): a literal
+    /// 0, copies of 258 at distance 1, the rest as literals, each code's
+    /// bits written as text, most significant first; the block header's
+    /// fields go least significant first. The Adler-32 of `n` zeros is
+    /// `n mod 65521` over 1 (`[[source: rfc1950-zlib]]`).
+    fn zlib_zero_screen() -> Vec<u8> {
+        const N: usize = 3840 * 2160 * 3;
+        const LITERAL_ZERO: &str = "00110000";
+        const COPY_258_AT_1: &str = "1100010100000"; // code 285, distance code 0
+        let copies = (N - 1) / 258;
+        let mut codes = vec!["110", LITERAL_ZERO]; // BFINAL, BTYPE = 01
+        codes.extend(std::iter::repeat_n(COPY_258_AT_1, copies));
+        codes.extend(std::iter::repeat_n(LITERAL_ZERO, N - 1 - copies * 258));
+        codes.push("0000000"); // end of block, 256
+        let bits: Vec<u8> = codes.concat().bytes().map(|b| b - b'0').collect();
+        let mut out = vec![0x78, 0x01];
+        out.extend(
+            bits.chunks(8)
+                .map(|c| c.iter().rev().fold(0u8, |byte, &b| (byte << 1) | b)),
+        );
+        let adler = (u32::try_from(N % 65521).unwrap() << 16) | 1;
+        out.extend_from_slice(&adler.to_be_bytes());
+        out
+    }
+
+    /// RFC 4648 base64, unpadded, as kitten writes it.
+    fn b64(data: &[u8]) -> Vec<u8> {
+        const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = Vec::new();
+        for q in data.chunks(3) {
+            let mut b = [0u8; 3];
+            b[..q.len()].copy_from_slice(q);
+            let n = u32::from_be_bytes([0, b[0], b[1], b[2]]);
+            for k in 0..=q.len() {
+                out.push(B64[usize::try_from((n >> (18 - 6 * k)) & 63).unwrap()]);
+            }
+        }
+        out
+    }
+
+    /// **The default holds "at least a few full screen images"**
+    /// (`[[source: kitty-graphics]]`, "Image persistence and storage
+    /// quotas"): three 3840x2160 kitty images, sent as kitten sends them,
+    /// each stored and answered with nothing deleted for space.
+    #[test]
+    fn the_default_budget_holds_three_3840x2160_screens() {
+        let (mut s, ws) = at_default();
+        let mut t = Term::new(s.storage(), &ws);
+        let screen = b64(&zlib_zero_screen());
+        let mut replies = Vec::new();
+        for i in 1..=3 {
+            let mut cmd = format!("\x1b_Ga=t,f=24,o=z,s=3840,v=2160,i={i};").into_bytes();
+            cmd.extend_from_slice(&screen);
+            cmd.extend_from_slice(b"\x1b\\");
+            pump(&mut t, &cmd);
+            while t.decode_step(baud_domain::DecodeBudget::ALL) == baud_domain::DecodeProgress::More
+            {
+            }
+            replies.extend_from_slice(t.reply());
+            t.clear_reply();
+        }
+        assert_eq!(
+            String::from_utf8_lossy(&replies),
+            "\x1b_Gi=1;OK\x1b\\\x1b_Gi=2;OK\x1b\\\x1b_Gi=3;OK\x1b\\"
+        );
+        let imgs = t.images();
+        assert_eq!((imgs.images_evicted, imgs.images_refused), (0, 0));
+    }
+
+    /// A 3840x2160 Sixel at 1:1, 360 bands, every pixel register 1's red,
+    /// `P2` 1 so it reaches only its data.
+    fn red_screen_sixel() -> Vec<u8> {
+        let mut s = b"\x1bP9;1q#1;2;100;0;0#1".to_vec();
+        for _ in 0..360 {
+            s.extend_from_slice(b"!3840~-");
+        }
+        s.extend_from_slice(b"\x1b\\");
+        s
+    }
+
+    /// **The default holds three 3840x2160 Sixels drawn with private
+    /// colour registers, and two drawn with shared ones**: a shared Sixel
+    /// keeps the register each pixel was drawn with, a byte after its four,
+    /// so a later Sixel can recolour it -- 41,472,000 bytes where a private
+    /// one takes 33,177,600 -- and the third is refused for the arena,
+    /// counted, as a picture without room is.
+    #[test]
+    fn the_default_budget_holds_three_private_screen_sixels_and_two_shared() {
+        for (mode, fit) in [(&b"\x1b[?1070h"[..], 3), (b"\x1b[?1070l", 2)] {
+            let (mut s, ws) = at_default();
+            let mut t = Term::new(s.storage(), &ws);
+            t.set_sixel_claim(baud_domain::SixelClaim::Yes);
+            pump(&mut t, mode);
+            for _ in 0..3 {
+                pump(&mut t, &red_screen_sixel());
+            }
+            let imgs = t.images();
+            assert_eq!(imgs.placements().count(), fit, "{mode:?}");
+            assert_eq!(imgs.refusals.arena, 3 - fit, "{mode:?}");
+            assert_eq!(imgs.images_refused, 3 - fit, "{mode:?}");
+        }
+    }
+
+    /// A Sixel whose body is `len` bytes the decoder reads, every one of them
+    /// `~` or `$`: `$` returns to the band's left edge, so the image is one
+    /// column by one band, 1x6 pixels at `P1` 9's 1:1, at any length --
+    /// inside the arena and a coordinate, so its bytes are the only thing
+    /// about it that is large. (A body of `~` alone is `len` columns wide,
+    /// past 65535 at these lengths.)
+    fn narrow_sixel(len: ReadLen) -> Vec<u8> {
+        let mut s = b"\x1bP9q".to_vec();
+        s.extend((0..len.index()).map(|i| if i % 2 == 0 { b'~' } else { b'$' }));
+        s.extend_from_slice(b"\x1b\\");
+        s
+    }
+
+    /// **A body of any length stores at the default budget**, since a Sixel
+    /// is decoded as it arrives and no body is held: one column by one band,
+    /// refused for nothing and said by no line, through a real terminal fed
+    /// the way the pump feeds. The lengths are the 3 MiB scratch of the
+    /// interim (2026-10-14) and a byte past it, which that scratch refused
+    /// whole and named in a `body_kb` line, and 8 MiB, past any scratch the
+    /// app had.
+    #[test]
+    fn a_body_of_any_length_stores_at_the_default_budget() {
+        for len in [3 << 20, (3 << 20) + 1, 8 << 20] {
+            let (mut s, ws) = at_default();
+            let mut t = Term::new(s.storage(), &ws);
+            let before = t.images().refusals;
+            pump(&mut t, &narrow_sixel(ReadLen::from_index(len)));
+            let imgs = t.images();
+            assert_eq!(imgs.refusals, baud_domain::ImageRefusals::NONE, "{len}");
+            let placed: Vec<_> = imgs.placements().map(|(_, p)| p.image).collect();
+            assert_eq!(placed.len(), 1, "a {len}-byte body stores");
+            let v = imgs.image(placed[0]).expect("placed means live");
+            assert_eq!((v.width.raw(), v.height.raw()), (1, 6), "one column");
+            let line = super::describe_refusals(&before, &imgs.refusals, &super::IMAGE_BUDGET);
+            assert_eq!(line, None, "nothing to say");
+        }
+    }
+
+    /// The committed yazi recording (`tools/tests/recordings/README.md`): yazi
+    /// 26.5.6 walking seven files and back, thirteen previews.
+    const WALK: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tools/tests/recordings/sixel/yazi-walk.raw"
+    ));
+
+    /// Each Sixel in `data`, `ESC P` through `ESC \`, with the length of the
+    /// body its decoder reads: what follows the `q`, less the C0 controls,
+    /// `SPACE` and `DEL` the handler drops. A Sixel is a DCS whose prefix is
+    /// digits and `;` before the `q`; the walk's one other DCS is not one.
+    fn sixels(data: &[u8]) -> Vec<(&[u8], usize)> {
+        let find = |from: usize, needle: &[u8]| {
+            data[from..]
+                .windows(needle.len())
+                .position(|w| w == needle)
+                .map(|p| p + from)
+        };
+        let mut out = Vec::new();
+        let mut i = 0;
+        while let Some(s) = find(i, b"\x1bP") {
+            let e = find(s, b"\x1b\\").expect("every Sixel is terminated") + 2;
+            let q = s
+                + 2
+                + data[s + 2..e]
+                    .iter()
+                    .position(|&b| !(b.is_ascii_digit() || b == b';'))
+                    .expect("a final");
+            if data[q] != b'q' {
+                i = e;
+                continue;
+            }
+            let body = data[q + 1..e - 2]
+                .iter()
+                .filter(|&&b| b > 0x20 && b != 0x7f)
+                .count();
+            out.push((&data[s..e], body));
+            i = e;
+        }
+        out
+    }
+
+    /// **Every preview of the yazi walk stores at the default budget**,
+    /// through a real terminal fed a read at a time: each Sixel alone into a
+    /// fresh store places one image, and the walk fed whole refuses none.
+    /// At the 256 KiB body scratch, the default until 2026-10-14, five of the
+    /// thirteen were refused for the body -- the screenshot (399,396 bytes),
+    /// the photo (485,395), each twice, and the text PDF's page (815,682) --
+    /// and the pane went blank; no body is held since. The positive control is in the fixture: those five
+    /// bodies are past 256 KiB, so a recording without them, or a reader
+    /// that measured them short, fails here rather than passes.
+    #[test]
+    fn every_yazi_preview_of_the_walk_stores_at_the_default_budget() {
+        let all = sixels(WALK);
+        assert_eq!(all.len(), 13, "thirteen previews");
+        let large: Vec<usize> = all
+            .iter()
+            .map(|&(_, n)| n)
+            .filter(|&n| n > 1 << 18)
+            .collect();
+        assert_eq!(
+            large,
+            [485_395, 399_396, 815_682, 399_396, 485_395],
+            "the five bodies the 256 KiB default refused"
+        );
+        let cell = (ImagePx::of(17), ImagePx::of(34));
+        for (k, &(sixel, n)) in all.iter().enumerate() {
+            let (mut s, ws) = at_default();
+            let mut t = Term::new(s.storage(), &ws);
+            t.set_cell_size(cell.0, cell.1);
+            pump(&mut t, sixel);
+            let imgs = t.images();
+            assert_eq!(
+                imgs.refusals,
+                baud_domain::ImageRefusals::NONE,
+                "preview {k}, a {n}-byte body"
+            );
+            assert_eq!(imgs.placements().count(), 1, "preview {k} placed");
+        }
+        let (mut s, ws) = at_default();
+        let mut t = Term::new(s.storage(), &ws);
+        t.set_cell_size(cell.0, cell.1);
+        pump(&mut t, WALK);
+        assert_eq!(t.images().refusals, baud_domain::ImageRefusals::NONE);
+        assert_eq!(t.images().placements().count(), 1, "the last preview");
+    }
+
+    /// Whether `fvar` axis `tag` of the font in `data` is flagged hidden
+    /// (`HIDDEN_AXIS`, 0x0001), read from the file's own bytes: the table
+    /// directory, then the axis records.
+    fn axis_hidden(data: &[u8], tag: &[u8; 4]) -> Option<bool> {
+        let u16_at = |at: usize| Some(u16::from_be_bytes(data.get(at..at + 2)?.try_into().ok()?));
+        let u32_at = |at: usize| Some(u32::from_be_bytes(data.get(at..at + 4)?.try_into().ok()?));
+        let tables = usize::from(u16_at(4)?);
+        let fvar = (0..tables)
+            .map(|k| 12 + 16 * k)
+            .find(|&r| data.get(r..r + 4) == Some(b"fvar"))?;
+        let fvar = usize::try_from(u32_at(fvar + 8)?).ok()?;
+        let axes = fvar + usize::from(u16_at(fvar + 4)?);
+        let (count, size) = (
+            usize::from(u16_at(fvar + 8)?),
+            usize::from(u16_at(fvar + 10)?),
+        );
+        (0..count)
+            .map(|k| axes + size * k)
+            .find(|&a| data.get(a..a + 4) == Some(tag.as_slice()))
+            .and_then(|a| u16_at(a + 16))
+            .map(|flags| flags & 1 != 0)
+    }
+
+    /// **The stack a launch draws with narrows a Devanagari word on the
+    /// built faces' own width axis**, with no config and no font
+    /// installed: it leads with the embedded Regular, whose `wdth` axis
+    /// (62.5 to 100, Noto Sans Devanagari's) is flagged hidden, which keeps
+    /// it out of a font menu and nothing else, and it holds the Regular's
+    /// 15 narrower instances, 97.5 down to 62.5, and the Bold's. At the
+    /// narrowest, क takes less than at the default and Latin's M the same.
+    /// Perturbation: the stack made of the config's faces alone, with no
+    /// instance -- the count assertion fails, 0 against 15.
+    #[test]
+    fn the_launch_stack_narrows_devanagari_on_the_built_faces_width_axis() {
+        use baud_domain::Codepoint;
+        use baud_render::{FaceIx, FaceStyle};
+        let mut cfg = crate::config::Config::defaults();
+        crate::host::resolved(&mut cfg);
+        let (data, mut held) = crate::host::map_faces(&cfg);
+        assert!(
+            data[0] == crate::embedded::REGULAR.bytes,
+            "the default stack leads with the embedded Regular"
+        );
+        assert_eq!(
+            axis_hidden(data[0], b"wdth"),
+            Some(true),
+            "its wdth axis is flagged hidden"
+        );
+        let faces = crate::host::parse_faces(&cfg, &data, &mut held);
+        assert_eq!(
+            baud_render::narrower_widths(&faces[0], &cfg.faces[0].variations).len(),
+            15,
+            "read as a wdth axis all the same"
+        );
+        let fonts = crate::fonts::Fonts::new(&cfg, data, faces, held);
+        let stack = crate::host::stack(&fonts);
+        let ka = Codepoint::from_char('\u{915}');
+        let em = Codepoint::from_char('M');
+        let regular: Vec<FaceIx> = stack.narrower(FaceIx::PRIMARY).collect();
+        assert_eq!(regular.len(), 15, "the Regular's narrower instances");
+        let bold = stack.select_styled(ka, FaceStyle::Bold);
+        assert_ne!(bold, FaceIx::PRIMARY, "bold क is the Bold's");
+        assert_eq!(stack.narrower(bold).count(), 15, "the Bold's");
+        assert!(
+            regular.iter().all(|&ix| stack.is_styled(ix)),
+            "out of the chain"
+        );
+        let (plain, narrowest) = (stack.face(FaceIx::PRIMARY), stack.face(regular[14]));
+        let width = |f: &baud_font::Face<'_>, c| f.advance(f.glyph(c).unwrap()).unwrap().value();
+        assert!(width(narrowest, ka) < width(plain, ka), "क narrows");
+        assert_eq!(width(narrowest, em), width(plain, em), "M does not");
+    }
+}

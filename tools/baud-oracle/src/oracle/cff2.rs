@@ -19,7 +19,7 @@ use crate::{BINDING, HARFBUZZ, Oracle, hb};
 /// `cff2-outlines.txt`.
 pub const ORACLE: Oracle = Oracle {
     name: "cff2",
-    file: "baud-font/tests/var/cff2-outlines.txt",
+    file: "crates/baud-font/tests/var/cff2-outlines.txt",
     lines,
 };
 

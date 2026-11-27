@@ -3,8 +3,8 @@
 Not DEC protocol, and mostly not in any standard — but applications depend on
 them, which is the only bar that matters here.
 
-- **Implementation:** `baud-core/src/osc.rs`, `baud-core/src/ops.rs`
-- **Tests:** `baud-core/tests/xterm/`
+- **Implementation:** `crates/baud-core/src/osc.rs`, `crates/baud-core/src/ops.rs`
+- **Tests:** `crates/baud-core/tests/xterm/`
 - **Conformance:** `xterm` (89 caps), `xterm-16color` (90),
   `xterm-256color` (88), `rxvt` (66), `nsterm` (71), `dtterm` (58)
 - **Source:** `[[source: ctlseqs]]`
@@ -14,7 +14,7 @@ them, which is the only bar that matters here.
 `?1049` switches to a second full grid, saving the cursor on the way in. It
 keeps **no history**. A full-screen scroll rotates it as it rotates the
 primary, inside a ring of its own rows with its own rotation (`AltBuf`,
-`baud-core/src/storage.rs`), and `retire` keeps no line on it, so a scroll on
+`crates/baud-core/src/storage.rs`), and `retire` keeps no line on it, so a scroll on
 the alternate screen moves nothing of the primary's history.
 
 `?47` is the pre-1049 form: it switches buffers and does **not** save the

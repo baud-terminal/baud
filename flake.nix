@@ -16,8 +16,8 @@
   # the same derivations without its patches. rust-overlay is at
   # `devenv.lock`'s revision too, so the package builds with the compiler the
   # repository is built and tested with. `flake.lock` holds them, and
-  # `baud-app/tests/install.rs` fails when
-  # it and `devenv.lock` disagree. `scripts/check-flake-eval.sh` evaluates
+  # `crates/baud-app/tests/install.rs` fails when
+  # it and `devenv.lock` disagree. `tools/scripts/check-flake-eval.sh` evaluates
   # every package with import-from-derivation off.
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/674a2028661e550a97400c1cc992b9cca9a668a1";
@@ -28,12 +28,12 @@
     # **The README session's container** (`nix/demo-container/`): its
     # aarch64-linux packages, starship 1.27.0 among them, from the
     # nixpkgs-unstable commit the demo takes its own starship from
-    # (`baud-app/examples/demo/container.rs`). The image's pin holds their
+    # (`crates/baud-app/examples/demo/container.rs`). The image's pin holds their
     # store paths, and btop and fastfetch differ at the revision above; only
     # the container's image reads this input.
     nixpkgs-demo.url = "github:NixOS/nixpkgs/6dadaf4375be35033e1c84395adbd53ff5fded96";
     # **The demo's programs on the Mac** (`NIXPKGS` in
-    # `baud-app/examples/demo/run.rs`): only the demo's mpv
+    # `crates/baud-app/examples/demo/run.rs`): only the demo's mpv
     # (`nix/demo-mpv/`) reads this input, its recipe and its dependencies.
     nixpkgs-demo-mac.url = "github:NixOS/nixpkgs/319e4cebef10cbb636c6ea392137b52ad105336a";
   };
@@ -106,7 +106,7 @@
           # config's `rustflags`, as devenv's does, and the profile's
           # `rustflags`, the function alignment, still apply.
           env.RUSTFLAGS = "";
-          # **The build's name** (`baud-app/build.rs`). A nix build has no
+          # **The build's name** (`crates/baud-app/build.rs`). A nix build has no
           # `.git`, so the flake says which commit this is; `dirtyShortRev`
           # is its answer for a tree that differs from the commit.
           env.BAUD_GIT_REV = self.shortRev or self.dirtyShortRev or "unknown";
@@ -128,7 +128,7 @@
           # against: linked against nixpkgs' default, 14.4, the title bar is
           # the one from before macOS 26, its traffic lights ending at 69
           # points; linked against Xcode's 27.2 it is 32 points tall and they
-          # end at 78 (`baud-app/tests/titlebar_mark.rs` measures both). The
+          # end at 78 (`crates/baud-app/tests/titlebar_mark.rs` measures both). The
           # newest at the pin, 27.0, is nearest the 27.2 a clone's build
           # takes.
           # `checks.<darwin>.sdk` reads the linked SDK back.
@@ -140,10 +140,10 @@
           # stripped and signed `bin/baud`, which it does to `bin` and not to
           # `Applications`. `bin/baud` is then the bundle's executable, so
           # `nix run` starts the binary the Dock does, and the bundle is
-          # signed last, ad hoc, as `scripts/bundle-macos.sh` signs one.
+          # signed last, ad hoc, as `tools/scripts/bundle-macos.sh` signs one.
           postFixup = lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
             app=$out/Applications/baud.app
-            bash scripts/bundle-macos.sh --assemble "$out/bin/baud" "$app"
+            bash tools/scripts/bundle-macos.sh --assemble "$out/bin/baud" "$app"
             rm "$out/bin/baud"
             ln -s ../Applications/baud.app/Contents/MacOS/baud "$out/bin/baud"
             rcodesign sign "$app"
@@ -163,27 +163,27 @@
             for d in built glyphs/languages/hebrew glyphs/languages/devanagari jetbrains-mono symbols-nerd-font stix-two-math; do
               mkdir -p "$fonts/$d"
             done
-            cp baud-app/fonts/built/{OFL.txt,FONTLOG.txt,AUTHORS.txt,MANIFEST} "$fonts/built/"
-            cp baud-app/fonts/glyphs/languages/hebrew/{OFL.txt,SOURCE} "$fonts/glyphs/languages/hebrew/"
-            cp baud-app/fonts/glyphs/languages/devanagari/SOURCE "$fonts/glyphs/languages/devanagari/"
-            cp baud-app/fonts/jetbrains-mono/{OFL.txt,AUTHORS.txt,SOURCE} "$fonts/jetbrains-mono/"
-            cp baud-app/fonts/symbols-nerd-font/{LICENSE,README.md,SOURCE} "$fonts/symbols-nerd-font/"
-            cp -R baud-app/fonts/symbols-nerd-font/icon-licences "$fonts/symbols-nerd-font/"
-            cp baud-app/fonts/stix-two-math/{OFL.txt,SOURCE} "$fonts/stix-two-math/"
+            cp crates/baud-app/fonts/built/{OFL.txt,FONTLOG.txt,AUTHORS.txt,MANIFEST} "$fonts/built/"
+            cp crates/baud-app/fonts/glyphs/languages/hebrew/{OFL.txt,SOURCE} "$fonts/glyphs/languages/hebrew/"
+            cp crates/baud-app/fonts/glyphs/languages/devanagari/SOURCE "$fonts/glyphs/languages/devanagari/"
+            cp crates/baud-app/fonts/jetbrains-mono/{OFL.txt,AUTHORS.txt,SOURCE} "$fonts/jetbrains-mono/"
+            cp crates/baud-app/fonts/symbols-nerd-font/{LICENSE,README.md,SOURCE} "$fonts/symbols-nerd-font/"
+            cp -R crates/baud-app/fonts/symbols-nerd-font/icon-licences "$fonts/symbols-nerd-font/"
+            cp crates/baud-app/fonts/stix-two-math/{OFL.txt,SOURCE} "$fonts/stix-two-math/"
             cp LICENSE THIRD_PARTY.md "$out/share/doc/baud/"
           ''
           # **A desktop entry**, named for the window's Wayland app_id
-          # (`org.baud.terminal`, `baud-app/src/linux.rs`), which is how a
+          # (`org.baud.terminal`, `crates/baud-app/src/linux.rs`), which is how a
           # desktop finds a window's entry, and the icon at the sizes drawn.
           + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
-            install -Dm644 packaging/linux/org.baud.terminal.desktop \
+            install -Dm644 nix/packaging/linux/org.baud.terminal.desktop \
               "$out/share/applications/org.baud.terminal.desktop"
             desktop-file-validate "$out/share/applications/org.baud.terminal.desktop"
             for n in 16 32 64 128 256 512; do
-              install -Dm644 "assets/logo/baud-icon-dock-$n.png" \
+              install -Dm644 "docs/assets/logo/baud-icon-dock-$n.png" \
                 "$out/share/icons/hicolor/''${n}x''${n}/apps/org.baud.terminal.png"
             done
-            install -Dm644 assets/logo/baud-icon-dock.svg \
+            install -Dm644 docs/assets/logo/baud-icon-dock.svg \
               "$out/share/icons/hicolor/scalable/apps/org.baud.terminal.svg"
           '';
 

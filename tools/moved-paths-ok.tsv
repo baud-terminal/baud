@@ -1,0 +1,4 @@
+# file	token	why the token is right as written (read by tools/scripts/check-moved-paths.sh)
+crates/xtask/tests/bounded.rs	budgets.toml	joined to the bounded script's grandparent, tools/, where budgets.toml sits
+tools/scripts/perf-gate.sh	perf-budgets.toml	the scratch copy in the gate's own work folder, which then replaces tools/perf-budgets.toml
+tools/scripts/check-features.sh	tests	each crate's own tests/ folder: $dir is crates/<name>

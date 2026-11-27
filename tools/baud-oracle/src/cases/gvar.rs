@@ -1,6 +1,6 @@
 //! A variable font built to reach what the real fixture fonts never do.
 //!
-//! Writes `baud-font/tests/var/gvar-cases.ttf`. JetBrains Mono and Fira
+//! Writes `crates/baud-font/tests/var/gvar-cases.ttf`. JetBrains Mono and Fira
 //! Code have no left-phantom delta, no intermediate region, one axis, and
 //! no composite with its own variation data under USE_MY_METRICS; this
 //! font has all of those, so HarfBuzz's drawing of it (`baud-oracle`'s
@@ -32,7 +32,7 @@
 //! Every glyph's lsb is its xMin, so HarfBuzz's absolute shift is the left
 //! phantom's delta. Axes: wght 100-400-900 and wdth 50-100-200, no avar.
 //! Deterministic: the head timestamps are fixed. baud's own font, under
-//! the repository's licence (`baud-font/tests/licences.rs` lists it).
+//! the repository's licence (`crates/baud-font/tests/licences.rs` lists it).
 
 use read_fonts::tables::glyf::CurvePoint;
 use write_fonts::tables::glyf::{
@@ -201,7 +201,7 @@ pub fn fonts() -> Vec<(&'static str, Vec<u8>)> {
         ),
         (b"gvar", gvar),
     ]);
-    vec![("baud-font/tests/var/gvar-cases.ttf", font)]
+    vec![("crates/baud-font/tests/var/gvar-cases.ttf", font)]
 }
 
 /// Each glyph's tuples, a region per axis (wght, wdth); `None` leaves a

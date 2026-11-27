@@ -16,4 +16,4 @@ read-fonts = "=0.46.0"
 write-fonts = "=0.55.0"
 # The partial instancer (`baud-fontbuild instance`): baud's own bake,
 # which the comparator above holds to fontTools' instances.
-baud-font = { path = "../../baud-font" }
+baud-font = { path = "../../crates/baud-font" }

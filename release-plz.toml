@@ -42,24 +42,24 @@
 # all of them by precedence. A release sorts above all of its pre-releases
 # (rule 11.3), so `1.0.0`, set in the manifest by hand, is the step out. The
 # identifier stays lowercase: ASCII puts every capital before every small
-# letter. `scripts/bundle-macos.sh` refuses any other pre-release, `-rc`
-# and `-beta` among them, and `baud-app/tests/version.rs` holds it to that.
+# letter. `tools/scripts/bundle-macos.sh` refuses any other pre-release, `-rc`
+# and `-beta` among them, and `crates/baud-app/tests/version.rs` holds it to that.
 #
 # **A bump leaves `tools/` stale, and a Release PR has to carry the repair.**
 # `baud-fontbuild` depends on `baud-font`, so `tools/Cargo.lock` names the
 # workspace's version, release-plz does not touch it, and
-# `scripts/build-fonts.sh`, which builds `--locked`, refuses to start. On the
+# `tools/scripts/build-fonts.sh`, which builds `--locked`, refuses to start. On the
 # Release PR's branch:
 #
 #   a. `cargo update --manifest-path tools/Cargo.toml -p baud-font
 #      -p baud-domain -p baud-tablegen`, the three the lock file holds;
 #   b. the sha256 of `tools/Cargo.lock` on its `input` line in
-#      `baud-app/fonts/built/MANIFEST`, by hand and that line alone: a build
+#      `crates/baud-app/fonts/built/MANIFEST`, by hand and that line alone: a build
 #      also rewrites the `#` lines, which are the building machine's;
-#   c. `scripts/build-fonts.sh --check`, which has to pass;
+#   c. `tools/scripts/build-fonts.sh --check`, which has to pass;
 #   d. `cargo metadata --format-version 1` with `--manifest-path` at
-#      `bench-others/ghostty-oracle/Cargo.toml` and
-#      `bench-others/multibench/Cargo.toml`, whose lock files name the same
+#      `tools/bench-others/ghostty-oracle/Cargo.toml` and
+#      `tools/bench-others/multibench/Cargo.toml`, whose lock files name the same
 #      version; a `--locked` build there would refuse too.
 #
 # This file decides what gets released. `baud` and the crates it is built

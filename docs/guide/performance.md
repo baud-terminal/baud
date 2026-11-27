@@ -49,7 +49,7 @@ printed: code has changed since most of them.
 
 ## Taking in output, against other terminals
 
-Measured at `e5bc3ef` on 2026-09-20 with `bench-others/multibench`: each
+Measured at `e5bc3ef` on 2026-09-20 with `tools/bench-others/multibench`: each
 terminal's core fed the same recorded bytes, in memory, each keeping 10,000
 lines of scrollback; medians of 9 runs, taken in turn. Megabytes per second, higher is better:
 

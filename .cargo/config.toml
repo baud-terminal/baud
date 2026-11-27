@@ -1,37 +1,37 @@
 # **The binary's floor is the bundle's: macOS 26.** baud runs on macOS 26
-# and later: `packaging/macos/Info.plist` names 26.0, and this makes the
+# and later: `nix/packaging/macos/Info.plist` names 26.0, and this makes the
 # Mach-O's own minimum (`LC_BUILD_VERSION minos`) say the same.
-# `scripts/build-metallib.sh` passes the same release to the Metal
-# compiler, `baud-app/build.rs` sets it for the published crate, which
-# carries no copy of this file, and `baud-app/tests/macos_floor.rs` holds
+# `tools/scripts/build-metallib.sh` passes the same release to the Metal
+# compiler, `crates/baud-app/build.rs` sets it for the published crate, which
+# carries no copy of this file, and `crates/baud-app/tests/macos_floor.rs` holds
 # all four equal.
 #
 # `force`, because the devenv shell already exports
 # `MACOSX_DEPLOYMENT_TARGET=14.0` (its nix stdenv's), and an `[env]` entry
 # without it yields to the environment: the binary linked at 14.0 with this
 # file present. Not `rustflags`: devenv exports `RUSTFLAGS`, which replaces
-# every `rustflags` a config file sets (`baud-app/build.rs`). Off macOS
+# every `rustflags` a config file sets (`crates/baud-app/build.rs`). Off macOS
 # rustc does not read the variable.
 [env]
 MACOSX_DEPLOYMENT_TARGET = { value = "26.0", force = true }
 
 # **The repository's gates are a crate, run as `cargo xtask <command>`**
-# (`xtask/`): `audit`, `scan-audit`, `changelog`, `features`,
+# (`crates/xtask/`): `audit`, `scan-audit`, `changelog`, `features`,
 # `features-since`, `feature-arms`, `feature-suites`, `scoped-test`, `fnv1a`,
 # `sources`, `third-party`, `no-python`, `paths`, `publish`, `page-text` and
 # `pdf-search`, each run from the repository's root,
 # and `loop-head`, `vt-table`, `pmc` and `forbidden`, which read the paths they
 # are given;
-# `scripts/check-sources.sh` execs `sources`.
+# `tools/scripts/check-sources.sh` execs `sources`.
 [alias]
 xtask = "run -q -p xtask --"
 
 # **Every test, bench and `cargo run` starts under a memory bound.**
-# `scripts/bounded` runs the binary and kills it past `budgets.toml`'s
+# `tools/scripts/bounded` runs the binary and kills it past `tools/budgets.toml`'s
 # `memory-max`; what it covers and does not, and the helper a
 # harness calls, are at the top of that file. A path with a slash is relative
 # to the directory holding `.cargo/`, so cargo started anywhere under this
 # directory finds this by walking up from where it was started, a crate under
-# `bench-others/` or `tools/` with a manifest of its own included.
+# `tools/bench-others/` or `tools/` with a manifest of its own included.
 [target.'cfg(all())']
-runner = "scripts/bounded"
+runner = "tools/scripts/bounded"

@@ -1,7 +1,7 @@
 //! A variable font with no GPOS, built so the shaper's fallback mark
 //! placement reads glyph boxes at a variation.
 //!
-//! Writes `baud-font/tests/var/ink-cases.ttf`. A face without GPOS places
+//! Writes `crates/baud-font/tests/var/ink-cases.ttf`. A face without GPOS places
 //! its marks geometrically against the base's ink box and the mark's own
 //! (HarfBuzz's hb-ot-shape-fallback, which baud follows), so a varied face
 //! must hand that placement its varied boxes. Every committed variable
@@ -33,7 +33,7 @@
 //! points do not fit maxp's 16-bit maxCompositePoints, so the totals are
 //! written saturated, and head's box by hand. Axes: wght 100-400-900, no
 //! avar. Deterministic: the head timestamps are fixed. baud's own font,
-//! under the repository's licence (`baud-font/tests/licences.rs` lists
+//! under the repository's licence (`crates/baud-font/tests/licences.rs` lists
 //! it).
 
 use write_fonts::tables::glyf::{
@@ -239,5 +239,5 @@ pub fn fonts() -> Vec<(&'static str, Vec<u8>)> {
         (b"fvar", bytes(&fvar(&[(b"wght", 100.0, 400.0, 900.0)]))),
         (b"gvar", gvar),
     ]);
-    vec![("baud-font/tests/var/ink-cases.ttf", font)]
+    vec![("crates/baud-font/tests/var/ink-cases.ttf", font)]
 }

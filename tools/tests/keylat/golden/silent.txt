@@ -1,0 +1,49 @@
+== keystroke-to-pixel sweep ==
+power: Now drawing from 'Battery Power'
+power: -InternalBattery-0 (id=1)	100%; charged; 0:00 remaining present: true
+power: NOT QUOTABLE -- on battery (or power source unknown); battery numbers are not quotable
+display: refresh 120
+swift: bash tools/tests/keylat/stub/helper tools/scripts/key-post.swift
+child: none (stty -echo; sleep 60)
+gap: 60 ms MEAN; each inter-key gap is uniform in [45-75] ms, seeded from baud's pid (printed per round) -- a fixed gap phase-locks to the refresh and narrows vsync/total falsely
+pairing window: 40 ms (minimum jittered gap 45 ms)
+  minimum gap under 100 ms: the window is that minimum - 5 ms so a one-key shift cannot fit inside it
+A/B number: to_shown (post -> the surface on the layer; no display-period quantisation). vsync/total are a bracket, not a measurement -- see the doc.
+arm base: tools/tests/keylat/stub/app sha256=55429b552627270f765f67750fe02bdfbba79fc71dfb5c83797fbb8260bcc562
+arm order rotates every round so no arm is always last
+
+round 1: order ['base']
+  round 1 arm base: keys posted, none reached the app (Accessibility? wrong target?)
+  round 1 arm base: instrument refused: zone=1
+  round 1 arm base: pid=PID posted=3 keylats=0 paired=0 unpaired posts=3 unpaired keylats=0 seq mismatches=0 negative=0 parse failures=0 landings refused=0 -> <dir>/scratch/keylat-base-1.tsv
+
+== arm base ==
+posted=3 paired=0 completed=0 excluded=0 shared_a_frame=0
+instrument refused: zone=1
+unpaired posts=3 unpaired keylats=0 parse failures=0 landings refused=0
+      leg  median us   (n)  IQR [q1-q3]              range [min-max]
+    stamp          -        -                        -
+  deliver          -        -                        -
+    write          -        -                        -
+    child          -        -                        -
+     wake          -        -                        -
+    build          -        -                        -
+      gpu          -        -                        -
+     show          -        -                        -
+      app          -        -                        -
+    vsync          -        -                        -
+ vsync_hi          -        -                        -
+ to_shown          -        -                        -
+    total          -        -                        -
+ total_hi          -        -                        -
+
+WARM-UP ROUND USED -- --rounds 1 has no settled round; not quotable
+
+NOT QUOTABLE -- taken on battery (or an unknown power source)
+
+zero completed keys: arm base round 1
+
+zero completed keys in a run -- the instrument reported nothing; not a pass.
+--- keylat-base-1.tsv
+seq	app_seq	char	post	event	excluded	exclude_reason	handled	written	echo	fed	commit	landed	shown	vsync	vsync_hi
+--- exit 1

@@ -1,0 +1,279 @@
+#!/usr/bin/env -S "__BOUNDED_UNDERSCORE=${_}"\_"__BOUNDED_PWD=${PWD}"\_"__BOUNDED_OLDPWD=${OLDPWD}"\_"__BOUNDED_SHLVL=${SHLVL}"\_bash
+# **A memory bound on every test, bench and `cargo run`, and a helper a
+# harness calls.** Under a runaway test binary macOS kills other processes
+# first. `.cargo/config.toml` names this file as cargo's runner, so `cargo test`,
+# `cargo nextest run`, `cargo bench` and `cargo run` start their binary here,
+# from any crate that finds that config by walking up:
+#
+#   tools/scripts/bounded PROGRAM ARGS...              the runner
+#   tools/scripts/bounded --timeout SECS -- COMMAND... the helper
+#
+# The helper is for a harness that starts cargo or a test binary itself and
+# would otherwise time out only the process it started. COMMAND gets a new
+# session. On the timeout, over the bound, or when COMMAND ends, the whole
+# tree is killed by pid: an orphaned test binary under a killed cargo, and a
+# child that started its own session, included. The bound sums the tree, so
+# under the helper it counts cargo and rustc too, and must leave room for them.
+#
+# **The helper over cargo watches a test binary twice, and neither watcher
+# breaks the other.** The inner tree is part of the outer, so at one bound the
+# outer's sum is the larger and either can fire first, by where the polls fall.
+# The outer: its status is 113 and it kills all it has found, the inner watcher
+# and sentinel included. The inner: the test fails, 113 to cargo, and the helper
+# returns what cargo returns, which is 113 from `cargo test` and 100 from
+# `cargo nextest run`. (macOS. On Linux, not run: the inner `systemd-run --scope`
+# moves the test binary out of the outer's scope, so each scope bounds its own
+# part, and the outer's sum leaves that part out; on the fallback, an inner
+# `ulimit -v` above the outer's is refused.)
+#
+# **What it does not reach.** A binary run by its own path and not through
+# cargo. A copied subfolder has no `.cargo/` above it, which is what the helper
+# is for. `CARGO_TARGET_*_RUNNER` or `--config` naming another runner. A
+# process that forks and whose parent exits within one poll, because a process
+# whose parent has gone can no longer be found from the tree (macOS). A
+# descendant of another user, such as `sudo` or `top` (setuid root), which can
+# be neither read nor killed: it counts as nothing, and what it starts is still
+# walked (macOS). A sum across several guarded binaries: three at 15.9 GiB
+# already pass this Mac's 48 GiB, and a total belongs to the machine's own layer.
+# Cargo started from outside the repository with `--manifest-path`, because cargo
+# finds its config from the current directory and not from the crate. Build
+# scripts and the compiler: cargo does not run those through a runner. A group
+# SIGKILL inside the first poll: the program dies with the watcher, and a child
+# it put in its own session has not yet been told to the sentinel. A child
+# started by a process the kill has asked to end with `SIGTERM`, when that
+# process ends within one walk of the grace, 10 ms: nothing is stopped to hold
+# the tree still, since a stopped Metal client holds the GPU work it was
+# handing over (`kill_all` in `bounded.rs`).
+#
+# **What it changes in what the program sees.** Nothing but its parent, and:
+# `DYLD_*` variables are gone, because macOS strips them when it runs the
+# protected `/usr/bin/env` above, and no crate here builds a dylib. Bash rewrites
+# `_`, `PWD`, `OLDPWD` and `SHLVL` before this file's first line runs, so the
+# `#!` line copies them first, and they are put back, but on Linux, where `_`
+# names the last wrapper and an absent `SHLVL` arrives as 0. `env -S` is
+# coreutils' and BSD's; busybox's has none, and there this file does not start,
+# which runs nothing. A signal sent to the group reaches a program still running
+# two seconds later a second time (`RELAY_AFTER`), because a signal to the group
+# and one to the watcher alone look the same from here, and without the relay a
+# `kill` of the runner alone would do nothing.
+
+# The exit codes; `tools/scripts/bounded.rs` holds the same three, and
+# `crates/xtask/tests/bounded.rs` holds them equal.
+__bounded_exit_over=113     # over the bound, killed
+__bounded_exit_refused=114  # the guard could not guard: nothing left running
+__bounded_exit_timed_out=115 # --timeout expired, killed
+
+# **Address space on the fallback beside the bound, in MiB.** `RLIMIT_AS` counts
+# reservations and not memory, and does not sum a tree. baud-app reserves
+# nothing it does not write (`crates/baud-app/src/heap.rs` maps what it is asked for,
+# and read-only font files are the rest), so what this has to leave room for is
+# glibc's: up to 8 x cores malloc arenas of 64 MiB reserved each, 8 GiB on 16
+# cores.
+__bounded_address_headroom_mib=8192
+
+# Every variable here, a function's locals too, has this prefix: a local of an
+# exported name is exported at its new value, and the program would inherit it.
+__bounded_refuse() {
+  printf 'bounded: %s; the program was not run\n' "$1" >&2
+  exit "$__bounded_exit_refused"
+}
+
+# Parameter expansion and a builtin test, so that a test costs no fork here.
+case $0 in
+*/*) __bounded_here=${0%/*} ;;
+*) __bounded_here=. ;;
+esac
+
+# **The bound lives in `tools/budgets.toml`, `[tests]`'s `memory-max`, read here into
+# MiB with builtins alone**, so a test costs no fork for it. Which lines count is
+# the grammar of the `sed` line that file quotes. A file, key or value that cannot
+# be read is refused and not defaulted, with `BAUD_TEST_MEMORY_BOUND_MIB` set too,
+# which replaces the value and not the file. `BAUD_TEST_MEMORY_LOG` is how the
+# suite's footprint is read (MEASUREMENTS.md, "One binary cannot take the machine
+# down"). No variable turns this off: a value in that variable past the machine's
+# memory is refused, being no bound at all. The file's comes down to a smaller
+# machine's memory, as one file serves every machine.
+__bounded_read_budget() {
+  local __bounded_file=$__bounded_here/../budgets.toml
+  local __bounded_line __bounded_in=0 __bounded_size=
+  local __bounded_form='^memory-max = "([0-9]+[KMGT]?)"$'
+  if [[ ! -f $__bounded_file || ! -r $__bounded_file ]]; then
+    __bounded_refuse "$__bounded_file cannot be read, and it holds the bound"
+  fi
+  while IFS= read -r __bounded_line || [[ -n $__bounded_line ]]; do
+    if ((__bounded_in == 0)); then
+      if [[ $__bounded_line == '[tests]' ]]; then __bounded_in=1; fi
+    elif [[ $__bounded_line == '['* ]]; then
+      __bounded_in=0
+    elif [[ $__bounded_line =~ $__bounded_form ]]; then
+      if [[ -n $__bounded_size ]]; then
+        __bounded_refuse "$__bounded_file names memory-max twice under [tests]"
+      fi
+      __bounded_size=${BASH_REMATCH[1]}
+    fi
+  done <"$__bounded_file"
+  if [[ -z $__bounded_size ]]; then
+    __bounded_refuse "$__bounded_file has no line memory-max = \"<digits>[KMGT]\" under [tests]"
+  fi
+  local __bounded_digits=${__bounded_size%[KMGT]}
+  local __bounded_times=1 __bounded_per=1 __bounded_count
+  case ${__bounded_size#"$__bounded_digits"} in
+  '') __bounded_per=1048576 ;;
+  K) __bounded_per=1024 ;;
+  G) __bounded_times=1024 ;;
+  T) __bounded_times=1048576 ;;
+  esac
+  # Eighteen digits fit in the shell's 64 bits, and the base-10 prefix is because
+  # a leading zero would read as octal. The largest bound is the variable's, so
+  # that no multiplication can wrap either.
+  if ((${#__bounded_digits} <= 18)); then
+    __bounded_count=$((10#$__bounded_digits))
+    if ((__bounded_count > 0 && __bounded_count % __bounded_per == 0 &&
+      __bounded_count / __bounded_per <= 999999999 / __bounded_times)); then
+      __bounded_budget_mib=$((__bounded_count / __bounded_per * __bounded_times))
+      return
+    fi
+  fi
+  __bounded_refuse "$__bounded_file: memory-max = \"$__bounded_size\" is not a whole number of MiB from 1 to 999999999"
+}
+__bounded_read_budget
+
+__bounded_mib=${BAUD_TEST_MEMORY_BOUND_MIB-$__bounded_budget_mib}
+if ! [[ $__bounded_mib =~ ^[1-9][0-9]{0,8}$ ]]; then
+  __bounded_refuse "BAUD_TEST_MEMORY_BOUND_MIB=$__bounded_mib is not a whole number of MiB"
+fi
+
+__bounded_timeout=0
+if [[ ${1-} == --timeout ]]; then
+  if ! [[ ${2-} =~ ^[1-9][0-9]{0,6}$ && ${3-} == -- && -n ${4-} ]]; then
+    __bounded_refuse "usage: bounded --timeout SECS -- COMMAND..."
+  fi
+  __bounded_timeout=$2
+  shift 3
+fi
+if [[ $# -eq 0 ]]; then
+  __bounded_refuse "no program named"
+fi
+
+__bounded_darwin() {
+  local __bounded_src=$__bounded_here/bounded.rs
+  local __bounded_dir=$__bounded_here/../../target/bounded
+  local __bounded_bin=$__bounded_dir/bounded
+  if [[ ! -x $__bounded_bin || $__bounded_src -nt $__bounded_bin ]]; then
+    # A directory of this start's own and a rename, so a parallel start finds
+    # the old file or the whole new one. Its own directory because `rustc`
+    # writes its objects beside `-o`, named after the crate: in one directory
+    # parallel builds delete each other's and the linker fails.
+    local __bounded_tmp=$__bounded_dir/build.$$
+    if ! mkdir -p "$__bounded_tmp" || ! rustc -O --edition 2021 -o "$__bounded_tmp/bounded" "$__bounded_src"; then
+      rm -rf "$__bounded_tmp" 2>/dev/null
+      __bounded_refuse "the watcher could not be built from $__bounded_src"
+    fi
+    if ! mv -f "$__bounded_tmp/bounded" "$__bounded_bin"; then
+      rm -rf "$__bounded_tmp" 2>/dev/null
+      __bounded_refuse "the watcher could not be put at $__bounded_bin"
+    fi
+    rm -rf "$__bounded_tmp" 2>/dev/null
+  fi
+  exec "$__bounded_bin" "$__bounded_mib" "$__bounded_timeout" "$@"
+  __bounded_refuse "the watcher at $__bounded_bin could not be started"
+}
+
+# Bash has rewritten these by now; a copy came through the `#!` line.
+__bounded_restore_env() {
+  if [[ -n ${__BOUNDED_PWD+set} ]]; then
+    if [[ -n $__BOUNDED_PWD ]]; then export PWD=$__BOUNDED_PWD; else unset PWD; fi
+    if [[ -n $__BOUNDED_OLDPWD ]]; then export OLDPWD=$__BOUNDED_OLDPWD; else unset OLDPWD; fi
+    unset __BOUNDED_UNDERSCORE __BOUNDED_PWD __BOUNDED_OLDPWD __BOUNDED_SHLVL
+  fi
+}
+
+# **A value past the machine's memory is no bound, so the variable's is
+# refused**, and the file's comes down to it: the same rule the watcher applies
+# from `hw.memsize`.
+__bounded_linux_check_ram() {
+  local __bounded_key __bounded_value __bounded_unit
+  while read -r __bounded_key __bounded_value __bounded_unit; do
+    if [[ $__bounded_key == MemTotal: ]]; then
+      if ((__bounded_mib > __bounded_value / 1024)); then
+        if [[ -n ${BAUD_TEST_MEMORY_BOUND_MIB+set} ]]; then
+          __bounded_refuse "a bound of $__bounded_mib MiB is past this machine's memory"
+        fi
+        __bounded_mib=$((__bounded_value / 1024))
+      fi
+      return
+    fi
+  done </proc/meminfo
+  __bounded_refuse "/proc/meminfo has no MemTotal"
+}
+
+# systemd-run says 1 for a program it cannot find, so this says 126 or 127 first.
+__bounded_check_program() {
+  if [[ $1 == */* ]]; then
+    if [[ ! -e $1 ]]; then
+      printf 'bounded: cannot run %s: no such file\n' "$1" >&2
+      exit 127
+    fi
+    if [[ ! -x $1 || -d $1 ]]; then
+      printf 'bounded: cannot run %s: not executable\n' "$1" >&2
+      exit 126
+    fi
+  elif ! type -P "$1" >/dev/null; then
+    printf 'bounded: cannot run %s: not found\n' "$1" >&2
+    exit 127
+  fi
+}
+
+__bounded_linux() {
+  __bounded_linux_check_ram
+  __bounded_restore_env
+  __bounded_check_program "$1"
+  # A cgroup sums the tree and does not count an untouched reservation, and
+  # with no swap a limit ends a runaway instead of slowing it down. The kernel's
+  # kill reads as SIGKILL, status 137, so this path has no distinct code for the
+  # bound; `systemctl --user status` holds the cause.
+  if systemctl --user cat runs.slice >/dev/null 2>&1; then
+    local -a __bounded_scope=(--user --scope --quiet --slice=runs.slice
+      -p "MemoryMax=${__bounded_mib}M" -p MemorySwapMax=0 -p OOMPolicy=kill)
+    # systemd-run expands `$VAR` in the command line and writes `$$` as `$`,
+    # so `bash -c 'echo $$'` would print a dollar sign: the command is
+    # passed as it is where systemd-run takes --expand-environment.
+    if systemd-run --help 2>/dev/null | grep -q -- --expand-environment; then
+      __bounded_scope+=(--expand-environment=no)
+    fi
+    if ((__bounded_timeout == 0)); then
+      exec systemd-run "${__bounded_scope[@]}" -- "$@"
+      __bounded_refuse "systemd-run could not be started"
+    fi
+    # Stopping the scope afterwards reaches what left the group `timeout` signals.
+    local __bounded_unit=bounded-$$-$RANDOM __bounded_status=0
+    systemd-run "${__bounded_scope[@]}" --unit="$__bounded_unit" -- setsid --wait timeout -k 2 "$__bounded_timeout" "$@" || __bounded_status=$?
+    systemctl --user stop "$__bounded_unit.scope" >/dev/null 2>&1
+    if ((__bounded_status == 124)); then
+      exit "$__bounded_exit_timed_out"
+    fi
+    exit "$__bounded_status"
+  fi
+  # No user systemd, as in a container: per process, and it counts reservations.
+  if ! ulimit -v $(((__bounded_mib + __bounded_address_headroom_mib) * 1024)); then
+    __bounded_refuse "ulimit -v failed and there is no runs.slice"
+  fi
+  if ((__bounded_timeout == 0)); then
+    exec "$@"
+    exit 126
+  fi
+  # `timeout` signals the group it leads, so on this path, unlike the others, a
+  # child that started its own session is out of reach.
+  local __bounded_status=0
+  setsid --wait timeout -k 2 "$__bounded_timeout" "$@" || __bounded_status=$?
+  if ((__bounded_status == 124)); then
+    exit "$__bounded_exit_timed_out"
+  fi
+  exit "$__bounded_status"
+}
+
+case ${OSTYPE-} in
+darwin*) __bounded_darwin "$@" ;;
+linux*) __bounded_linux "$@" ;;
+*) __bounded_refuse "no bound is known on ${OSTYPE:-this kernel}" ;;
+esac

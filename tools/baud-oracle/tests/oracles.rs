@@ -35,8 +35,8 @@ fn xkb_tree(name: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!("baud-oracle-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     copy_dir(
-        &repo().join("baud-xkb/tests/fixtures"),
-        &root.join("baud-xkb/tests/fixtures"),
+        &repo().join("crates/baud-xkb/tests/fixtures"),
+        &root.join("crates/baud-xkb/tests/fixtures"),
     );
     let sources = root.join("docs/research/sources");
     std::fs::create_dir_all(&sources).expect("a directory");
@@ -100,7 +100,7 @@ fn a_changed_keymap_or_compose_file_fails_the_check() {
         ),
     ] {
         let root = xkb_tree("xkb-perturbed");
-        let p = root.join("baud-xkb/tests/fixtures").join(file);
+        let p = root.join("crates/baud-xkb/tests/fixtures").join(file);
         let text = std::fs::read_to_string(&p).expect("the fixture");
         assert_eq!(text.matches(from).count(), 1, "{file}: the anchor");
         std::fs::write(&p, text.replacen(from, to, 1)).expect("write");
@@ -137,7 +137,7 @@ fn fnv64(data: &[u8]) -> u64 {
 /// nothing.
 #[test]
 fn raster_prints_what_the_script_printed() {
-    let font = repo().join("baud-font/tests/fonts/JetBrainsMono-Regular.ttf");
+    let font = repo().join("crates/baud-font/tests/fonts/JetBrainsMono-Regular.ttf");
     let font = font.to_str().expect("a UTF-8 path");
     let out = oracle(&["raster", font, "0", "12", "14", "16", "24"]);
     assert!(out.status.success());
@@ -146,7 +146,7 @@ fn raster_prints_what_the_script_printed() {
     let bad = oracle(&["raster", font, "5", "12"]);
     assert_eq!(bad.status.code(), Some(1));
     assert!(bad.stdout.is_empty());
-    let sbix = repo().join("baud-font/tests/fonts/sbix-strikes.ttf");
+    let sbix = repo().join("crates/baud-font/tests/fonts/sbix-strikes.ttf");
     let none = oracle(&["raster", sbix.to_str().expect("a UTF-8 path"), "0", "12"]);
     assert!(none.status.success() && none.stdout.is_empty());
 }
@@ -156,7 +156,7 @@ fn raster_prints_what_the_script_printed() {
 /// fetched Noto faces are not in the tree, and are skipped.
 #[test]
 fn every_repository_digest_in_the_shape_fixtures_is_the_helper_s() {
-    let dir = repo().join("baud-font/tests/shape");
+    let dir = repo().join("crates/baud-font/tests/shape");
     let mut checked = std::collections::BTreeMap::new();
     for e in std::fs::read_dir(&dir).expect("the fixtures") {
         let path = e.expect("an entry").path();

@@ -1,1 +1,0 @@
-../../LICENSES/ijg-README.txt
