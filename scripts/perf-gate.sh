@@ -82,7 +82,10 @@
 # Work files go under `$TMPDIR`. `PERF_GATE_DROP=<plant>,<line>,<counter>`
 # removes that counter from the counts of every ingest run at that plant
 # and line size, after callgrind writes them; `scripts/perf-gate-controls.sh`
-# sets it to show that a missing counter fails.
+# sets it to show that a missing counter fails. A run that exits non-zero
+# fails its entry with the reason valgrind gives, and its log is kept under
+# `PERF_GATE_KEEP` (`<PERF_GATE_TREE>.failed` when unset), which this script
+# never empties.
 set -eu
 shopt -s nullglob
 cd "$(dirname "$0")/.." || exit 1
@@ -226,6 +229,7 @@ fi
 # waits for the first to exit, so neither replaces the other's tree or
 # binaries mid-measurement. The lock is held until this script exits.
 tree=${PERF_GATE_TREE:-${XDG_CACHE_HOME:-$HOME/.cache}/baud-perf-gate}
+kept=${PERF_GATE_KEEP:-$tree.failed}
 mkdir -p "$tree"
 exec 9>"$tree.lock"
 if ! flock -n 9; then
@@ -376,11 +380,39 @@ ratchets=0
 pct() { awk -v m="$1" -v b="$2" 'BEGIN { if (b == 0) print (m == 0 ? 0 : 100); else printf "%+.3f", (m - b) * 100 / b }'; }
 above() { awk -v x="$1" -v t="$2" 'BEGIN { exit !(x + 0 > t + 0) }'; }
 
+# died <dir>: why a run that exited non-zero stopped, and where its log is
+# kept. valgrind gives its own reasons on its `==<pid>==` lines: the signal
+# the bench died of, or why valgrind gave up. As pid 1 of its namespace
+# valgrind cannot die of the bench's signal itself, so a bench killed by
+# one exits 1. A run with none of these gives the last line of valgrind's
+# and the bench's.
+died() {
+  local dir=$1 s why name to
+  s=$(cat "$dir/status")
+  why=$(sed -n \
+    -e 's/^==[0-9]*== *Process terminating with default action of \(signal [0-9]* ([A-Z0-9]*)\).*/died of \1/p' \
+    -e 's/^==[0-9]*== *\(Valgrind.s memory management: out of memory\).*/\1/p' \
+    -e 's/^==[0-9]*== *\(Valgrind cannot continue\).*/\1/p' \
+    -e "s/^\(valgrind: the 'impossible' happened\).*/\1/p" \
+    "$dir/log" | awk '!seen[$0]++' | paste -sd ';' - | sed 's/;/; /g')
+  if [ "$s" -gt 128 ]; then
+    name=$(kill -l "$((s - 128))" 2>/dev/null || echo "$((s - 128))")
+    why="${why:+$why; }killed by SIG$name"
+  fi
+  [ -n "$why" ] ||
+    why="valgrind's last line: $(grep '^==' "$dir/log" | tail -n 1); the bench's: $(grep -v '^==' "$dir/log" | tail -n 1)"
+  name=${dir#"$work"/}
+  mkdir -p "$kept"
+  to="$kept/$(date +%Y%m%dT%H%M%S)-${name//\//-}.log"
+  cp "$dir/log" "$to"
+  echo "the bench exited $s ($why); log kept at $to"
+}
+
 # vacuous <dir>: why the run measured nothing, or nothing when it measured.
 vacuous() {
   local dir=$1
   if [ "$(cat "$dir/status")" -ne 0 ]; then
-    echo "the bench exited $(cat "$dir/status"): $(grep -v '^==' "$dir/log" | tail -n 1)"
+    died "$dir"
   elif [ -n "$(absent "$dir" Ir)" ]; then
     echo "MISSING Ir"
   elif [ "$(count "$dir" Ir)" -eq 0 ]; then

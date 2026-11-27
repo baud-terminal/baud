@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # **The counter gate's controls**: `bash scripts/perf-gate-controls.sh
-# [aa] [rise] [layout] [missing] [old <rev>]`, all but `old` when none is
+# [aa] [rise] [layout] [missing] [crash] [old <rev>]`, all but `old` when none is
 # named. Each shows one thing the gate (`scripts/perf-gate.sh`) must do,
 # against a baseline it sets itself:
 #
@@ -16,6 +16,9 @@
 #     (bands overlap)", and the gate passes.
 #   * `missing`: a plant run whose counts lack D1mw (`PERF_GATE_DROP`) fails
 #     every ingest entry with "MISSING D1mw at plant 00200".
+#   * `crash`: a bench that aborts at plant 00200 fails every ingest entry
+#     with "vacuous at p00200-64", naming the signal it died of, and keeps
+#     that run's log where the gate says, holding valgrind's report of it.
 #   * `old <rev>`: the gate as it is at <rev>, baseline set and then run on
 #     the `layout` bench, to show what that gate reads of a layout move.
 #
@@ -40,23 +43,23 @@ controls=()
 old=""
 while [ $# -gt 0 ]; do
   case "$1" in
-  aa | rise | layout | missing) controls+=("$1") ;;
+  aa | rise | layout | missing | crash) controls+=("$1") ;;
   old)
     [ $# -ge 2 ] || {
-      echo 'usage: scripts/perf-gate-controls.sh [aa] [rise] [layout] [missing] [old <rev>]' >&2
+      echo 'usage: scripts/perf-gate-controls.sh [aa] [rise] [layout] [missing] [crash] [old <rev>]' >&2
       exit 2
     }
     old=$2
     shift
     ;;
   *)
-    echo 'usage: scripts/perf-gate-controls.sh [aa] [rise] [layout] [missing] [old <rev>]' >&2
+    echo 'usage: scripts/perf-gate-controls.sh [aa] [rise] [layout] [missing] [crash] [old <rev>]' >&2
     exit 2
     ;;
   esac
   shift
 done
-[ "${#controls[@]}" -gt 0 ] || [ -n "$old" ] || controls=(aa rise layout missing)
+[ "${#controls[@]}" -gt 0 ] || [ -n "$old" ] || controls=(aa rise layout missing crash)
 want() {
   local c
   for c in "${controls[@]}"; do [ "$c" = "$1" ] && return 0; done
@@ -123,6 +126,12 @@ plant_layout() {
   printf '\n#[used]\nstatic PLANTED_RODATA: [u8; %d] = [0x5a; %d];\n' "$pad" "$pad" >>"$1/$bench"
 }
 restore() { cp "$scratch/ingest2.rs.base" "$src/$bench"; }
+plant_crash() {
+  edit "$src/$bench" '            eprintln!("heap plant: {v} B");' \
+    '            if v == "00200" {
+                std::process::abort();
+            }'
+}
 
 failed=0
 verdict() {
@@ -197,6 +206,25 @@ if want missing; then
     verdict missing ok "the gate failed, MISSING D1mw at plant 00200 on $n of $all ingest entries"
   else
     verdict missing no "exit $s, MISSING on $n of $all ingest entries"
+  fi
+fi
+
+if want crash; then
+  plant_crash
+  s=$(gate "$src" "$scratch/crash.log")
+  restore
+  grep -E '^(ok  |WARN|FAIL) ingest\.|^perf-gate:' "$scratch/crash.log" | sed 's/^/  /'
+  all=$(grep -c '^\(ok  \|WARN\|FAIL\) ingest\.' "$scratch/crash.log" || true)
+  named=$(grep -c '^FAIL ingest\..*vacuous at p00200-64: .*signal 6 (SIGABRT)' "$scratch/crash.log" || true)
+  # Each named failure's kept log holds valgrind's report of the signal.
+  held=0
+  while read -r kept; do
+    grep -q 'Process terminating with default action of signal 6 (SIGABRT)' "$kept" && held=$((held + 1))
+  done < <(sed -n 's/^FAIL ingest\..*vacuous at p00200-64: .*log kept at \([^ ;]*\).*/\1/p' "$scratch/crash.log")
+  if [ "$s" -ne 0 ] && [ "$named" -gt 0 ] && [ "$named" -eq "$all" ] && [ "$held" -eq "$all" ]; then
+    verdict crash ok "the gate failed, the abort named on $named of $all ingest entries, each log kept with valgrind's report"
+  else
+    verdict crash no "exit $s, the abort named on $named of $all ingest entries, $held kept logs hold valgrind's report"
   fi
 fi
 
