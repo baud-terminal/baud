@@ -55,6 +55,9 @@ baud-isa-x86-64 = { workspace = true, features = ["std"] }
 baud-present-wayland = { workspace = true }
 baud-present-vulkan = { workspace = true }
 baud-wayland = { workspace = true }
+# A cell's and a rendition's bytes, for `turn-bench`'s screen hash: only
+# with that feature, which is Linux's.
+zerocopy = { version = "0.8", default-features = false, optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 baud-present-macos = { workspace = true }
@@ -121,6 +124,13 @@ effect-probe = ["baud-present-macos/effect-probe"]
 # that frame (`tools/scripts/linux-kept-frame.sh`). Off, the variable is never
 # read. Never in a build that ships.
 slide-hold = []
+
+# **The read turn from a recording, test-only** (`src/turn_bench.rs`, Linux):
+# the binary takes `--turn-bench RECORDING CUTS`, feeds the recording through
+# the Linux driver's read turn with no window and no pty, prints what the
+# turn counted and the screen's hash, and exits. Off, the flag is never
+# read. Never in a build that ships.
+turn-bench = ["dep:zerocopy"]
 
 # The binary is `baud`, as the package is.
 [[bin]]

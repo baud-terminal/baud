@@ -385,6 +385,9 @@ mod surface;
 // run on every platform, and both drivers read it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod width;
+// The read turn fed from a recording, test-only (`turn-bench`).
+#[cfg(all(target_os = "linux", feature = "turn-bench"))]
+mod turn_bench;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod windows;
 // What a program's window operation does to the window: pure, so its tests
@@ -421,6 +424,10 @@ fn main() {
     // (`inherited.rs`).
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     inherited::keep_from_children(inherited::open_from_three);
+    // A bench build given `--turn-bench` feeds a recording through the
+    // Linux driver's read turn and exits (`turn_bench.rs`).
+    #[cfg(all(target_os = "linux", feature = "turn-bench"))]
+    turn_bench::if_asked();
     if version::asks(std::env::args_os().skip(1)) {
         print!("{}", version::text(version::BUILD));
         return;

@@ -13,6 +13,7 @@ use baud_core::*;
 use baud_domain::{
     Depth, ImagePx, ImageSlot, ImageStore, PlacementId, PlacementSlot, SixelStream, Stride,
 };
+use zerocopy::IntoBytes;
 
 fn recording(name: &str) -> Vec<u8> {
     let p = format!(
@@ -503,6 +504,8 @@ fn main() {
             im.placements_refused,
         );
     }
+    // The screen after the last rep, read outside the timed loop.
+    println!("screen hash: {}", screen_hash(&t));
     #[cfg(feature = "diag")]
     {
         // **Bytes an iteration is the unit the loop is designed against.**
@@ -650,3 +653,40 @@ const _: () = match (baud_bench::SCAN_ARM, RUN_SCAN) {
         panic!("baud-core runs the portable scan, and this arm names another")
     }
 };
+
+/// **The visible screen as one FNV-1a 64 hash**: each row's cells, each as
+/// its content, its rendition resolved through its row's table and its
+/// flags, then the cursor's row and column. The same function is in
+/// `crates/baud-app/src/turn_bench.rs` (`baud --turn-bench`), so the two can be compared.
+struct ScreenHash(u64);
+
+impl std::fmt::Display for ScreenHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:016x}", self.0)
+    }
+}
+
+fn screen_hash(t: &Term<'_>) -> ScreenHash {
+    let mut h = ScreenHash(0xcbf2_9ce4_8422_2325);
+    let mut eat = |bytes: &[u8]| {
+        for b in bytes {
+            h.0 ^= u64::from(*b);
+            h.0 = h.0.wrapping_mul(0x0100_0000_01b3);
+        }
+    };
+    let (_, rows) = t.geometry();
+    let mut y = Some(Row::ZERO);
+    while let Some(r) = y {
+        let styles = t.row_styles(r);
+        for cell in t.row(r).expect("a row within the geometry") {
+            eat(cell.content.as_bytes());
+            eat(t.style_in(styles, *cell).as_bytes());
+            eat(cell.flags.as_bytes());
+        }
+        y = r.next(rows);
+    }
+    let (row, col) = t.cursor();
+    eat(&u64::try_from(row.index()).unwrap_or(u64::MAX).to_le_bytes());
+    eat(&u64::try_from(col.index()).unwrap_or(u64::MAX).to_le_bytes());
+    h
+}

@@ -44,6 +44,8 @@ baud-wayland = { path = "../baud-wayland" }
 [dev-dependencies]
 baud-present-wayland = { path = "../baud-present-wayland" }
 baud-xkb = { path = "../baud-xkb" }
+# `ingest2`'s screen hash reads a cell's and a rendition's bytes.
+zerocopy = { version = "0.8", default-features = false }
 
 # `frame_gpu` draws the same frames through Metal; the crate compiles to
 # nothing elsewhere and the bin says so. Its pipelines come from the

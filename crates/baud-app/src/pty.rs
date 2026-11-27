@@ -792,7 +792,7 @@ const LENT: usize = (4 << 20) / LENT_CHUNK;
 
 /// What `read(2)` delivers at most per call, the tty's own quantum.
 #[cfg(any(target_os = "linux", test))]
-const READ_CHUNK: usize = 4096;
+pub const READ_CHUNK: usize = 4096;
 
 /// **What one turn of the loop drains from the master before it feeds the
 /// terminal**: sixteen reads of [`READ_CHUNK`], each as large as the tty
