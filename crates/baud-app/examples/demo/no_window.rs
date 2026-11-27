@@ -348,7 +348,7 @@ fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
 /// naming the presenter is caught.
 #[test]
 fn the_flash_census_names_no_appkit() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let mut dirs = Vec::new();
     compiled(&root, "baud-bench", &mut dirs);
     for c in ["baud-core", "baud-render", "baud-font", "baud-domain"] {
@@ -358,8 +358,8 @@ fn the_flash_census_names_no_appkit() {
         );
     }
     let mut files = vec![
-        root.join("crates/baud-bench/tests/session_flashes.rs"),
-        root.join("crates/baud-bench/tests/trailer_flashes.rs"),
+        root.join("baud-bench/tests/session_flashes.rs"),
+        root.join("baud-bench/tests/trailer_flashes.rs"),
     ];
     for d in &dirs {
         sources(d, &mut files);
