@@ -434,6 +434,12 @@ struct Driver {
     line_tip: crate::line_tip::LineTip,
     /// What a copy says, and when it ends (`copied.rs`).
     copied: crate::copied::Signal<Instant>,
+    /// A copy of the selection the compositor has yet to answer, and the
+    /// notice owed once it has (`copied::Asked`).
+    asked: Option<crate::copied::Asked>,
+    /// Whether a program's last `OSC 52` copy went without the keyboard, so
+    /// that its cancel is said as one.
+    program_copy: crate::copied::Keyboard,
     /// The lines at rest the frame draws, and what reads them (`lined.rs`).
     lines: crate::lined::Lines,
     /// The view's link slots, which the scan and the link preview read.
@@ -1035,6 +1041,8 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         status_line_lights: cfg.status_line_lights,
         line_tip: crate::line_tip::LineTip::default(),
         copied: crate::copied::Signal::new(cfg.message),
+        asked: None,
+        program_copy: crate::copied::Keyboard::Here,
         lines: crate::lined::Lines::default(),
         views: crate::lined::ViewLinks::default(),
         uris: {
@@ -1573,11 +1581,8 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
                         d.pending = Pending::Dirty;
                     }
                 }
-                Event::CopyCancelled(_) => {
-                    if let Some(line) = d.clips.cancelled_unfocused() {
-                        crate::warn!("{line}");
-                    }
-                }
+                Event::CopyOwned(b) => d.copy_answered(b, crate::copied::Took::Owned),
+                Event::CopyCancelled(b) => d.copy_answered(b, crate::copied::Took::Cancelled),
                 Event::Closed => break 'run,
             }
         }
@@ -1875,9 +1880,13 @@ impl Driver {
             self.clipboard.osc52,
             self.clipboard.select,
         );
-        let mut uncopied = Copied::Set;
+        let mut uncopied = Copied::Asked;
         // A program's copies this read, said once after it (`copied.rs`).
         let mut copies = crate::copied::Batch::default();
+        // A program's write to a selection this read, and whether it went
+        // without the keyboard: it replaces a copy of the selection still
+        // pending, whose answer is then the program's.
+        let mut wrote = None;
         let mut asked = Vec::new();
         // A program's font changes, performed after the read (`fonts.rs`).
         let mut fonts_asked = Vec::new();
@@ -1913,14 +1922,19 @@ impl Driver {
                         crate::clip::Decision::Set(text) => Some(text),
                         _ => None,
                     };
+                    let writes = !matches!(d, crate::clip::Decision::Refused(_));
                     match program_copy(window, conn, t, d, select) {
-                        Copied::Set => {
+                        Copied::Asked => {
+                            if writes {
+                                wrote = Some(crate::copied::Keyboard::Here);
+                            }
                             if let Some(text) = text {
                                 copies.copied(text);
                             }
                         }
                         Copied::Unavailable => uncopied = Copied::Unavailable,
                         Copied::Unfocused => {
+                            wrote = Some(crate::copied::Keyboard::Away);
                             if let Some(line) = clips.sent_unfocused() {
                                 crate::warn!("{line}");
                             }
@@ -1968,6 +1982,10 @@ impl Driver {
         }
         if uncopied == Copied::Unavailable {
             self.uncopied_once();
+        }
+        if let Some(keyboard) = wrote {
+            self.asked = None;
+            self.program_copy = keyboard;
         }
         if self.copied.program(copies, Instant::now()) == crate::copied::Owes::Frame {
             self.pending = Pending::Dirty;
@@ -3794,85 +3812,108 @@ impl Driver {
         let Some(text) = self.seat.selected_text(&self.term) else {
             return;
         };
-        let mut took = Copied::Unavailable;
-        let mut set = Vec::with_capacity(2);
+        let mut copies = Vec::with_capacity(2);
         for b in named.each() {
             let copied = self
                 .window
                 .copy(&mut self.conn.sender(), board_of(b), &text);
-            if copied == Copied::Set {
-                set.push(b);
-            }
-            match copied {
-                Copied::Set if matches!(took, Copied::Unavailable) => took = Copied::Set,
-                Copied::Unfocused => took = Copied::Unfocused,
-                _ => {}
-            }
+            copies.push((b, copied));
         }
-        match took {
-            Copied::Set => {
-                let to = crate::copied::CopiedTo::of(&set);
-                self.selection_copied(&text, to);
-            }
-            Copied::Unavailable => self.uncopied_once(),
-            Copied::Unfocused => {
-                if let Some(line) = self.clips.sent_unfocused() {
-                    crate::warn!("{line}");
-                }
-            }
-        }
+        self.copy_asked(&text, &copies);
     }
 
     fn copy_selection(&mut self, board: Board) {
         let Some(text) = self.seat.selected_text(&self.term) else {
             return;
         };
-        match self.window.copy(&mut self.conn.sender(), board, &text) {
-            Copied::Set => {
-                let to = match board {
-                    Board::Clipboard => crate::copied::CopiedTo::Clipboard,
-                    Board::Primary => crate::copied::CopiedTo::Primary,
-                };
-                self.selection_copied(&text, Some(to));
-            }
-            Copied::Unavailable => self.uncopied_once(),
-            Copied::Unfocused => {
-                if let Some(line) = self.clips.sent_unfocused() {
-                    crate::warn!("{line}");
-                }
-            }
-        }
+        let copied = self.window.copy(&mut self.conn.sender(), board, &text);
+        self.copy_asked(&text, &[(app_board(board), copied)]);
     }
 
     /// **A link's text to the clipboard, for a `[link.*]` rule's `copy`**:
     /// the same write and the same words as a copy of the selection, and no
     /// process started.
     fn link_copied(&mut self, text: String) {
-        match self
+        let copied = self
             .window
-            .copy(&mut self.conn.sender(), Board::Clipboard, &text)
-        {
-            Copied::Set => {
-                self.report.links.opened.bump();
-                crate::info!("link copied by a [link.*] rule");
-                self.selection_copied(&text, Some(crate::copied::CopiedTo::Clipboard));
+            .copy(&mut self.conn.sender(), Board::Clipboard, &text);
+        if copied == Copied::Asked {
+            self.report.links.opened.bump();
+            crate::info!("link copied by a [link.*] rule");
+        }
+        self.copy_asked(&text, &[(crate::clip::Board::Clipboard, copied)]);
+    }
+
+    /// **A copy of `text` asked of the selections**, each with what its
+    /// `copy` answered: the notice is owed once they answer
+    /// ([`Driver::copy_answered`]), and replaces any copy still pending. A
+    /// copy sent without the keyboard is said in the log, and one no
+    /// selection could take is said as the compositor's lack.
+    fn copy_asked(&mut self, text: &str, copies: &[(crate::clip::Board, Copied)]) {
+        use crate::copied::Keyboard;
+        let mut asked = crate::copied::Asked::new(crate::copied::characters(text));
+        for &(b, copied) in copies {
+            match copied {
+                Copied::Asked => asked.ask(b, Keyboard::Here),
+                Copied::Unfocused => asked.ask(b, Keyboard::Away),
+                Copied::Unavailable => {}
             }
-            Copied::Unavailable => self.uncopied_once(),
-            Copied::Unfocused => {
-                if let Some(line) = self.clips.sent_unfocused() {
-                    crate::warn!("{line}");
+        }
+        self.asked = asked.pending();
+        if copies.iter().any(|&(_, c)| c == Copied::Unfocused) {
+            if let Some(line) = self.clips.sent_unfocused() {
+                crate::warn!("{line}");
+            }
+        } else if self.asked.is_none() {
+            self.uncopied_once();
+        }
+    }
+
+    /// **A selection answered the copy pending** (`Event::CopyOwned`,
+    /// `Event::CopyCancelled`): once every selection asked has, the copy is
+    /// said, naming those that took it, or "Not copied" where none did. A
+    /// cancel of one asked without the keyboard is said in the log.
+    fn copy_answered(&mut self, b: Board, took: crate::copied::Took) {
+        use crate::copied::{Keyboard, Took, Verdict};
+        let how = match self.asked.as_mut() {
+            Some(asked) => asked.answer(app_board(b), took),
+            // No copy of the selection is pending, so the answer is a
+            // program's copy.
+            None => Some(self.program_copy),
+        };
+        if (took, how) == (Took::Cancelled, Some(Keyboard::Away)) {
+            if let Some(line) = self.clips.cancelled_unfocused() {
+                crate::warn!("{line}");
+            }
+        }
+        let Some(asked) = self.asked.as_ref() else {
+            return;
+        };
+        match asked.verdict() {
+            None => {}
+            Some(Verdict::Copied(count, to)) => {
+                self.asked = None;
+                self.selection_copied(count, Some(to));
+            }
+            Some(Verdict::NotCopied) => {
+                self.asked = None;
+                if self.copied.not_copied() == crate::copied::Owes::Frame {
+                    self.pending = Pending::Dirty;
                 }
             }
         }
     }
 
     /// **A copy of the selection, said** (`copied.rs`): the words, naming the
-    /// selections `to` it was set on, and the pulse where the settings and
-    /// the flash budget allow it. Linux's desktop has no Dim Flashing
-    /// Lights, and baud exposes no element to a screen reader on it, so
-    /// there is nothing to announce through.
-    fn selection_copied(&mut self, text: &str, to: Option<crate::copied::CopiedTo>) {
-        let count = crate::copied::characters(text);
+    /// selections `to` that took its `count` characters, and the pulse where
+    /// the settings and the flash budget allow it. Linux's desktop has no Dim
+    /// Flashing Lights, and baud exposes no element to a screen reader on it,
+    /// so there is nothing to announce through.
+    fn selection_copied(
+        &mut self,
+        count: crate::copied::Characters,
+        to: Option<crate::copied::CopiedTo>,
+    ) {
         let lights = crate::access::FlashingLights::Full;
         let runs = count != crate::copied::Characters(0)
             && crate::copied::pulse_runs(self.copied.message(), self.motion, lights)
@@ -5080,6 +5121,14 @@ fn board_of(b: crate::clip::Board) -> Board {
     }
 }
 
+/// The selection `b` is, as the app names it.
+fn app_board(b: Board) -> crate::clip::Board {
+    match b {
+        Board::Clipboard => crate::clip::Board::Clipboard,
+        Board::Primary => crate::clip::Board::Primary,
+    }
+}
+
 /// **Where a print job is with the portal**: no dialog, a dialog asked for
 /// with its job and title kept for the answer, or the document printing.
 enum PrintDialog {
@@ -5144,21 +5193,21 @@ fn program_copy(
 ) -> Copied {
     use crate::clip::Decision;
     let Some(targets) = t.clipboard().map(|w| w.targets) else {
-        return Copied::Set;
+        return Copied::Asked;
     };
     let Some(boards) = crate::clip::boards(targets, crate::clip::select_board(t, select)) else {
-        return Copied::Set;
+        return Copied::Asked;
     };
     let mut took = Copied::Unavailable;
     for b in boards.each().map(board_of) {
         let c = match d {
             Decision::Set(text) => window.copy(&mut conn.sender(), b, text),
             Decision::Clear => window.clear(&mut conn.sender(), b),
-            Decision::Refused(_) => return Copied::Set,
+            Decision::Refused(_) => return Copied::Asked,
         };
         took = match (took, c) {
             (_, Copied::Unfocused) | (Copied::Unfocused, _) => Copied::Unfocused,
-            (_, Copied::Set) | (Copied::Set, _) => Copied::Set,
+            (_, Copied::Asked) | (Copied::Asked, _) => Copied::Asked,
             _ => Copied::Unavailable,
         };
     }

@@ -4880,7 +4880,7 @@ fn a_copy_offers_text_and_answers_send_through_the_pipe() {
     let text = big_text();
     assert_eq!(
         w.copy(&mut conn.sender(), Board::Clipboard, &text),
-        Copied::Set
+        Copied::Asked
     );
     conn.flush().unwrap();
     let r = server.expect("wl_data_device_manager", "create_data_source");
@@ -4940,7 +4940,7 @@ fn a_copy_offers_text_and_answers_send_through_the_pipe() {
     // Copied again: a fresh source, and the old one destroyed.
     assert_eq!(
         w.copy(&mut conn.sender(), Board::Clipboard, "second"),
-        Copied::Set
+        Copied::Asked
     );
     conn.flush().unwrap();
     let r = server.expect("wl_data_device_manager", "create_data_source");
@@ -5101,7 +5101,7 @@ fn the_primary_copies_and_pastes_on_its_own_protocol() {
     drain(&mut w);
     assert_eq!(
         w.copy(&mut conn.sender(), Board::Primary, "hello"),
-        Copied::Set
+        Copied::Asked
     );
     conn.flush().unwrap();
     let r = server.expect("zwp_primary_selection_device_manager_v1", "create_source");
@@ -5137,6 +5137,11 @@ fn the_primary_copies_and_pastes_on_its_own_protocol() {
     pump(&mut conn, &mut w);
     server.expect("zwp_primary_selection_source_v1", "destroy");
     assert_eq!(
+        drain(&mut w),
+        [Event::CopyCancelled(Board::Primary)],
+        "the copy no send reached"
+    );
+    assert_eq!(
         w.paste(&mut conn.sender(), Board::Primary),
         Pasting::Started
     );
@@ -5153,7 +5158,7 @@ fn the_primary_copies_and_pastes_on_its_own_protocol() {
     assert_eq!(pasted, [Event::Pasted(Board::Primary, "theirs".into())]);
 
     // An empty primary: a NULL source.
-    assert_eq!(w.clear(&mut conn.sender(), Board::Primary), Copied::Set);
+    assert_eq!(w.clear(&mut conn.sender(), Board::Primary), Copied::Asked);
     conn.flush().unwrap();
     let r = server.expect("zwp_primary_selection_device_v1", "set_selection");
     assert!(matches!(
@@ -5217,7 +5222,7 @@ fn a_selection_on_both_selections_answers_each_send_with_its_text() {
     drain(&mut w);
     let text = "hello copy";
     for b in [Board::Clipboard, Board::Primary] {
-        assert_eq!(w.copy(&mut conn.sender(), b, text), Copied::Set, "{b:?}");
+        assert_eq!(w.copy(&mut conn.sender(), b, text), Copied::Asked, "{b:?}");
     }
     conn.flush().unwrap();
     let sides = [
@@ -5310,12 +5315,12 @@ fn a_selection_is_given_up_only_while_it_is_offered() {
     assert_eq!(w.offering(Board::Primary), None, "nothing offered yet");
     assert_eq!(
         w.copy(&mut conn.sender(), Board::Primary, "hello"),
-        Copied::Set
+        Copied::Asked
     );
     let first = w.offering(Board::Primary).expect("offered");
     assert_eq!(
         w.give_up(&mut conn.sender(), Board::Primary, first),
-        Some(Copied::Set)
+        Some(Copied::Asked)
     );
     assert_eq!(w.offering(Board::Primary), None, "given up");
     conn.flush().unwrap();
@@ -5710,9 +5715,9 @@ fn the_clipboard_keys_are_found_on_a_cyrillic_layout() {
 /// **A copy made without the keyboard is sent and said**: before any
 /// keyboard enter and after a leave the source is set with the last serial
 /// the client was given and the copy answers `Unfocused`; a cancel of that
-/// source before the keyboard returns is `CopyCancelled`, on its own
-/// board. A cancel of a source set with the keyboard says nothing, and the
-/// keyboard's return stops the watch on one set without it.
+/// source is `CopyCancelled`, on its own board, as is a cancel of a
+/// source set with the keyboard, and one after the keyboard returned: a
+/// copy is asked until a `send` or a cancel answers it.
 #[test]
 fn a_copy_without_the_keyboard_is_sent_and_its_cancel_said() {
     let Clipped {
@@ -5772,20 +5777,24 @@ fn a_copy_without_the_keyboard_is_sent_and_its_cancel_said() {
         assert_eq!(drain(&mut w), [Event::CopyCancelled(b)], "{b:?}");
         server.expect(source_iface(b), "destroy");
     }
-    // With the keyboard: set, and a cancel is another client's copy.
+    // With the keyboard: asked, and a cancel before any send is said too.
     keyboard_enter(&mut server, keyboard, 8, surface);
     pump(&mut conn, &mut w);
     drain(&mut w);
     assert_eq!(
         w.copy(&mut conn.sender(), Board::Clipboard, "here"),
-        Copied::Set
+        Copied::Asked
     );
     conn.flush().unwrap();
     let (id, serial) = sources(&mut server, manager(Board::Clipboard));
     assert_eq!(serial, 8);
     server.send(id, "wl_data_source", "cancelled", &[]);
     pump(&mut conn, &mut w);
-    assert_eq!(drain(&mut w), [], "a focused copy's cancel is not said");
+    assert_eq!(
+        drain(&mut w),
+        [Event::CopyCancelled(Board::Clipboard)],
+        "a focused copy's cancel is said"
+    );
     server.expect("wl_data_source", "destroy");
     // Gone again: sent with the last serial, the enter's.
     server.send(
@@ -5807,11 +5816,204 @@ fn a_copy_without_the_keyboard_is_sent_and_its_cancel_said() {
     conn.flush().unwrap();
     let (id, serial) = sources(&mut server, manager(Board::Clipboard));
     assert_eq!(serial, 8, "the enter's, the last a key or enter gave");
-    // The keyboard back before the cancel: the watch is over.
+    // The keyboard back before the cancel: still asked, and its cancel said.
     keyboard_enter(&mut server, keyboard, 10, surface);
     server.send(id, "wl_data_source", "cancelled", &[]);
     pump(&mut conn, &mut w);
-    assert_eq!(drain(&mut w), [Event::Focus(baud_domain::Focus::Gained)]);
+    assert_eq!(
+        drain(&mut w),
+        [
+            Event::Focus(baud_domain::Focus::Gained),
+            Event::CopyCancelled(Board::Clipboard)
+        ]
+    );
+}
+
+/// The source and offer interfaces of `b`'s protocol.
+fn clip_ifaces(b: Board) -> (&'static str, &'static str) {
+    match b {
+        Board::Clipboard => ("wl_data_source", "wl_data_offer"),
+        Board::Primary => (
+            "zwp_primary_selection_source_v1",
+            "zwp_primary_selection_offer_v1",
+        ),
+    }
+}
+
+/// **A session with the keyboard on the surface and a copy on `b`
+/// asked**: the copy answers `Asked`, and its source is set.
+fn asked_copy(b: Board) -> (Clipped, ObjectId) {
+    let mut c = clip_session();
+    keyboard_enter(&mut c.server, c.keyboard, 3, c.surface);
+    pump(&mut c.conn, &mut c.w);
+    drain(&mut c.w);
+    assert_eq!(
+        c.w.copy(&mut c.conn.sender(), b, "probe me"),
+        Copied::Asked,
+        "{b:?}"
+    );
+    c.conn.flush().unwrap();
+    let (source_iface, _) = clip_ifaces(b);
+    let source = loop {
+        let r = c.server.next();
+        if let ("create_data_source" | "create_source", [Val::New(id)]) = (r.name, &r.args[..]) {
+            break *id;
+        }
+    };
+    c.server
+        .objects
+        .insert(source, Interface::named(source_iface).unwrap());
+    loop {
+        if c.server.next().name == "set_selection" {
+            break;
+        }
+    }
+    (c, source)
+}
+
+/// The requests the client sent before a `wl_display.sync` sent now, which
+/// fences them: a request that never came is missing from the list rather
+/// than a read's timeout.
+fn sent_before_a_fence(conn: &mut Connection, server: &mut Server) -> Vec<Request> {
+    {
+        let mut s = conn.sender();
+        let callback = s.new_id(&protocol::wl_callback::INTERFACE);
+        s.request(
+            ObjectId::DISPLAY,
+            Opcode(protocol::wl_display::request::SYNC),
+            &[Arg::NewId(callback)],
+        )
+        .unwrap();
+    }
+    conn.flush().unwrap();
+    let mut sent = Vec::new();
+    loop {
+        let r = server.next();
+        if (r.iface, r.name) == ("wl_display", "sync") {
+            return sent;
+        }
+        sent.push(r);
+    }
+}
+
+/// The probe of `named` on `b`: a `receive` of UTF-8 text, and its pipe.
+fn probe_of(c: &mut Clipped, b: Board, named: ObjectId) -> OwnedFd {
+    let (_, offer_iface) = clip_ifaces(b);
+    let sent = sent_before_a_fence(&mut c.conn, &mut c.server);
+    assert!(
+        sent.iter().any(|r| r.sender == named
+            && (r.iface, r.name) == (offer_iface, "receive")
+            && matches!(&r.args[..], [Val::Str(Some(m)), Val::Fd] if m == "text/plain;charset=utf-8")),
+        "{b:?}: the probe asks the named offer for UTF-8 text: {:?}",
+        sent.iter().map(|r| (r.iface, r.name)).collect::<Vec<_>>()
+    );
+    c.server.fds.pop_back().expect("the probe's pipe")
+}
+
+/// `b`'s device in the session.
+fn clip_device(c: &Clipped, b: Board) -> ObjectId {
+    match b {
+        Board::Clipboard => c.data_device,
+        Board::Primary => c.primary_device,
+    }
+}
+
+/// **A copy is said only once the compositor shows it took** (`[[source:
+/// wayland]]`, `wl_data_device.selection` and `wl_data_source.send`):
+/// with the keyboard, nothing is said on the copy or on the `selection`
+/// that names a fresh offer; the client asks that offer for UTF-8 text,
+/// and the compositor's `send` on this client's source, which it asks only
+/// of the selection's source, is `CopyOwned`. On both selections.
+#[test]
+fn a_copy_is_owned_once_its_probe_reaches_its_source() {
+    for b in [Board::Clipboard, Board::Primary] {
+        let (mut c, source) = asked_copy(b);
+        let (source_iface, _) = clip_ifaces(b);
+        assert_eq!(drain(&mut c.w), [], "{b:?}: nothing before the selection");
+        let device = clip_device(&c, b);
+        let named = offer(
+            &mut c.server,
+            device,
+            b,
+            ObjectId(0xff00_0010),
+            &["text/plain;charset=utf-8", "text/plain"],
+        );
+        pump(&mut c.conn, &mut c.w);
+        assert_eq!(drain(&mut c.w), [], "{b:?}: nothing before the send");
+        let pipe = probe_of(&mut c, b, named);
+        c.server.send(
+            source,
+            source_iface,
+            "send",
+            &[
+                Arg::Str(Some("text/plain;charset=utf-8")),
+                Arg::Fd(pipe.as_fd()),
+            ],
+        );
+        drop(pipe);
+        pump(&mut c.conn, &mut c.w);
+        assert_eq!(drain(&mut c.w), [Event::CopyOwned(b)], "{b:?}");
+    }
+}
+
+/// **A copy cancelled before any `send` is not copied, with the keyboard
+/// too**: another client's offer is introduced and named, and this
+/// client's source is cancelled; the answer is `CopyCancelled`, never
+/// `CopyOwned`. On both selections.
+#[test]
+fn a_copy_cancelled_before_its_probe_is_not_copied() {
+    for b in [Board::Clipboard, Board::Primary] {
+        let (mut c, source) = asked_copy(b);
+        let (source_iface, _) = clip_ifaces(b);
+        let device = clip_device(&c, b);
+        offer(
+            &mut c.server,
+            device,
+            b,
+            ObjectId(0xff00_0020),
+            &["text/plain;charset=utf-8"],
+        );
+        c.server.send(source, source_iface, "cancelled", &[]);
+        pump(&mut c.conn, &mut c.w);
+        assert_eq!(drain(&mut c.w), [Event::CopyCancelled(b)], "{b:?}");
+    }
+}
+
+/// **The probe pastes nothing**: its `send` is answered into a pipe whose
+/// reader is gone, the write ends quietly, and no `Pasted` comes of it.
+#[test]
+fn the_probe_pastes_nothing() {
+    for b in [Board::Clipboard, Board::Primary] {
+        let (mut c, source) = asked_copy(b);
+        let (source_iface, _) = clip_ifaces(b);
+        let device = clip_device(&c, b);
+        let named = offer(
+            &mut c.server,
+            device,
+            b,
+            ObjectId(0xff00_0030),
+            &["text/plain;charset=utf-8"],
+        );
+        pump(&mut c.conn, &mut c.w);
+        let pipe = probe_of(&mut c, b, named);
+        c.server.send(
+            source,
+            source_iface,
+            "send",
+            &[
+                Arg::Str(Some("text/plain;charset=utf-8")),
+                Arg::Fd(pipe.as_fd()),
+            ],
+        );
+        drop(pipe);
+        pump(&mut c.conn, &mut c.w);
+        pump_until(&mut c.w, |w| w.transfers().count() == 0);
+        let got = drain(&mut c.w);
+        assert!(
+            !got.iter().any(|e| matches!(e, Event::Pasted(..))),
+            "{b:?}: {got:?}"
+        );
+    }
 }
 
 /// **No manager, no copy**: a compositor without the globals gets no

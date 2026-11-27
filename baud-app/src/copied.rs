@@ -69,8 +69,12 @@ pub(crate) enum Source {
     Selection(Option<CopiedTo>),
     Program,
     Path(PathNote),
-    /// A copy the clipboard did not keep.
-    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+    /// A copy the clipboard did not keep: on Linux, no selection asked
+    /// took it.
+    #[cfg_attr(
+        not(any(target_os = "macos", target_os = "linux", test)),
+        allow(dead_code)
+    )]
     NotCopied,
 }
 
@@ -107,6 +111,120 @@ impl CopiedTo {
             CopiedTo::Primary => "the primary selection",
             CopiedTo::Both => "the clipboard and the primary selection",
         }
+    }
+}
+
+/// Whether the window had the keyboard when a copy was asked of a
+/// selection.
+#[cfg(any(target_os = "linux", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Keyboard {
+    Here,
+    Away,
+}
+
+/// What a selection answered a copy asked of it.
+#[cfg(any(target_os = "linux", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Took {
+    /// The selection took it: the compositor asked its source for the text.
+    Owned,
+    /// It was cancelled first, and the selection kept what it had.
+    Cancelled,
+}
+
+/// One selection's part in a copy asked of the compositor.
+#[cfg(any(target_os = "linux", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Answer {
+    Unasked,
+    Waiting(Keyboard),
+    Answered(Took),
+}
+
+/// **A copy of the selection the compositor has yet to answer**: the
+/// characters it holds and each selection's answer so far. It says nothing
+/// until every selection asked has answered ([`Asked::verdict`]).
+#[cfg(any(target_os = "linux", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct Asked {
+    count: Characters,
+    clipboard: Answer,
+    primary: Answer,
+}
+
+/// **What a copy says once every selection asked has answered.**
+#[cfg(any(target_os = "linux", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Verdict {
+    /// One or more took it: the words name those.
+    Copied(Characters, CopiedTo),
+    /// None did: "Not copied: the clipboard kept what it had".
+    NotCopied,
+}
+
+#[cfg(any(target_os = "linux", test))]
+impl Asked {
+    /// A copy of `count` characters, asked of no selection yet.
+    pub(crate) fn new(count: Characters) -> Asked {
+        Asked {
+            count,
+            clipboard: Answer::Unasked,
+            primary: Answer::Unasked,
+        }
+    }
+
+    fn part(&mut self, b: crate::clip::Board) -> &mut Answer {
+        match b {
+            crate::clip::Board::Clipboard => &mut self.clipboard,
+            crate::clip::Board::Primary => &mut self.primary,
+        }
+    }
+
+    /// The copy asked of `b`, with the keyboard or without it.
+    pub(crate) fn ask(&mut self, b: crate::clip::Board, keyboard: Keyboard) {
+        *self.part(b) = Answer::Waiting(keyboard);
+    }
+
+    /// The copy, if any selection was asked.
+    pub(crate) fn pending(self) -> Option<Asked> {
+        match (self.clipboard, self.primary) {
+            (Answer::Unasked, Answer::Unasked) => None,
+            _ => Some(self),
+        }
+    }
+
+    /// **`b` answered**, and how the copy was asked of it; `None` for a
+    /// selection it was not asked of or that answered already, which
+    /// changes nothing.
+    pub(crate) fn answer(&mut self, b: crate::clip::Board, took: Took) -> Option<Keyboard> {
+        let part = self.part(b);
+        let Answer::Waiting(keyboard) = *part else {
+            return None;
+        };
+        *part = Answer::Answered(took);
+        Some(keyboard)
+    }
+
+    /// What the copy says, once no selection asked is waiting.
+    pub(crate) fn verdict(&self) -> Option<Verdict> {
+        use crate::clip::Board;
+        let parts = [
+            (Board::Clipboard, self.clipboard),
+            (Board::Primary, self.primary),
+        ];
+        if parts.iter().any(|(_, a)| matches!(a, Answer::Waiting(_))) {
+            return None;
+        }
+        let owned = parts
+            .iter()
+            .filter(|(_, a)| *a == Answer::Answered(Took::Owned))
+            .map(|(b, _)| *b)
+            .collect::<Vec<Board>>();
+        Some(match CopiedTo::of(&owned) {
+            Some(to) => Verdict::Copied(self.count, to),
+            None => Verdict::NotCopied,
+        })
     }
 }
 
@@ -391,7 +509,10 @@ impl<T: Moment> Signal<T> {
     /// **A copy the clipboard did not keep**: said in the bar, as a
     /// program's copy is, whatever `[message.copy]` says, since nothing was
     /// copied.
-    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+    #[cfg_attr(
+        not(any(target_os = "macos", target_os = "linux", test)),
+        allow(dead_code)
+    )]
     pub(crate) fn not_copied(&mut self) -> Owes {
         self.up = Some(Up {
             source: Source::NotCopied,
@@ -593,6 +714,66 @@ mod tests {
         let mut b = Batch::default();
         b.copied(text);
         b
+    }
+
+    /// **A copy says what the selections answered, once all have**: asked
+    /// of both, nothing is said while either waits; one owned and one
+    /// cancelled names the one that took it; neither owned says the
+    /// clipboard kept what it had, in the copy's place. A second answer,
+    /// or one from a selection not asked, changes nothing. Perturbation:
+    /// say the copy on the first answer.
+    #[test]
+    fn a_copy_says_what_the_selections_answered() {
+        use crate::clip::Board;
+        let both = || {
+            let mut a = Asked::new(Characters(9));
+            a.ask(Board::Clipboard, Keyboard::Here);
+            a.ask(Board::Primary, Keyboard::Away);
+            a.pending().expect("asked")
+        };
+        let mut a = both();
+        assert_eq!(a.verdict(), None, "both wait");
+        assert_eq!(
+            a.answer(Board::Clipboard, Took::Owned),
+            Some(Keyboard::Here)
+        );
+        assert_eq!(a.verdict(), None, "the primary waits");
+        assert_eq!(
+            a.answer(Board::Primary, Took::Cancelled),
+            Some(Keyboard::Away)
+        );
+        assert_eq!(
+            a.verdict(),
+            Some(Verdict::Copied(Characters(9), CopiedTo::Clipboard))
+        );
+        assert_eq!(a.answer(Board::Primary, Took::Owned), None);
+        let mut s = signal(Message::default());
+        assert_eq!(
+            s.selection_to(Some(CopiedTo::Clipboard), Characters(9), Pulse::Skip),
+            Owes::Frame
+        );
+        assert_eq!(
+            s.take_saying().as_deref(),
+            Some("Copied 9 characters to the clipboard")
+        );
+        let mut a = both();
+        a.answer(Board::Clipboard, Took::Cancelled);
+        a.answer(Board::Primary, Took::Cancelled);
+        assert_eq!(a.verdict(), Some(Verdict::NotCopied));
+        assert_eq!(s.not_copied(), Owes::Frame);
+        assert_eq!(
+            s.take_saying().as_deref(),
+            Some("Not copied: the clipboard kept what it had")
+        );
+        let f = drawn(&mut s, zero());
+        assert_eq!(
+            said(&f.look.expect("shown")).trim(),
+            "Not copied: the clipboard kept what it had"
+        );
+        let mut one = Asked::new(Characters(9));
+        one.ask(Board::Primary, Keyboard::Here);
+        assert_eq!(one.answer(Board::Clipboard, Took::Owned), None, "not asked");
+        assert_eq!(Asked::new(Characters(9)).pending(), None);
     }
 
     /// **The words, each shape**: one is singular; a copy of the selection
@@ -1183,11 +1364,20 @@ mod tests {
             concat!("    fn copy_selection(", "&mut self, board: Board) {"),
         );
         assert!(
-            linux
-                .split_once("Copied::Set => {")
-                .and_then(|(_, set)| set.split_once("Copied::Unavailable"))
-                .is_some_and(|(arm, _)| arm.contains("self.selection_copied(&text, Some(to));")),
-            "the Linux copy says it once it is set"
+            linux.contains("self.copy_asked(&text, ") && !linux.contains("selection_copied"),
+            "the Linux copy is asked, and says nothing yet"
+        );
+        let answered = body(
+            LINUX,
+            concat!(
+                "    fn copy_answered(",
+                "&mut self, b: Board, took: crate::copied::Took) {"
+            ),
+        );
+        assert!(
+            answered.contains("self.selection_copied(count, Some(to));")
+                && answered.contains("self.copied.not_copied()"),
+            "the Linux copy says it once the selections answered"
         );
         // To VoiceOver through the window's effect queue, whose turn says
         // them.

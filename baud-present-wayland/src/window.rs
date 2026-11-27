@@ -107,8 +107,11 @@ pub enum Event {
     Pasted(Board, String),
     /// A paste whose owner sent nothing for `clip::RECEIVE_IDLE`.
     PasteAbandoned(Board),
-    /// A copy made without the keyboard was cancelled before the keyboard
-    /// came back (`clip::Done::Cancelled`).
+    /// A copy took: the compositor asked its source for the text
+    /// (`clip::Done::Owned`).
+    CopyOwned(Board),
+    /// A copy was cancelled before the compositor asked its source for the
+    /// text, and the selection kept what it had (`clip::Done::Cancelled`).
     CopyCancelled(Board),
     /// What the input method is composing and its hints, drawn at the
     /// cursor until it commits or is cancelled (`ime.rs`); empty when there
@@ -1213,6 +1216,7 @@ impl Window {
             self.events.push_back(match d {
                 Done::Pasted(b, text) => Event::Pasted(b, text),
                 Done::Abandoned(b) => Event::PasteAbandoned(b),
+                Done::Owned(b) => Event::CopyOwned(b),
                 Done::Cancelled(b) => Event::CopyCancelled(b),
             });
         }

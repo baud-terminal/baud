@@ -68,12 +68,14 @@ pub const RECEIVE_IDLE: Duration = Duration::from_secs(2);
 /// What a copy came to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Copied {
-    Set,
+    /// Sent, and asked of the compositor: whether it took the copy arrives
+    /// later, as [`Done::Owned`] or [`Done::Cancelled`].
+    Asked,
     /// Sent while the window lacks the keyboard, named with the last serial
-    /// the client was given. Neither protocol's `set_selection` asks for
-    /// the keyboard, but GNOME's compositor refuses a client without it and
-    /// cancels the source, which arrives as [`Done::Cancelled`]; wlroots
-    /// takes it unless a later copy came first.
+    /// the client was given, and asked as [`Copied::Asked`] is. Neither
+    /// protocol's `set_selection` asks for the keyboard, but a compositor
+    /// may refuse a client without it and cancel the source, which arrives
+    /// as [`Done::Cancelled`].
     Unfocused,
     /// The compositor offers no manager for this selection, the seat has
     /// no device yet, or no input event has given a serial to name.
@@ -107,9 +109,12 @@ pub enum Done {
     Pasted(Board, String),
     /// The owner sent nothing for [`RECEIVE_IDLE`].
     Abandoned(Board),
-    /// A source set without the keyboard was cancelled before the keyboard
-    /// came back: the compositor refused it, or another client's copy
-    /// replaced it.
+    /// **A copy took**: a `send` reached the asked source, which the
+    /// compositor asks only of the selection's source.
+    Owned(Board),
+    /// An asked source was cancelled before any `send` reached it: the
+    /// compositor refused it, or another client's copy replaced it, and the
+    /// selection kept what it had.
     Cancelled(Board),
 }
 
@@ -137,8 +142,9 @@ struct Side {
     introduced: Vec<Offer>,
     selection: Option<Offer>,
     source: Option<(ObjectId, Rc<[u8]>)>,
-    /// The source set without the keyboard, until the keyboard returns.
-    away: Option<ObjectId>,
+    /// The source a copy set, until a `send` on it says it took or a
+    /// `cancelled` says it did not.
+    asked: Option<ObjectId>,
 }
 
 /// The two protocols' requests, by selection: (create the source, get the
@@ -297,15 +303,10 @@ impl Clip {
         if let Some((old, _)) = side.source.replace((source, Rc::from(text.as_bytes()))) {
             let _ = s.request(old, o.source_destroy, &[]);
         }
+        side.asked = Some(source);
         match keyboard {
-            Keyboard::Here => {
-                side.away = None;
-                Copied::Set
-            }
-            Keyboard::Away => {
-                side.away = Some(source);
-                Copied::Unfocused
-            }
+            Keyboard::Here => Copied::Asked,
+            Keyboard::Away => Copied::Unfocused,
         }
     }
 
@@ -349,9 +350,9 @@ impl Clip {
         if let Some((old, _)) = side.source.take() {
             let _ = s.request(old, o.source_destroy, &[]);
         }
-        side.away = None;
+        side.asked = None;
         match keyboard {
-            Keyboard::Here => Copied::Set,
+            Keyboard::Here => Copied::Asked,
             Keyboard::Away => Copied::Unfocused,
         }
     }
@@ -491,11 +492,11 @@ impl Clip {
         self.keyboard
     }
 
-    /// The keyboard came: a source set without it is no longer watched.
+    /// The keyboard came. A source asked without it stays asked: the
+    /// `selection` sent "immediately before receiving keyboard focus" is
+    /// what probes it.
     pub fn focus_gained(&mut self) {
         self.keyboard = Keyboard::Here;
-        self.clipboard.away = None;
-        self.primary.away = None;
     }
 
     /// **An event of either protocol's**, or `false` for one that is not.
@@ -549,6 +550,20 @@ impl Clip {
                 if let Some(old) = std::mem::replace(&mut side.selection, named) {
                     let _ = s.request(old.id, o.offer_destroy, &[]);
                 }
+                // **The probe**: while a copy is asked, the offer named is
+                // asked for UTF-8 text into a pipe whose reader is dropped
+                // here. A `send` on the asked source is the proof it took;
+                // the write into the pipe then fails, and that `send` ends.
+                if let (Some(_), Some(offer)) = (side.asked, side.selection.as_ref()) {
+                    if let Ok((reader, writer)) = io::pipe() {
+                        drop(reader);
+                        let _ = s.request(
+                            offer.id,
+                            o.receive,
+                            &[Arg::Str(Some(OFFERED[0])), Arg::Fd(writer.as_fd())],
+                        );
+                    }
+                }
             }
             // A drag's offer: baud takes no drop, and the offer goes when
             // the drag leaves or drops.
@@ -575,6 +590,11 @@ impl Clip {
                         });
                     }
                 }
+                // The compositor asks only the selection's source to send.
+                if side.asked == Some(ev.object) {
+                    side.asked = None;
+                    self.done.push(Done::Owned(board));
+                }
             }
             // Replaced by another client's copy: "This data source is no
             // longer valid."
@@ -585,7 +605,7 @@ impl Clip {
             {
                 side.source = None;
                 let _ = s.request(ev.object, o.source_destroy, &[]);
-                if side.away.take() == Some(ev.object) {
+                if side.asked.take() == Some(ev.object) {
                     self.done.push(Done::Cancelled(board));
                 }
             }
