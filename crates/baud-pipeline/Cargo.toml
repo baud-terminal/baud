@@ -18,14 +18,17 @@ publish = false
 # tests stay in the repository.
 include = ["/src/", "/README.md", "/LICENSE", "/NOTICE"]
 
-# **No dependencies, by rule, but loom under `cfg(loom)`** (below): the
-# handoff is std's atomics alone, and the crates whose data it carries depend
-# on this one, not the other way round.
+# **baud-domain only, by rule: no OS or third-party crates of its own**, but
+# loom under `cfg(loom)` (below). The handoff is std's atomics alone, the
+# read ring std's channels, and the crates whose data it carries depend on
+# this one, not the other way round.
 [dependencies]
+baud-domain = { workspace = true }
 
 # loom is test-only: it builds only under `--cfg loom`, for `tests/loom.rs`,
-# which runs the handoff under every interleaving of its two threads, and
-# `src/handoff.rs` takes its atomics and cells from loom in that build. No
+# which runs the handoff and the read ring under every interleaving of
+# their two threads; `src/handoff.rs` takes its atomics and cells, and
+# `src/ring.rs` its channels, from loom in that build. No
 # build without that cfg reaches it, so the rule above holds for every
 # binary.
 [target.'cfg(loom)'.dependencies]

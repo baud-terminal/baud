@@ -1,8 +1,10 @@
-//! **The handoff under every interleaving of its two threads**, run by
-//! loom: the ingest thread fills and publishes while the frame thread
-//! takes. The frame thread never reads a slot the ingest thread is still
-//! filling, and the last slot published is always taken. No preemption
-//! bound is set, so each model runs every interleaving.
+//! **The handoff and the read ring under every interleaving of their two
+//! threads**, run by loom. The handoff: the ingest thread fills and
+//! publishes while the frame thread takes; the frame thread never reads a
+//! slot the ingest thread is still filling, and the last slot published is
+//! always taken. The read ring: every byte filled arrives once and in
+//! order, and the reader never writes a slot the parser holds. No
+//! preemption bound is set, so each model runs every interleaving.
 //!
 //! Built only under `--cfg loom`:
 //! `RUSTFLAGS="-D warnings --cfg loom" cargo test --release -p baud-pipeline --test loom`.
@@ -81,5 +83,55 @@ fn one_publish_races_a_take() {
             assert_eq!(raced, Some(1));
         }
         assert!(ingest.taken(), "the publish taken");
+    });
+}
+
+/// **The read ring under every interleaving of a reader and a parser**:
+/// a ring of two slots, three fills of two bytes each, every byte of fill
+/// `n` set to `n`. The parser takes each fill once and in order, and reads
+/// its bytes again after yielding while it holds the slot: a reader that
+/// wrote into a slot the parser holds changes them.
+#[test]
+fn the_read_ring_delivers_every_byte_once_in_order() {
+    use baud_domain::{Count, HostTime, ReadLen};
+    use baud_pipeline::{ReadRing, SlotLen};
+    loom::model(|| {
+        let ring = ReadRing::new(Count::of(2), SlotLen::new(2).unwrap(), || ()).unwrap();
+        let (mut read, mut parse) = ring.split();
+        let reader = thread::spawn(move || {
+            for n in 1..=3u8 {
+                let mut f = loop {
+                    match read.try_fill() {
+                        Some(f) => break f,
+                        None => thread::yield_now(),
+                    }
+                };
+                f[..].fill(n);
+                assert!(
+                    f.fill(ReadLen::from_index(2), HostTime::of_nanos(n.into()))
+                        .is_ok()
+                );
+            }
+            read
+        });
+        let mut seen = 0u8;
+        while seen < 3 {
+            match parse.take() {
+                Some(r) => {
+                    seen += 1;
+                    assert_eq!(r.stamp(), HostTime::of_nanos(seen.into()), "out of order");
+                    assert_eq!(&r[..], &[seen, seen]);
+                    thread::yield_now();
+                    assert_eq!(&r[..], &[seen, seen], "a held slot written");
+                }
+                None => thread::yield_now(),
+            }
+        }
+        let read = reader.join().unwrap();
+        assert!(parse.take().is_none(), "nothing past the third");
+        // The parse end goes first, so every slot it hands back finds the
+        // read end there to take it.
+        drop(parse);
+        drop(read);
     });
 }

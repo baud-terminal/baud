@@ -1144,3 +1144,40 @@ impl WalkSteps {
         self.0
     }
 }
+
+/// **The length of every slot of a ring, in bytes**: at least one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SlotLen(core::num::NonZeroUsize);
+
+impl SlotLen {
+    /// A slot of `n` bytes; `None` for zero.
+    pub fn new(n: usize) -> Option<SlotLen> {
+        core::num::NonZeroUsize::new(n).map(SlotLen)
+    }
+
+    /// The length, as a slice of this many bytes is made.
+    pub fn get(self) -> usize {
+        self.0.get()
+    }
+
+    /// Whether `n` bytes of a read fit in a slot of this length.
+    pub fn holds(&self, n: ReadLen) -> bool {
+        n.index() <= self.0.get()
+    }
+}
+
+/// **The count of fills refused for want of a free slot.**
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub struct RingFull(u64);
+
+impl RingFull {
+    /// The count.
+    pub fn get(self) -> u64 {
+        self.0
+    }
+
+    /// One more refusal, held at `u64::MAX` rather than wrapped.
+    pub fn add_one(&mut self) {
+        self.0 = self.0.saturating_add(1);
+    }
+}

@@ -13,6 +13,11 @@
 //!   the GPU is done with it. A lease is owned, and its drop hands the item
 //!   back over a bounded ring that never fills; the ingest thread gets an
 //!   item back only from what a drop handed back.
+//! - [`ring`]: the read ring, `K` slots each owned by one side at a time.
+//!   The reading thread fills a free slot and publishes it with its read's
+//!   stamp; the parsing thread takes the slots published, in order, and
+//!   each one's drop hands it back. A full ring lends nothing, and that is
+//!   counted.
 //!
 //! **The one `unsafe` is in [`handoff`]**, the slots' deref and the `Sync`
 //! it rests on, and its soundness argument is written beside it.
@@ -23,3 +28,7 @@
 pub mod ctx;
 pub mod handoff;
 pub mod lease;
+pub mod ring;
+
+pub use baud_domain::{RingFull, SlotLen};
+pub use ring::{Filling, ParseEnd, ReadEnd, ReadRing, Ready};
