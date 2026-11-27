@@ -25,7 +25,8 @@
 //! one ([`Batch`]). While words are up a program's copy changes nothing at
 //! once: the last one is held and shown as the words up now end, so a program
 //! looping `OSC 52` costs one frame each [`MESSAGE_FOR`], and the bar says
-//! the last count it copied. Its announcements are held to the same pace.
+//! the last count it copied. Its announcements are held to the same pace,
+//! and so are a batch's whose last copy the clipboard did not keep.
 //!
 //! **The link preview keeps the bar.** Under it no words are drawn, and none
 //! wait for it to end: [`Preview::Up`] takes the words up and the one held.
@@ -325,12 +326,27 @@ impl Preview {
 /// **A read batch's copies by a program**: filled after each read, whose
 /// write the core keeps only until the next, and said once after the batch.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub(crate) struct Batch(Option<Characters>);
+pub(crate) struct Batch(Option<Last>);
+
+/// **The last of a batch's copies by a program**, which is what is said.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Last {
+    /// It reached the clipboard, this many characters.
+    Copied(Characters),
+    /// The clipboard did not keep it.
+    NotKept,
+}
 
 impl Batch {
     /// A program's copy of `text` reached the clipboard: the last one counts.
     pub(crate) fn copied(&mut self, text: &str) {
-        self.0 = Some(characters(text));
+        self.0 = Some(Last::Copied(characters(text)));
+    }
+
+    /// A program's copy the clipboard did not keep: the last one counts.
+    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+    pub(crate) fn not_kept(&mut self) {
+        self.0 = Some(Last::NotKept);
     }
 }
 
@@ -473,8 +489,10 @@ impl<T: Moment> Signal<T> {
     /// **A read batch's copies by a program**, after the batch: words in the
     /// bar, or held while words are up, which owes no frame.
     pub(crate) fn program(&mut self, batch: Batch, now: T) -> Owes {
-        let Batch(Some(count)) = batch else {
-            return Owes::Nothing;
+        let count = match batch.0 {
+            None => return Owes::Nothing,
+            Some(Last::NotKept) => return self.program_not_kept(now),
+            Some(Last::Copied(count)) => count,
         };
         if self.message.copy.enable == CopySignal::Off || count == Characters(0) {
             return Owes::Nothing;
@@ -499,11 +517,38 @@ impl<T: Moment> Signal<T> {
 
     /// A program's copy spoken, at most once each [`MESSAGE_FOR`].
     fn speak_program(&mut self, count: Characters, now: T) {
+        self.speak_paced(words(Source::Program, count), now);
+    }
+
+    /// Words a program's copy raised, spoken at most once each
+    /// [`MESSAGE_FOR`].
+    fn speak_paced(&mut self, said: String, now: T) {
         if self.speak_from.is_some_and(|from| now < from) {
             return;
         }
         self.speak_from = Some(now.after(MESSAGE_FOR));
-        self.saying = Some(words(Source::Program, count));
+        self.saying = Some(said);
+    }
+
+    /// **A read batch whose last copy by a program the clipboard did not
+    /// keep**: the not-copied words in the bar whatever `[message.copy]`
+    /// says, as [`Signal::not_copied`] puts them, raised again only once
+    /// they have ended and spoken at the pace of a program's copy, so a
+    /// program looping `OSC 52` costs one frame and one announcement each
+    /// [`MESSAGE_FOR`].
+    fn program_not_kept(&mut self, now: T) -> Owes {
+        self.held = None;
+        if self.up.is_some_and(|u| u.source == Source::NotCopied) {
+            return Owes::Nothing;
+        }
+        self.up = Some(Up {
+            source: Source::NotCopied,
+            count: Characters(0),
+            place: Place::At(MessageAt::Bar),
+            until: None,
+        });
+        self.speak_paced(NOT_COPIED.to_string(), now);
+        Owes::Frame
     }
 
     /// **A copy the clipboard did not keep**: said in the bar, as a
@@ -1145,7 +1190,7 @@ mod tests {
     /// ten seconds, each with a frame asked for, the count differing every
     /// time: the frames the signal itself owes and the words spoken are
     /// counted. Perturbations: raise on every batch rather than hold, which
-    /// owes 600 frames; drop the gate in `speak_program`, or restart `until`
+    /// owes 600 frames; drop the gate in `speak_paced`, or restart `until`
     /// on a held copy, which never ends.
     #[test]
     fn a_program_looping_copies_cannot_flood_frames_or_announcements() {
@@ -1299,6 +1344,84 @@ mod tests {
         assert_eq!(b, batch("xyz"));
         b.copied("ab");
         assert_eq!(b, batch("xy"), "the last one counts");
+        b.not_kept();
+        assert_ne!(b, batch("xy"), "a copy not kept counts too");
+        b.copied("ab");
+        assert_eq!(b, batch("xy"), "and a later copy after it");
+    }
+
+    /// **A batch whose last copy was not kept says the not-copied words,
+    /// and one whose last copy was kept says its count**, whichever came
+    /// first. Perturbation: keep a batch's first outcome.
+    #[test]
+    fn a_batch_says_its_last_copy_kept_or_not() {
+        let t = zero();
+        let mut s = signal(Message::default());
+        let mut b = batch("abc");
+        b.not_kept();
+        assert_eq!(s.program(b, t), Owes::Frame);
+        assert_eq!(s.take_saying().as_deref(), Some(NOT_COPIED));
+        let shown = said(&drawn(&mut s, t).look.expect("words up"));
+        assert!(shown.contains(NOT_COPIED), "{shown}");
+
+        let mut s = signal(Message::default());
+        let mut b = Batch::default();
+        b.not_kept();
+        b.copied("abc");
+        assert_eq!(s.program(b, t), Owes::Frame);
+        let shown = said(&drawn(&mut s, t).look.expect("words up"));
+        assert!(shown.starts_with(" A program copied 3"), "{shown}");
+    }
+
+    /// **A program looping `OSC 52` that the clipboard never keeps costs one
+    /// frame and one announcement each 1.5 s**, as one whose copies are
+    /// kept does. Sixty batches a second for ten seconds, each a copy not
+    /// kept. Perturbations: raise the words on every batch, or speak them
+    /// past `speak_paced`'s gate.
+    #[test]
+    fn a_program_looping_copies_not_kept_cannot_flood_frames_or_announcements() {
+        let t0 = zero();
+        let mut s = signal(Message::default());
+        let (mut frames, mut spoken) = (0, 0);
+        let mut last = None;
+        for i in 0..600u32 {
+            let now = t0 + i * Duration::from_micros(16_667);
+            let mut b = Batch::default();
+            b.not_kept();
+            frames += usize::from(s.program(b, now) == Owes::Frame);
+            let f = drawn(&mut s, now);
+            spoken += usize::from(s.take_saying().is_some());
+            last = f.look.or(last);
+        }
+        assert!((6..=8).contains(&frames), "{frames} frames");
+        assert!((6..=8).contains(&spoken), "{spoken} announcements");
+        let shown = said(&last.expect("words shown"));
+        assert!(shown.contains(NOT_COPIED), "{shown}");
+    }
+
+    /// **The driver's arm for a copy not kept counts a link's as refused and
+    /// gives a program's to the batch**, which says it once per drain at a
+    /// program's pace, never through the words a user's copy raises.
+    /// Perturbations: drop the bump, or say a program's copy at once.
+    #[test]
+    fn a_copy_not_kept_is_counted_and_a_program_s_batched() {
+        let head = concat!("written: clipboard::Written::", "Unconfirmed(");
+        let src = crate::app_source::within(crate::app_source::app_source(), head);
+        let at = src.find(head).expect("the arm for a write not kept");
+        let arm = &src[at..];
+        let arm = arm
+            .find("\n                Outcome::")
+            .map_or(arm, |end| &arm[..end]);
+        let link = arm
+            .find("CopyFrom::Link =>")
+            .map(|at| &arm[at..])
+            .expect("a link's copy not kept has its own arm");
+        let link = &link[..link.find("CopyFrom::Selection").unwrap_or(link.len())];
+        assert!(link.contains("self.app.links.refused.bump();"), "{link}");
+        assert!(
+            arm.contains("CopyFrom::Program => programs.not_kept(),"),
+            "{arm}"
+        );
     }
 
     /// **Each copy is spoken in the same words, once; off speaks nothing.**

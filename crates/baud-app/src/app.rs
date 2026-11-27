@@ -19200,10 +19200,20 @@ impl Driver {
                 },
                 Outcome::Copied {
                     written: clipboard::Written::Unconfirmed(kept),
+                    from,
                     ..
                 } => {
                     log_not_kept(kept);
-                    self.say_not_copied();
+                    match from {
+                        CopyFrom::Link => {
+                            self.app.links.refused.bump();
+                            self.say_not_copied();
+                        }
+                        CopyFrom::Selection => self.say_not_copied(),
+                        // Said once for the whole drain, at a program's
+                        // pace (`copied.rs`).
+                        CopyFrom::Program => programs.not_kept(),
+                    }
                 }
                 Outcome::Found(clipboard::Written::Unconfirmed(kept)) => log_not_kept(kept),
                 Outcome::Found(clipboard::Written::Refused) => {
