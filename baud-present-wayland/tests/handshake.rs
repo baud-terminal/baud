@@ -4708,6 +4708,7 @@ struct Clipped {
     conn: Connection,
     server: Server,
     w: Window,
+    seat: ObjectId,
     keyboard: ObjectId,
     surface: ObjectId,
     data_manager: ObjectId,
@@ -4795,6 +4796,7 @@ fn clip_session() -> Clipped {
         conn,
         server,
         w,
+        seat: ids["wl_seat"],
         keyboard,
         surface: ids["surface"],
         data_manager: ids["wl_data_device_manager"],
@@ -5158,6 +5160,130 @@ fn the_primary_copies_and_pastes_on_its_own_protocol() {
         r.args[..],
         [Val::Obj(ObjectId::NULL), Val::Uint(7)]
     ));
+}
+
+/// **A finished selection set on both selections with the button's one
+/// serial**: the clipboard's source and the primary's are each set with
+/// it, and a `send` on each answers exactly the selected text.
+#[test]
+fn a_selection_on_both_selections_answers_each_send_with_its_text() {
+    let Clipped {
+        mut conn,
+        mut server,
+        mut w,
+        seat,
+        keyboard,
+        surface,
+        data_device,
+        primary_device,
+        ..
+    } = clip_session();
+    keyboard_enter(&mut server, keyboard, 3, surface);
+    server.send(
+        seat,
+        "wl_seat",
+        "capabilities",
+        &[Arg::Uint(
+            protocol::wl_seat::capability::KEYBOARD | protocol::wl_seat::capability::POINTER,
+        )],
+    );
+    pump(&mut conn, &mut w);
+    let pointer = loop {
+        let r = server.next();
+        if let ("wl_seat", "get_pointer", [Val::New(p)]) = (r.iface, r.name, &r.args[..]) {
+            break *p;
+        }
+    };
+    server.send(
+        pointer,
+        "wl_pointer",
+        "enter",
+        &[Arg::Uint(4), Arg::Object(surface), fixed(4.0), fixed(8.0)],
+    );
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    let button = |serial, state| {
+        [
+            Arg::Uint(serial),
+            Arg::Uint(100),
+            Arg::Uint(0x110),
+            Arg::Uint(state),
+        ]
+    };
+    server.send(pointer, "wl_pointer", "button", &button(5, 1));
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    server.send(pointer, "wl_pointer", "button", &button(6, 0));
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    let text = "hello copy";
+    for b in [Board::Clipboard, Board::Primary] {
+        assert_eq!(w.copy(&mut conn.sender(), b, text), Copied::Set, "{b:?}");
+    }
+    conn.flush().unwrap();
+    let sides = [
+        (
+            "wl_data_device_manager",
+            "create_data_source",
+            "wl_data_source",
+            "wl_data_device",
+            data_device,
+        ),
+        (
+            "zwp_primary_selection_device_manager_v1",
+            "create_source",
+            "zwp_primary_selection_source_v1",
+            "zwp_primary_selection_device_v1",
+            primary_device,
+        ),
+    ];
+    let mut sources = Vec::new();
+    for (manager, create, source_iface, device_iface, device) in sides {
+        let r = loop {
+            let r = server.next();
+            if (r.iface, r.name) == (manager, create) {
+                break r;
+            }
+        };
+        let Val::New(source) = r.args[0] else {
+            panic!()
+        };
+        for _ in 0..5 {
+            server.expect(source_iface, "offer");
+        }
+        let r = server.expect(device_iface, "set_selection");
+        assert_eq!(r.sender, device);
+        assert!(
+            matches!(r.args[..], [Val::Obj(s), Val::Uint(6)] if s == source),
+            "{device_iface}: the button's serial, {:?}",
+            r.args
+        );
+        sources.push((source_iface, source));
+    }
+    for (iface, source) in sources {
+        let (mut reader, writer) = std::io::pipe().unwrap();
+        server.send(
+            source,
+            iface,
+            "send",
+            &[
+                Arg::Str(Some("text/plain;charset=utf-8")),
+                Arg::Fd(writer.as_fd()),
+            ],
+        );
+        drop(writer);
+        let got = std::thread::spawn(move || {
+            let mut got = Vec::new();
+            reader.read_to_end(&mut got).unwrap();
+            got
+        });
+        pump(&mut conn, &mut w);
+        pump_until(&mut w, |w| w.transfers().count() == 0);
+        assert_eq!(
+            got.join().unwrap(),
+            text.as_bytes(),
+            "{iface} answers the text"
+        );
+    }
 }
 
 /// **A selection given up is emptied only while its source still offers
