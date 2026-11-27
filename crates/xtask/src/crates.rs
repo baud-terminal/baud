@@ -1,20 +1,21 @@
-//! **The crates.io crates the `baud` binary links**, and the register of
-//! their notices, `docs/research/crates.toml`, that `cargo xtask credits`
-//! prints them from.
+//! **The crates the `baud` binary links**, from crates.io and from git,
+//! and the register of their notices, `docs/research/crates.toml`, that
+//! `cargo xtask credits` prints them from.
 //!
 //! **What the binary links is found, not listed.** For each target baud
 //! ships, `cargo metadata --locked --offline --filter-platform` gives the
 //! graph `Cargo.lock` resolves, and the walk from the `baud` package
 //! follows normal dependency edges only: a build or dev dependency is not
 //! in the program file, and neither is a proc-macro crate or anything only
-//! a proc-macro uses. A crate with no registry source is one of baud's own
+//! a proc-macro uses. A path crate, with no source, is one of baud's own
 //! and is walked through, not credited.
 //!
 //! **The register is written by `cargo xtask credits --crates`**, the one
-//! step that reads the crates' sources in the cargo registry: per crate and
-//! version, the licence expression its manifest gives, the one it is
-//! credited under (MIT, then BSD-2-Clause, then Apache-2.0: the first the
-//! expression offers), the file in its source holding its notice, that
+//! step that reads the crates' sources, in the cargo registry and in git
+//! checkouts: per crate and version, the licence expression its manifest
+//! gives (or its workspace's, where it inherits it), the one it is credited
+//! under (MIT, then BSD-2-Clause, then Apache-2.0, then CC BY-NC-SA 4.0:
+//! the first the expression offers), the file in its source holding its notice, that
 //! file's copyright lines word for word and its sha256, and the targets
 //! that link it. A crate whose source carries no licence file takes its
 //! copyright lines from its upstream repository's licence file, committed
@@ -69,7 +70,7 @@ pub const TARGETS: [Target; 3] = [
 /// first of these its expression offers. MIT's terms are met by its notice
 /// alone and its text is printed already; BSD-2-Clause's are met the same
 /// way; Apache-2.0 asks for its NOTICE file besides.
-pub const PREFER: [&str; 3] = ["MIT", "BSD-2-Clause", "Apache-2.0"];
+pub const PREFER: [&str; 4] = ["MIT", "BSD-2-Clause", "Apache-2.0", "CC-BY-NC-SA-4.0"];
 
 /// A crate and version, as `Cargo.lock` names it.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -325,19 +326,86 @@ fn licence_files(dir: &Path) -> Vec<String> {
     out
 }
 
-/// The registry's source directories: `$CARGO_HOME/registry/src/*`.
-pub fn registry_sources() -> Vec<PathBuf> {
-    let home = std::env::var_os("CARGO_HOME")
+/// Cargo's home: `$CARGO_HOME`, or `~/.cargo`.
+fn cargo_home() -> Option<PathBuf> {
+    std::env::var_os("CARGO_HOME")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| Path::new(&h).join(".cargo")));
-    let Some(home) = home else {
-        return Vec::new();
-    };
-    let mut out: Vec<PathBuf> = fs::read_dir(home.join("registry/src"))
-        .map(|d| d.flatten().map(|e| e.path()).collect())
+        .or_else(|| std::env::var_os("HOME").map(|h| Path::new(&h).join(".cargo")))
+}
+
+/// The folders in `dir`, sorted; none where it cannot be read.
+fn folders(dir: &Path) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = fs::read_dir(dir)
+        .map(|d| {
+            d.flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_dir())
+                .collect()
+        })
         .unwrap_or_default();
     out.sort();
     out
+}
+
+/// The registry's source directories: `$CARGO_HOME/registry/src/*`.
+pub fn registry_sources() -> Vec<PathBuf> {
+    cargo_home().map_or_else(Vec::new, |h| folders(&h.join("registry/src")))
+}
+
+/// The checkouts of git dependencies: `$CARGO_HOME/git/checkouts/*/*`, a
+/// repository's folder holding one folder per revision.
+pub fn git_sources() -> Vec<PathBuf> {
+    let Some(home) = cargo_home() else {
+        return Vec::new();
+    };
+    folders(&home.join("git/checkouts"))
+        .iter()
+        .flat_map(|repository| folders(repository))
+        .collect()
+}
+
+/// The directory of `id`'s source in one of the git `checkouts`: the
+/// checkout's root or a folder of its `crates/`, whose manifest gives
+/// `id`'s name and version, its own or its workspace's.
+pub fn git_source_of(id: &Id, checkouts: &[PathBuf]) -> Option<PathBuf> {
+    checkouts
+        .iter()
+        .flat_map(|c| std::iter::once(c.clone()).chain(folders(&c.join("crates"))))
+        .find(|d| manifest_names(d, id))
+}
+
+/// Whether the manifest in `dir` is the package of `id`.
+fn manifest_names(dir: &Path, id: &Id) -> bool {
+    let Some(m) = fs::read_to_string(dir.join("Cargo.toml"))
+        .ok()
+        .and_then(|t| t.parse::<Table>().ok())
+    else {
+        return false;
+    };
+    let Some(p) = m.get("package").and_then(Value::as_table) else {
+        return false;
+    };
+    let version = package_field(p, dir, "version");
+    p.get("name").and_then(Value::as_str) == Some(id.name.as_str())
+        && version.as_ref().and_then(Value::as_str) == Some(id.version.as_str())
+}
+
+/// A `[package]` field of the manifest in `dir`, or, where it says
+/// `workspace = true`, the `[workspace.package]` one of the nearest
+/// manifest at or above `dir` that gives it.
+fn package_field(package: &Table, dir: &Path, k: &str) -> Option<Value> {
+    match package.get(k) {
+        Some(Value::Table(t)) if t.get("workspace").and_then(Value::as_bool) == Some(true) => {
+            dir.ancestors().find_map(|d| {
+                let m: Table = fs::read_to_string(d.join("Cargo.toml"))
+                    .ok()?
+                    .parse()
+                    .ok()?;
+                m.get("workspace")?.get("package")?.get(k).cloned()
+            })
+        }
+        v => v.cloned(),
+    }
 }
 
 /// The directory of `id`'s source under one of `sources`.
@@ -453,11 +521,11 @@ pub fn load(root: &Path) -> Result<Vec<Row>, String> {
 
 /// The register's head: what it is, what writes it and what checks it.
 const HEAD: &str = "\
-# baud -- the crates.io crates the `baud` binary links, and their notices.
+# baud -- the crates the `baud` binary links, and their notices.
 #
 # Written by `cargo xtask credits --crates` from Cargo.lock and the crates'
-# sources in the cargo registry; `cargo xtask credits` prints each row in
-# crates/baud-app/assets/CREDITS.txt. `cargo xtask credits --check` fails if the
+# sources in the cargo registry and in git checkouts; `cargo xtask credits`
+# prints each row in crates/baud-app/assets/CREDITS.txt. `cargo xtask credits --check` fails if the
 # crates Cargo.lock links on a shipped target are not these rows, or a
 # row's notice file in the registry no longer hashes to `sha256`.
 #
@@ -465,7 +533,8 @@ const HEAD: &str = "\
 #   targets     the shipped targets that link it
 #   expression  the licence expression of its manifest
 #   licence     the one it is credited under: MIT, then BSD-2-Clause, then
-#               Apache-2.0, the first the expression offers
+#               Apache-2.0, then CC-BY-NC-SA-4.0, the first the expression
+#               offers
 #   notice      the file in its source holding its notice; empty where the
 #               source carries no licence file
 #   sha256      that file's digest, or notice_source's
@@ -543,6 +612,10 @@ fn marker(licence: &str) -> (&'static str, &'static str) {
     match licence {
         "MIT" => ("Permission is hereby granted", "MIT"),
         "BSD-2-Clause" => ("Redistribution and use in source and binary forms", "BSD"),
+        "CC-BY-NC-SA-4.0" => (
+            "This work is licensed under the Creative Commons",
+            "LICENSE",
+        ),
         _ => ("Apache License", "APACHE"),
     }
 }
@@ -576,8 +649,8 @@ pub fn read_row(root: &Path, id: &Id, targets: &[String], dir: &Path) -> Result<
         .and_then(Value::as_table)
         .ok_or_else(|| format!("{}: no [package]", at.display()))?;
     let field = |k: &str| {
-        package
-            .get(k)
+        package_field(package, dir, k)
+            .as_ref()
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_owned()
@@ -605,8 +678,8 @@ pub fn read_row(root: &Path, id: &Id, targets: &[String], dir: &Path) -> Result<
         targets: targets.to_vec(),
         expression,
         licence: licence.to_owned(),
-        authors: package
-            .get("authors")
+        authors: package_field(package, dir, "authors")
+            .as_ref()
             .and_then(Value::as_array)
             .map(|a| {
                 a.iter()
@@ -662,12 +735,14 @@ pub fn read_row(root: &Path, id: &Id, targets: &[String], dir: &Path) -> Result<
 pub fn rows_from_registry(root: &Path) -> Result<Vec<Row>, Vec<String>> {
     let linked = linked(root).map_err(|e| vec![e])?;
     let sources = registry_sources();
+    let checkouts = git_sources();
     let mut rows = Vec::new();
     let mut errs = Vec::new();
     for (id, targets) in &linked {
-        let Some(dir) = source_of(id, &sources) else {
+        let Some(dir) = source_of(id, &sources).or_else(|| git_source_of(id, &checkouts)) else {
             errs.push(format!(
-                "{id}: no source in the cargo registry; `cargo fetch --locked` brings it"
+                "{id}: no source in the cargo registry or a git checkout; \
+                 `cargo fetch --locked` brings it"
             ));
             continue;
         };
@@ -733,12 +808,19 @@ pub struct Upstream {
     pub key: &'static str,
 }
 
-/// Every such family: the objc2 crates, whose repository's licence file at
-/// the commit the manifest pins names their copyright holder.
-pub const UPSTREAM: [Upstream; 1] = [Upstream {
-    repository: "https://github.com/madsmtm/objc2",
-    key: "objc2-license-mit",
-}];
+/// Every such family: the objc2 crates and the silicon crates, whose
+/// repository's licence file at the commit the manifest pins names their
+/// copyright holder.
+pub const UPSTREAM: [Upstream; 2] = [
+    Upstream {
+        repository: "https://github.com/madsmtm/objc2",
+        key: "objc2-license-mit",
+    },
+    Upstream {
+        repository: "https://github.com/i-am-logger/silicon",
+        key: "silicon-license",
+    },
+];
 
 /// A committed source, as the sources manifest records it.
 pub struct Committed {

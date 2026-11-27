@@ -995,6 +995,49 @@ fn a_changed_notice_file_fails_and_an_absent_source_is_skipped() {
     );
 }
 
+/// **12. A git crate is read from its checkout and its workspace**: the
+/// checkout's `crates/` folder is searched, a field `workspace = true` is
+/// the workspace's, and a silicon crate, whose folder carries no licence
+/// file, is credited under CC BY-NC-SA 4.0 with the copyright line of
+/// silicon's committed LICENSE. Red under: the checkouts not searched, or
+/// an inherited field read as absent.
+#[test]
+fn a_git_crate_is_read_from_its_checkout_and_its_workspace() {
+    let n = NEXT.fetch_add(1, Ordering::SeqCst);
+    let at = std::env::temp_dir().join(format!("xtask-git-{}-{n}", std::process::id()));
+    let _ = fs::remove_dir_all(&at);
+    let tree = Tree(at.clone());
+    let checkout = at.join("silicon-0123456789abcdef").join("afe3d1e");
+    put(
+        &checkout,
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"crates/*\"]\n\n[workspace.package]\nversion = \"1.0.0\"\n\
+         authors = [\"i-am-logger\"]\nlicense = \"CC-BY-NC-SA-4.0\"\n\
+         repository = \"https://github.com/i-am-logger/silicon\"\n",
+    );
+    put(
+        &checkout,
+        "crates/silicon/Cargo.toml",
+        "[package]\nname = \"silicon\"\nversion.workspace = true\n\
+         authors.workspace = true\nlicense.workspace = true\nrepository.workspace = true\n",
+    );
+    put(&checkout, "crates/silicon/src/lib.rs", "");
+    let checkouts = [checkout.clone()];
+    let silicon = id("silicon");
+    let dir = crates::git_source_of(&silicon, &checkouts).expect("found in the checkout");
+    assert_eq!(dir, checkout.join("crates/silicon"));
+    assert!(crates::git_source_of(&id("rustix"), &checkouts).is_none());
+    let linux = vec!["x86_64-unknown-linux-gnu".to_owned()];
+    let r = crates::read_row(&root(), &silicon, &linux, &dir).expect("the row");
+    assert_eq!(r.expression, "CC-BY-NC-SA-4.0");
+    assert_eq!(r.licence, "CC-BY-NC-SA-4.0");
+    assert_eq!(r.authors, ["i-am-logger"]);
+    assert_eq!(r.repository, "https://github.com/i-am-logger/silicon");
+    assert_eq!(r.notice_source, "silicon-license");
+    assert_eq!(r.copyright, ["Copyright (c) 2026 i-am-logger"]);
+    drop(tree);
+}
+
 /// **11. The tree's register is the set `Cargo.lock` links**, each row's
 /// notice still hashes to its source where the registry has it, the
 /// register is the text its rows write, and every row is credited in the

@@ -1,8 +1,8 @@
-# baud -- the crates.io crates the `baud` binary links, and their notices.
+# baud -- the crates the `baud` binary links, and their notices.
 #
 # Written by `cargo xtask credits --crates` from Cargo.lock and the crates'
-# sources in the cargo registry; `cargo xtask credits` prints each row in
-# crates/baud-app/assets/CREDITS.txt. `cargo xtask credits --check` fails if the
+# sources in the cargo registry and in git checkouts; `cargo xtask credits`
+# prints each row in crates/baud-app/assets/CREDITS.txt. `cargo xtask credits --check` fails if the
 # crates Cargo.lock links on a shipped target are not these rows, or a
 # row's notice file in the registry no longer hashes to `sha256`.
 #
@@ -10,7 +10,8 @@
 #   targets     the shipped targets that link it
 #   expression  the licence expression of its manifest
 #   licence     the one it is credited under: MIT, then BSD-2-Clause, then
-#               Apache-2.0, the first the expression offers
+#               Apache-2.0, then CC-BY-NC-SA-4.0, the first the expression
+#               offers
 #   notice      the file in its source holding its notice; empty where the
 #               source carries no licence file
 #   sha256      that file's digest, or notice_source's

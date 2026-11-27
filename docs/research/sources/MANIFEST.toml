@@ -7940,6 +7940,20 @@ status = "retrieved"
 group  = "J"
 # Committed under docs/research/sources/ -- the notice docs/research/crates.toml credits the objc2 crates under.
 
+[sources.silicon-license]
+key    = "silicon-license"
+title  = "silicon LICENSE -- the copyright notice of the silicon crates, which their crate folders do not carry"
+author = "i-am-logger"
+year   = 2026
+venue  = "i-am-logger/silicon at ab355fef, the revision baud's Cargo.toml pins"
+url    = "https://raw.githubusercontent.com/i-am-logger/silicon/ab355fef6689840f2293724560e42e515d72a030/LICENSE"
+file   = "silicon-LICENSE"
+sha256 = "b56a26ec2fd167d676bec8e42f580b32193bc914219b54e2e453e378613b4601"
+bytes  = 817
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- the notice docs/research/crates.toml credits the silicon crates under.
+
 [sources.font-fira-code-regular]
 key    = "font-fira-code-regular"
 title  = "Fira Code 6.2, Regular -- the programming-ligature face whose calt chains fix baud's GSUB subset"

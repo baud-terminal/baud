@@ -836,10 +836,11 @@ Licence:    The historical permission notice (sell variant), as
 ============================================================================
 39. Rust crates the program links
 ============================================================================
-The crates from crates.io the program file links, each with the platforms
-whose build links it, the copyright notices of its licence file, and the
-licence it falls under. A crate offered under several licences is credited
-under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
+The crates from crates.io and from git the program file links, each with the
+platforms whose build links it, the copyright notices of its licence file,
+and the licence it falls under. A crate offered under several licences is
+credited under one of them: MIT, then BSD-2-Clause, then Apache-2.0, then CC
+BY-NC-SA 4.0.
 
 39.1 ash 0.38.0+1.3.281
     Platforms:         Linux
@@ -1980,9 +1981,9 @@ THIS SOFTWARE.
 | status | research sources | other entries | meaning |
 |---|---|---|---|
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 355 | 70 | redistributable, and its notice is satisfied |
+| kept | 356 | 70 | redistributable, and its notice is satisfied |
 | own | 10 | 11 | the work of baud's author |
-| total | 366 | 81 | |
+| total | 367 | 81 | |
 
 ## Licence texts in LICENSES/
 
@@ -3418,6 +3419,17 @@ notice is, and the URL each file was copied from.
 | file | copied from |
 |---|---|
 | [sfte.h](docs/research/sources/sfte.h) | https://raw.githubusercontent.com/nihiL7331/sfte/5d7ac25a4180a4adbb049ec228dc89e03dae2690/sfte.h |
+
+### silicon, the licence file of its repository
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** CC-BY-NC-SA-4.0
+- **Notice:** [docs/research/sources/silicon-LICENSE](docs/research/sources/silicon-LICENSE)
+- **Files:** 1
+
+| file | copied from |
+|---|---|
+| [silicon-LICENSE](docs/research/sources/silicon-LICENSE) | https://raw.githubusercontent.com/i-am-logger/silicon/ab355fef6689840f2293724560e42e515d72a030/LICENSE |
 
 ### Slug (Eric Lengyel); its LICENSE names the two licences without their text, so the MIT one is beside
 

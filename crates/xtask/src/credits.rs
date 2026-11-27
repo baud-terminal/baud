@@ -389,7 +389,7 @@ pub struct Licence {
 }
 
 /// Every licence a credit may name, in the order the texts are printed.
-pub const LICENCES: [Licence; 9] = [
+pub const LICENCES: [Licence; 10] = [
     Licence {
         key: "OFL-1.1",
         title: "SIL Open Font License, Version 1.1",
@@ -487,6 +487,17 @@ pub const LICENCES: [Licence; 9] = [
             why: "It asks for no notice; its text is at:",
         },
         marker: "",
+        disclaimer: None,
+    },
+    Licence {
+        key: "CC-BY-NC-SA-4.0",
+        title: "Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International",
+        source: Source::Uri {
+            uri: "https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode",
+            seen: "LICENSE",
+            why: "Given by its URI, as its section 3(a)(1)(C) allows in place of its text:",
+        },
+        marker: "Attribution-NonCommercial-ShareAlike 4.0 International",
         disclaimer: None,
     },
 ];
@@ -2542,10 +2553,10 @@ fn crate_notices(
     wrapped(
         o,
         "",
-        "The crates from crates.io the program file links, each with the platforms whose \
-         build links it, the copyright notices of its licence file, and \
+        "The crates from crates.io and from git the program file links, each with the \
+         platforms whose build links it, the copyright notices of its licence file, and \
          the licence it falls under. A crate offered under several licences is credited \
-         under one of them: MIT, then BSD-2-Clause, then Apache-2.0.",
+         under one of them: MIT, then BSD-2-Clause, then Apache-2.0, then CC BY-NC-SA 4.0.",
     );
     for (k, r) in links.iter().enumerate() {
         o.push('\n');

@@ -919,6 +919,15 @@ files   = [
   "objc2-LICENSE-MIT.txt",
 ]
 
+[upstream.silicon]
+name    = "silicon, the licence file of its repository"
+licence = "CC-BY-NC-SA-4.0"
+notice  = "docs/research/sources/silicon-LICENSE"
+status  = "kept"
+files   = [
+  "silicon-LICENSE",
+]
+
 [upstream.x11rb]
 name    = "x11rb"
 licence = "MIT OR Apache-2.0"

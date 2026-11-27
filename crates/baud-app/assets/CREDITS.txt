@@ -810,10 +810,11 @@ Licence:    The historical permission notice (sell variant), as
 ============================================================================
 39. Rust crates the program links
 ============================================================================
-The crates from crates.io the program file links, each with the platforms
-whose build links it, the copyright notices of its licence file, and the
-licence it falls under. A crate offered under several licences is credited
-under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
+The crates from crates.io and from git the program file links, each with the
+platforms whose build links it, the copyright notices of its licence file,
+and the licence it falls under. A crate offered under several licences is
+credited under one of them: MIT, then BSD-2-Clause, then Apache-2.0, then CC
+BY-NC-SA 4.0.
 
 39.1 ash 0.38.0+1.3.281
     Platforms:         Linux

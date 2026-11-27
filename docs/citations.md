@@ -8735,6 +8735,15 @@ Standards Institution of Israel, information technology committee terms, part 95
 - **Copy:** not committed; cited by URL and sha256
 - **Cited in:** `crates/baud-app/examples/demo/session.rs`
 
+<a id="silicon-license"></a>
+### silicon-license
+
+silicon LICENSE -- the copyright notice of the silicon crates, which their crate folders do not carry. i-am-logger, 2026, i-am-logger/silicon at ab355fef, the revision baud's Cargo.toml pins.
+
+- **URL:** <https://raw.githubusercontent.com/i-am-logger/silicon/ab355fef6689840f2293724560e42e515d72a030/LICENSE>
+- **sha256:** `b56a26ec2fd167d676bec8e42f580b32193bc914219b54e2e453e378613b4601` (817 bytes)
+- **Copy:** [docs/research/sources/silicon-LICENSE](research/sources/silicon-LICENSE)
+
 <a id="simdjson"></a>
 ### simdjson
 
