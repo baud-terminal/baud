@@ -4,10 +4,12 @@
 #
 # Every gated entry in `tools/perf-budgets.toml` is a hot path (the function a
 # `--toggle-collect` names), an input to the bench that reaches it, and an
-# ISA. callgrind counts the instructions (`Ir`) executed inside that
-# function and its callees and, with its cache simulation on, the simulated
-# D1 and LL misses, at this host's L1d and LL geometry with a 64-byte line
-# and again with a 128-byte one. Those counts are the same on every run of
+# ISA. The bench is a `baud-bench` bench, or the `baud` binary built with a
+# test-only feature that gives it a bench of its own. callgrind counts the
+# instructions (`Ir`) executed inside that function and its callees and,
+# with its cache simulation on, the simulated D1 and LL misses, at this
+# host's L1d and LL geometry with a 64-byte line and again with a 128-byte
+# one. Those counts are the same on every run of
 # one binary, so the gate needs no repetition and no quiet machine, and a
 # red is a change in the work done:
 #
@@ -50,9 +52,13 @@
 # **Each entry proves it measured something** before any budget applies:
 # `Ir` above zero, the toggled function called at least once, and `Ir`
 # within half and twice its baseline. A function the compiler inlined
-# collects nothing and would otherwise pass every budget. Once a run, a
-# control names a function no binary has, and must fail exactly that check,
-# or the gate itself fails.
+# collects nothing and would otherwise pass every budget. Once a run, on
+# each binary the gate builds, a control names a function no binary has,
+# and must fail exactly that check, or the gate itself fails.
+#
+# **A gate can report its `Ir` over another's** on the same inputs: the
+# ratio of the two `Ir` a byte, one recording on both sides, printed after
+# the verdicts and never gated, `-` when either side has no count.
 #
 # **Each entry is run twice at the 64-byte line**, an ingest entry at the
 # first plant, and every count must be
@@ -137,15 +143,20 @@ trap 'rm -rf "$work"' EXIT
 
 # `[gate.<path>]` tables, one line a key: `fn`, the function the toggle
 # names; `kind`, which budgets apply; `bench`, the `baud-bench` bench that
-# runs it (`ingest2` when absent); `args`, the bench's arguments, with
-# `{input}` standing for each input (`{input} 1` when absent); and
-# `inputs`, a string of space-separated inputs or an array of strings, each
-# of which may hold spaces. An input's key in its entry is the input with
-# each space a `-`. Inputs come out `;`-separated.
+# runs it (`ingest2` when absent); `app`, in its place, the feature `baud`
+# is built with to run it; `args`, the bench's arguments, with `{input}`
+# standing for each input (`{input} 1` when absent), `{file}` for the
+# input's file in `files`, and an argument `@<path>` for that file of the
+# tree, copied beside the bench and passed by its name; `files`, an array
+# of `<input> <path>` strings; `inputs`, a string of space-separated inputs
+# or an array of strings, each of which may hold spaces; and `over`, the
+# gate whose `Ir` on the same inputs this one's is reported over. An
+# input's key in its entry is the input with each space a `-`. Inputs and
+# files come out `;`-separated.
 gates=$(awk '
   /^\[gate\./ { p = $0; sub(/^\[gate\./, "", p); sub(/\].*$/, "", p); next }
   /^\[/ { p = ""; next }
-  p != "" && /^(fn|kind|bench|args|inputs) *=/ {
+  p != "" && /^(fn|kind|bench|app|args|files|inputs|over) *=/ {
     k = $0; sub(/ *=.*/, "", k)
     v = $0; sub(/^[^=]*= */, "", v); sub(/ *$/, "", v)
     if (v ~ /^\[/) {
@@ -242,10 +253,35 @@ git -C "$root" ls-files -z --cached --others --exclude-standard |
   tar --null -C "$root" -T - -cf - | tar -C "$tree/src" -xf -
 
 # Each bench a gate names, built once; ingest2 always, which the control
-# runs on.
-declare -A binof
+# runs on. A bench is known by its key: the bench's name, or `baud+<feature>`
+# for the `baud` binary built with that feature, which runs as `baud`.
+declare -A binof nameof
+for p in $paths; do
+  a=$(gate_get "$p" app)
+  [ -n "$a" ] || continue
+  b="baud+$a"
+  [ -z "${binof[$b]:-}" ] || continue
+  echo "perf-gate: building baud with $a"
+  build=$(cd "$tree/src" && CARGO_TARGET_DIR="$tree/target" cargo build --release -p baud --bin baud --features "$a" --message-format=json-render-diagnostics 2>&1) || {
+    printf '%s\n' "$build"
+    echo "perf-gate: FAIL: baud with $a did not build"
+    exit 1
+  }
+  bin=$(printf '%s\n' "$build" | sed -n 's/.*"executable":"\([^"]*\/baud\)".*/\1/p' | tail -n 1)
+  [ -x "$bin" ] || {
+    printf '%s\n' "$build"
+    echo "perf-gate: FAIL: no baud executable in cargo's output"
+    exit 1
+  }
+  # Kept apart, so a later build of `baud` with another feature does not
+  # replace it.
+  cp "$bin" "$work/$b"
+  binof[$b]=$work/$b
+  nameof[$b]=baud
+done
 for b in ingest2 $(for p in $paths; do gate_get "$p" bench; done); do
   [ -z "${binof[$b]:-}" ] || continue
+  nameof[$b]=$b
   echo "perf-gate: building the $b bench"
   build=$(cd "$tree/src" && CARGO_TARGET_DIR="$tree/target" cargo bench -p baud-bench --bench "$b" --no-run 2>&1) || {
     printf '%s\n' "$build"
@@ -282,19 +318,34 @@ fi
 # `cg.1.<n>` for any part it dumps). The child it spawns after the timed
 # loop is forked under valgrind and writes `cg.2`, a copy of its parent's
 # counts, which is left out: summing the two would count the loop twice.
+#
+# An `@<path>` argument is that file of the tree, copied into <dir> and
+# passed by its name, so the bench reads it at the same path in any
+# checkout.
 run() {
-  local dir=$1 fn=$2 bench=$3 line=$4 plant=$5 status=0 planted=()
+  local dir=$1 fn=$2 bench=$3 line=$4 plant=$5 status=0 planted=() a
+  local name=${nameof[$3]}
   shift 5
   [ "$plant" = - ] || planted=("BAUD_BENCH_PLANT=$plant")
   mkdir -p "$dir"
-  cp "${binof[$bench]}" "$dir/$bench"
+  cp "${binof[$bench]}" "$dir/$name"
+  local argv=()
+  for a in "$@"; do
+    case "$a" in
+    @*)
+      cp "$tree/src/${a#@}" "$dir/"
+      argv+=("${a##*/}")
+      ;;
+    *) argv+=("$a") ;;
+    esac
+  done
   (
     cd "$dir"
     exec "${pin[@]}" "$ns" -r -p -f --mount-proc env -i PATH=/usr/bin:/bin LC_ALL=C BAUD_MEASURES=counts "${planted[@]}" \
       "$sa" -R "$vg" --tool=callgrind \
       --toggle-collect="$fn" --cache-sim=yes \
       --D1="$d1,$line" --LL="$ll,$line" \
-      --callgrind-out-file="$dir/cg.%p" "./$bench" "$@"
+      --callgrind-out-file="$dir/cg.%p" "./$name" "${argv[@]}"
   ) >"$dir/log" 2>&1 || status=$?
   echo "$status" >"$dir/status"
   awk '
@@ -320,7 +371,7 @@ run() {
       if (/^cfn=\(/) { id = substr($0, 6); sub(/\).*/, "", id); if (id in want) prev = id }
     }
     END { print calls + 0 }' "$dir/cg.1" 2>/dev/null >"$dir/calls" || echo 0 >"$dir/calls"
-  rm -f "${dir:?}/$bench"
+  rm -f "${dir:?}/$name"
 }
 # count <dir> <event>: the event's count, or nothing when the run's counts
 # lack it; `absent` names the first of its events a run lacks.
@@ -339,19 +390,45 @@ absent() {
 # Every run of every entry, and the control, at once: the counts do not
 # depend on what else the machine is doing. An ingest entry's runs are
 # `p<plant>-<line>`, and `aa64` repeats the first plant at the 64-byte
-# line; any other entry's are `a64`, `b64` and `a128`.
+# line; any other entry's are `a64`, `b64` and `a128`. The control runs on
+# every binary: on ingest2 with `less 1`, and on each other with its first
+# gate's first input.
+control_fn=perf_gate::no_such_fn
+declare -A controlled=([ingest2]=1)
+controls=(ingest2)
+run "$work/control" "$control_fn" ingest2 64 - less 1 &
 entries=()
 for p in $paths; do
   fn=$(gate_get "$p" fn)
   bench=$(gate_get "$p" bench)
   bench=${bench:-ingest2}
+  a=$(gate_get "$p" app)
+  [ -z "$a" ] || bench="baud+$a"
   template=$(gate_get "$p" args)
   template=${template:-"{input} 1"}
   IFS=';' read -ra inputs <<<"$(gate_get "$p" inputs)"
+  IFS=';' read -ra files <<<"$(gate_get "$p" files)"
   for input in "${inputs[@]}"; do
     e="$p.${input// /-}.$isa"
     entries+=("$e")
-    read -ra argv <<<"${template//\{input\}/$input}"
+    args=${template//\{input\}/$input}
+    if [ "${args/\{file\}/}" != "$args" ]; then
+      file=""
+      for f in "${files[@]}"; do
+        [ "${f%% *}" != "$input" ] || file=${f#* }
+      done
+      [ -n "$file" ] || {
+        echo "perf-gate: FAIL: [gate.$p] names no file for $input in its files"
+        exit 1
+      }
+      args=${args//\{file\}/$file}
+    fi
+    read -ra argv <<<"$args"
+    if [ -z "${controlled[$bench]:-}" ]; then
+      controlled[$bench]=1
+      controls+=("$bench")
+      run "$work/control.$bench" "$control_fn" "$bench" 64 - "${argv[@]}" &
+    fi
     if [ "$(gate_get "$p" kind)" = ingest ]; then
       for plant in "${plants[@]}"; do
         run "$work/$e/p$plant-64" "$fn" "$bench" 64 "$plant" "${argv[@]}" &
@@ -365,8 +442,6 @@ for p in $paths; do
     fi
   done
 done
-control_fn=perf_gate::no_such_fn
-run "$work/control" "$control_fn" ingest2 64 - less 1 &
 wait
 
 # --- the verdicts ------------------------------------------------------------
@@ -509,18 +584,24 @@ band() {
 # The control first: a gate whose vacuity check cannot fire checks nothing. A
 # toggle on a function that does not exist reads Ir 0 from a bench that ran and
 # exited 0; a bench that did not run is a broken environment, not that answer.
-why=$(vacuous "$work/control")
-if [ -z "$why" ]; then
-  echo "FAIL control: --toggle-collect=$control_fn measured $(count "$work/control" Ir) Ir and passed the vacuity check"
-  hard=$((hard + 1))
-elif [ "$why" != "Ir is 0" ]; then
-  echo "FAIL control: --toggle-collect=$control_fn did not read Ir 0 from a run that finished ($why)"
-  hard=$((hard + 1))
-else
-  echo "ok   control: --toggle-collect=$control_fn is vacuous ($why)"
-fi
+# ingest2's is `control`, and each other binary's `control.<key>`.
+for b in "${controls[@]}"; do
+  c=control
+  [ "$b" = ingest2 ] || c="control.$b"
+  why=$(vacuous "$work/$c")
+  if [ -z "$why" ]; then
+    echo "FAIL $c: --toggle-collect=$control_fn measured $(count "$work/$c" Ir) Ir and passed the vacuity check"
+    hard=$((hard + 1))
+  elif [ "$why" != "Ir is 0" ]; then
+    echo "FAIL $c: --toggle-collect=$control_fn did not read Ir 0 from a run that finished ($why)"
+    hard=$((hard + 1))
+  else
+    echo "ok   $c: --toggle-collect=$control_fn is vacuous ($why)"
+  fi
+done
 
 measured=()
+declare -A counted
 events=(Ir D1mr D1mw ILmr DLmr DLmw)
 for e in "${entries[@]}"; do
   p=${e%%.*}
@@ -585,6 +666,7 @@ for e in "${entries[@]}"; do
     hard=$((hard + 1))
     continue
   fi
+  counted[$e]=$ir
 
   status=ok
   note=""
@@ -616,6 +698,27 @@ for e in "${entries[@]}"; do
   echo "$status $e: calls=$(cat "$first/calls"), A/A identical;$note"
 done
 fails=$((fails + hard))
+
+# --- the report --------------------------------------------------------------
+
+# Each gate with an `over`, per input: its `Ir` a byte over that gate's on
+# the same recording, which is the ratio of the two counts. Never gated.
+for p in $paths; do
+  q=$(gate_get "$p" over)
+  [ -n "$q" ] || continue
+  IFS=';' read -ra inputs <<<"$(gate_get "$p" inputs)"
+  for input in "${inputs[@]}"; do
+    k=${input// /-}
+    m=${counted["$p.$k.$isa"]:-}
+    o=${counted["$q.$k.$isa"]:-}
+    if [ -n "$m" ] && [ -n "$o" ]; then
+      r=$(awk -v m="$m" -v o="$o" 'BEGIN { printf "%.4f", m / o }')
+    else
+      r=-
+    fi
+    echo "report $p/$q $k: Ir a byte over $q's $r (Ir ${m:--} over ${o:--})"
+  done
+done
 
 # --- the update --------------------------------------------------------------
 

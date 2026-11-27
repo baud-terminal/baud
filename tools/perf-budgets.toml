@@ -70,6 +70,33 @@ bench = "frame"
 args = "{input}"
 inputs = ["btop 1 full", "btop 1 incremental", "cat 1 full", "cat 1 incremental", "yes-1 1 incremental", "yes-3 1 incremental"]
 
+# The Linux read turn: `baud --turn-bench <recording> <cuts>`, the `baud`
+# binary built with its test-only `turn-bench` feature, feeding a recording
+# through the driver's turn in the batches the master's drain makes of the
+# reads `<cuts>` lists (`crates/baud-app/src/turn_bench.rs`). `turn` is
+# each batch fed, `reads::paced` and everything it calls, an ingest entry
+# with its heap plants; `sniff` is the read's writer sniff before it. The
+# inputs are `ingest`'s, and each recording's `.cuts` file beside it holds
+# one read a line: the bytes the read returned, or `-` for a read that
+# found nothing. `turn` reports its `Ir` a byte over `ingest`'s on the same
+# recording.
+[gate.turn]
+app = "turn-bench"
+args = "--turn-bench @tools/tests/recordings/{file}.raw @tools/tests/recordings/{file}.cuts"
+fn = "baud::turn_bench::paced"
+kind = "ingest"
+inputs = "cat cat-cjk less git-log"
+files = ["cat ascii/cat-scroll", "cat-cjk utf8/cat-cjk", "less ascii/less-pager", "git-log ascii/git-log"]
+over = "ingest"
+
+[gate.sniff]
+app = "turn-bench"
+args = "--turn-bench @tools/tests/recordings/{file}.raw @tools/tests/recordings/{file}.cuts"
+fn = "baud::turn_bench::sniff"
+kind = "other"
+inputs = "cat cat-cjk less git-log"
+files = ["cat ascii/cat-scroll", "cat-cjk utf8/cat-cjk", "less ascii/less-pager", "git-log ascii/git-log"]
+
 [ingest.cat.x86_64]
 ir = { value = 7893514, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
 d1-64.d1mw = { lo = 64919, hi = 65007, set_in = "2026-11-17, x86_64", reason = "the band over the nine heap plants, measured on tier D's build path at ed493c98 (measure, baud-private/measure/d1mw-layout-spreads.md, sha256 35a0f880)" }
@@ -201,3 +228,92 @@ d1-128.d1mw = { value = 134904, set_in = "2026-11-25, x86_64", reason = "ratchet
 d1-128.d1mr = { value = 148565, set_in = "2026-11-25, x86_64", reason = "MB1 260cb5ec's background writer adds +0.84%/+1.58% Ir on frame.yes; three fix attempts did not recover it; its Mac gain is btop upload 8.1→6.6 us/frame" }
 d1-128.llmr = { value = 1534, set_in = "2026-11-25, x86_64", reason = "MB1 260cb5ec's background writer adds +0.84%/+1.58% Ir on frame.yes; three fix attempts did not recover it; its Mac gain is btop upload 8.1→6.6 us/frame" }
 d1-128.llmw = { value = 50053, set_in = "2026-11-25, x86_64", reason = "ratchet: lowered from 50054" }
+
+
+[turn.cat.x86_64]
+ir = { value = 8331111, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.d1mw = { lo = 82223, hi = 82234, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.d1mr = { value = 36309, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.llmr = { value = 511, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.llmw = { value = 1000, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.d1mw = { lo = 44357, hi = 44371, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.d1mr = { value = 26928, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.llmr = { value = 318, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.llmw = { value = 500, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+
+[turn.cat-cjk.x86_64]
+ir = { value = 21629192, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.d1mw = { lo = 30224, hi = 30229, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.d1mr = { value = 25040, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.llmr = { value = 847, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.llmw = { value = 1004, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.d1mw = { lo = 15687, hi = 15690, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.d1mr = { value = 17199, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.llmr = { value = 527, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.llmw = { value = 501, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+
+[turn.less.x86_64]
+ir = { value = 804107, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.d1mw = { lo = 4160, hi = 4169, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.d1mr = { value = 2124, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.llmr = { value = 708, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.llmw = { value = 490, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.d1mw = { lo = 2402, hi = 2404, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.d1mr = { value = 1659, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.llmr = { value = 453, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.llmw = { value = 244, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+
+[turn.git-log.x86_64]
+ir = { value = 8324157, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.d1mw = { lo = 83216, hi = 83227, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.d1mr = { value = 33780, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.llmr = { value = 597, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.llmw = { value = 1002, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.d1mw = { lo = 43652, hi = 43663, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.d1mr = { value = 24166, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.llmr = { value = 378, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.llmw = { value = 501, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+
+[sniff.cat.x86_64]
+ir = { value = 1559614, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.d1mw = { value = 146, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.d1mr = { value = 6862, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.llmr = { value = 58, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.llmw = { value = 6, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.d1mw = { value = 84, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.d1mr = { value = 3447, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.llmr = { value = 36, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.llmw = { value = 3, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+
+[sniff.cat-cjk.x86_64]
+ir = { value = 878860, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.d1mw = { value = 109, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.d1mr = { value = 4831, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.llmr = { value = 60, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.llmw = { value = 6, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.d1mw = { value = 63, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.d1mr = { value = 2431, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.llmr = { value = 39, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.llmw = { value = 3, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+
+[sniff.less.x86_64]
+ir = { value = 184546, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.d1mw = { value = 15, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.d1mr = { value = 191, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.llmr = { value = 48, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.llmw = { value = 6, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.d1mw = { value = 9, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.d1mr = { value = 101, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.llmr = { value = 31, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.llmw = { value = 3, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+
+[sniff.git-log.x86_64]
+ir = { value = 1676730, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.d1mw = { value = 165, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.d1mr = { value = 7807, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.llmr = { value = 61, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-64.llmw = { value = 6, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.d1mw = { value = 95, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.d1mr = { value = 3921, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.llmr = { value = 39, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }
+d1-128.llmw = { value = 3, set_in = "2026-11-27, x86_64", reason = "first baseline: the Linux read turn and its sniff, turn-bench on a fixed-step clock" }

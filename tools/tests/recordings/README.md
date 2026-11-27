@@ -252,6 +252,17 @@ on 50. tmux draws on the alternate screen, and each burst of the log is
 `DECSTBM 1;24`, the lines, and `DECSTBM 1;50`: 23,237 regions set over the
 run, every scroll inside one.
 
+## The `.cuts` files
+
+`ascii/cat-scroll.cuts`, `ascii/git-log.cuts`, `ascii/less-pager.cuts` and
+`utf8/cat-cjk.cuts` are the reads of the recording beside each, in order,
+one a line: the bytes a read returned, or `-` for a read that found
+nothing. The sizes are those the app's pty master returned while that
+recording was played through it once, repeated or cut so the lengths add
+up to the recording's. `baud --turn-bench <recording> <cuts>` (the test-only
+`turn-bench` feature) gathers them into the batches the driver's drain
+makes, and `tools/scripts/perf-gate.sh` gates the turn and its sniff on them.
+
 ## Provenance
 
 The `capture-tui` example (`crates/baud-bench/src/capture/tui.rs`) is how these were

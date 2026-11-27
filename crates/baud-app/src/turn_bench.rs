@@ -35,6 +35,9 @@ const FLAG: &str = "--turn-bench";
 /// The time between two batches on the bench's clock.
 const STEP: Duration = Duration::from_millis(1);
 
+/// Where in its second the bench's clock starts.
+const START: Duration = Duration::ZERO;
+
 /// What a read is fed with, as the Linux driver tags it.
 type Taken = (Writers, ReadLinked);
 
@@ -260,10 +263,62 @@ pub(crate) fn if_asked() {
     }
 }
 
+/// **The bench's clock at its start, on a whole second of the monotonic
+/// clock**: `Instant` arithmetic carries or borrows a second by its
+/// sub-second part, and the turn adds to and subtracts from `now`, so a
+/// start that varied from run to run would vary the instructions the turn
+/// runs. A start the bench cannot place on a whole second is an error.
+fn start() -> Result<Instant, String> {
+    let now = Instant::now();
+    let to_second = sub_second(now).and_then(|s| Duration::from_secs(1).checked_sub(s));
+    let start = to_second.map(|d| now + d + START);
+    match start {
+        Some(s) if sub_second(s) == Some(START) => Ok(s),
+        _ => Err(format!("cannot place the clock on a whole second: {now:?}")),
+    }
+}
+
+/// An `Instant`'s part below a second, read from its `Debug` form.
+fn sub_second(t: Instant) -> Option<Duration> {
+    let text = format!("{t:?}");
+    let after = &text[text.find("tv_nsec")?..];
+    let digits: String = after
+        .chars()
+        .skip_while(|c| !c.is_ascii_digit())
+        .take_while(char::is_ascii_digit)
+        .collect();
+    digits.parse().ok().map(Duration::from_nanos)
+}
+
+/// **The counter gate's layout arm**, `BAUD_BENCH_PLANT`: one live
+/// allocation of that many bytes, made before anything the turn allocates,
+/// so the heap places the turn's buffers elsewhere while the code and the
+/// stack stay as they are. It is five digits, so the environment is one
+/// length on every plant, and `00000` allocates nothing. The line it prints
+/// is what the gate reads back, so a plant it never set cannot pass as
+/// `00000`.
+fn heap_plant() -> Result<Vec<u8>, String> {
+    let Ok(v) = std::env::var("BAUD_BENCH_PLANT") else {
+        eprintln!("heap plant: unset");
+        return Ok(Vec::new());
+    };
+    match v.parse() {
+        Ok(n) if v.len() == 5 && v.bytes().all(|b| b.is_ascii_digit()) => {
+            eprintln!("heap plant: {v} B");
+            Ok(vec![0u8; n])
+        }
+        _ => Err(format!(
+            "BAUD_BENCH_PLANT={v:?} is not five digits, as 00200"
+        )),
+    }
+}
+
 fn run(args: &[OsString]) -> Result<(), String> {
     let [recording, cuts] = args else {
         return Err("takes RECORDING CUTS".into());
     };
+    let plant = heap_plant()?;
+    std::hint::black_box(&plant);
     let data = std::fs::read(recording).map_err(|e| format!("{}: {e}", recording.display()))?;
     let text = std::fs::read_to_string(cuts).map_err(|e| format!("{}: {e}", cuts.display()))?;
     let cuts = parse_cuts(&text)?;
@@ -318,19 +373,33 @@ fn run(args: &[OsString]) -> Result<(), String> {
             print_jobs: Count::default(),
         },
         replied: Count::default(),
-        hostlog: crate::hostlog::HostLog::new(crate::pty::start_dir()),
+        // One directory on every run: the start directory is the working
+        // directory here, and a path whose length follows the run's would
+        // move every allocation after it.
+        hostlog: crate::hostlog::HostLog::new(std::path::PathBuf::from("/")),
     };
-    // The buffer a drain fills, kept across turns as the driver keeps it.
-    let mut buf: Vec<u8> = Vec::with_capacity(READ_BATCH);
+    // The buffer a drain fills, kept across turns as the driver keeps it,
+    // and placed on a boundary of `READ_CHUNK`, so how the turn's copies run
+    // does not follow where the heap put it.
+    let mut held_buf = vec![0u8; READ_BATCH + READ_CHUNK];
+    let at = held_buf.as_ptr().align_offset(READ_CHUNK);
+    let buf = &mut held_buf[at..at + READ_BATCH];
     let mut reads = Count::default();
     let mut held = Count::default();
-    let mut now = Instant::now();
+    let mut now = start()?;
     for b in &turns {
-        buf.clear();
-        buf.extend_from_slice(&data[b.bytes.clone()]);
+        let bytes = &mut buf[..b.bytes.len()];
+        bytes.copy_from_slice(&data[b.bytes.clone()]);
         reads.0 += b.reads.0;
-        let tag = sniff(&mut groups, &buf, now);
-        paced(&mut term, &mut pace, now, (&buf, tag), &mut side, &mut took);
+        let tag = sniff(&mut groups, bytes, now);
+        paced(
+            &mut term,
+            &mut pace,
+            now,
+            (bytes, tag),
+            &mut side,
+            &mut took,
+        );
         if pace.holds() {
             held.0 += 1;
         }
@@ -350,6 +419,7 @@ fn run(args: &[OsString]) -> Result<(), String> {
     println!("reply bytes: {}", side.replied.0);
     println!("pace held: {}", held.0);
     println!("screen hash: {}", screen_hash(&term));
+    std::hint::black_box(&plant);
     Ok(())
 }
 
