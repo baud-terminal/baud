@@ -14,6 +14,10 @@
 //! callgrind `--toggle-collect` names. Every window-side action of the
 //! read's `after` is a counter here, and each is cleared from the core as
 //! the driver clears it.
+//!
+//! The turn reads no clock: each batch is fed at the bench's start plus
+//! [`STEP`] for every batch before it, so the pace's decisions, and the
+//! instructions the turn runs, are the same on every run.
 
 use crate::probe::{GroupAsk, ReadLinked, Sampler, Watched, Writers};
 use crate::pty::{READ_BATCH, READ_CHUNK};
@@ -22,11 +26,14 @@ use baud_core::{Owned, Term};
 use baud_domain::{Row, WinSize};
 use std::ffi::OsString;
 use std::ops::Range;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use zerocopy::IntoBytes;
 
 /// The flag that asks for the bench.
 const FLAG: &str = "--turn-bench";
+
+/// The time between two batches on the bench's clock.
+const STEP: Duration = Duration::from_millis(1);
 
 /// What a read is fed with, as the Linux driver tags it.
 type Taken = (Writers, ReadLinked);
@@ -122,8 +129,8 @@ fn parse_cuts(text: &str) -> Result<Vec<Cut>, String> {
 /// the read asked about, and the writers taken with it. No master's group
 /// is known here, as for a master with no foreground group.
 #[inline(never)]
-fn sniff(groups: &mut Sampler, bytes: &[u8]) -> Taken {
-    match groups.read(Instant::now(), bytes) {
+fn sniff(groups: &mut Sampler, bytes: &[u8], now: Instant) -> Taken {
+    match groups.read(now, bytes) {
         GroupAsk::Yes(l) => (groups.writers(None, Watched::Nothing), l),
         GroupAsk::No => (groups.unasked(), ReadLinked::No),
     }
@@ -135,6 +142,7 @@ fn sniff(groups: &mut Sampler, bytes: &[u8]) -> Taken {
 fn paced(
     term: &mut Term<'_>,
     pace: &mut Pace<Taken>,
+    now: Instant,
     (bytes, tag): (&[u8], Taken),
     side: &mut Side,
     took: &mut Vec<Taken>,
@@ -148,7 +156,7 @@ fn paced(
     crate::reads::paced(
         term,
         pace,
-        Instant::now(),
+        now,
         [(bytes, tag)],
         |b| replied.0 += b.len(),
         |t, _| stubs.after(t),
@@ -316,15 +324,17 @@ fn run(args: &[OsString]) -> Result<(), String> {
     let mut buf: Vec<u8> = Vec::with_capacity(READ_BATCH);
     let mut reads = Count::default();
     let mut held = Count::default();
+    let mut now = Instant::now();
     for b in &turns {
         buf.clear();
         buf.extend_from_slice(&data[b.bytes.clone()]);
         reads.0 += b.reads.0;
-        let tag = sniff(&mut groups, &buf);
-        paced(&mut term, &mut pace, (&buf, tag), &mut side, &mut took);
+        let tag = sniff(&mut groups, &buf, now);
+        paced(&mut term, &mut pace, now, (&buf, tag), &mut side, &mut took);
         if pace.holds() {
             held.0 += 1;
         }
+        now += STEP;
     }
 
     let s = &side.stubs;
