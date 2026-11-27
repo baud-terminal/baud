@@ -207,6 +207,56 @@ if [ -n "$unexplained" ]; then
   exit 1
 fi
 
+# ── Test-only features never ship ────────────────────────────────────────
+# **These features change what the binary does for a rig or a bench, and
+# a build that ships must have none of them.** The shipped build is the
+# flake's `buildRustPackage` for `baud`, which names its features in
+# `cargoBuildFlags` or `buildFeatures`, and every cargo build of `baud`
+# without `--features` takes baud-app's `default` list. A listed name in
+# either fails here. Each name must be declared in baud-app's manifest, and
+# the flake's `cargoBuildFlags` must be found naming `baud`, or the guard
+# reads nothing and says so.
+TEST_ONLY="slide-hold effect-probe"
+# Comments stripped; the lines of each `<key> = [ ... ];` list, the list
+# ending at the first `]`.
+nix_lists=$(awk '{ sub(/#.*/, "") }
+  /(^|[^[:alnum:]])(cargoBuildFlags|buildFeatures)[[:space:]]*=/ { on = 1 }
+  on { print }
+  on && /\]/ { on = 0 }' flake.nix)
+app_default=$(awk '/^\[features\]/ { f = 1; next } /^\[/ { f = 0 }
+  f { sub(/#.*/, "") }
+  f && /^default[[:space:]]*=/ { on = 1 }
+  on { print }
+  on && /\]/ { on = 0 }' crates/baud-app/Cargo.toml)
+app_declared=$(awk '/^\[features\]/{f=1;next} /^\[/{f=0} f && /=/ && $1!="#" {print $1}' crates/baud-app/Cargo.toml)
+shipped=""
+case "$nix_lists" in
+*'"baud"'*) ;;
+*)
+  echo 'FAIL: no cargoBuildFlags naming "baud" found in flake.nix -- the test-only guard is reading nothing'
+  exit 1
+  ;;
+esac
+for name in $TEST_ONLY; do
+  if ! printf '%s\n' "$app_declared" | grep -qx -- "$name"; then
+    echo "FAIL: test-only feature $name is not declared in crates/baud-app/Cargo.toml -- the guard's list is stale"
+    exit 1
+  fi
+  word="(^|[^[:alnum:]_-])${name}([^[:alnum:]_-]|\$)"
+  if printf '%s\n' "$nix_lists" | grep -Eq -- "$word"; then
+    shipped="$shipped flake.nix:$name"
+  fi
+  if printf '%s\n' "$app_default" | grep -Eq -- "$word"; then
+    shipped="$shipped crates/baud-app/Cargo.toml(default):$name"
+  fi
+done
+if [ -n "$shipped" ]; then
+  echo "FAIL: a test-only feature is in a build that ships:"
+  for s in $shipped; do echo "  $s"; done
+  exit 1
+fi
+echo "test-only features: none in a shipped build ($TEST_ONLY)"
+
 # ── Which crates a change can reach, with --since ────────────────────────
 # `scoped` is set when only `reach`'s crates are checked; it may name none.
 scoped=""
