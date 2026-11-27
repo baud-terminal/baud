@@ -99,6 +99,25 @@
 //! `store` moves the epoch and snapshots nothing, and `edit` moves it and
 //! snapshots exactly two a frame.
 //!
+//! `FRAME_ARMS=built` runs the `built` arm, which no other setting runs: the app arm's buffers and
+//! presenter, each frame built by `baud_render::cell_frame::build_with`
+//! with the renderer's damage and drawn by `Presenter::draw_cells`, as
+//! `App::present` builds and draws it. Its line reports the frames built
+//! and their median CPU, build and draw together. `FRAME_SCENE` adds
+//! frames to it after the replay, each one drawn once the last has
+//! landed, over the last screen with nothing read:
+//! `fade` is one fade of the overlay scrollbar, 30 frames, its thumb seen
+//! from 255 down to 0 (`Renderer::set_scrollbar`); `find` is the find
+//! field typed into, one frame a codepoint of `FRAME_FIND_TYPE`
+//! (`include` by default), the query and its marks set before each
+//! (`baud_render::Find`, `Renderer::set_find`). The scene's line
+//! reports its frames, their median CPU, how many the presenter drew
+//! whole and how many rows the rest drew, how many it counted changed
+//! whole, and the hash of the last frame's pixels. The bench exits
+//! non-zero unless the fade's first frame draws a thumb and its last
+//! none (a fade needs history: a recording of the primary screen), and
+//! unless every find frame's field shows the query typed so far.
+//!
 //! Usage: `frame_gpu <recording> [rounds] [full|incremental]`. macOS only.
 
 #[cfg(target_os = "macos")]
@@ -111,7 +130,7 @@ fn main() {
     use baud_core::{Depth, Owned, Screen, Term, grid_stride};
     use baud_domain::PackedCell;
     use baud_domain::{
-        BytePos, Cols, FrameGen, ReadLen, Row, RowBlock, RowRot, Rows, SwapEpoch, WinSize,
+        BytePos, Chan, Cols, FrameGen, ReadLen, Row, RowBlock, RowRot, Rows, SwapEpoch, WinSize,
     };
     use baud_font::{Face, Px};
     use baud_present_macos::journal::{FrameTag, Journal, SetIx, Wheel};
@@ -420,6 +439,7 @@ fn main() {
         /// holds a frame until a display tick unless a key is owed, so this
         /// arm commits as fast as the GPU lands frames.
         App,
+        Built,
     }
     let arms = [
         Arm::Cpu,
@@ -431,6 +451,7 @@ fn main() {
         Arm::Present,
         Arm::Slide,
         Arm::App,
+        Arm::Built,
     ];
     // `FRAME_ARMS=async,cells` runs only the arms named, so a profile or a
     // sweep sees one path.
@@ -474,6 +495,29 @@ fn main() {
     // something else -- a live arm reading the primary while the alternate
     // screen is up drew a blank one.
     let hash = std::env::var("FRAME_HASH").is_ok_and(|v| v == "check");
+    // `FRAME_SCENE=fade|find`: the `built` arm's frames after the replay.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Chrome {
+        Fade,
+        Find,
+    }
+    let chrome = std::env::var("FRAME_SCENE").ok().map(|k| match k.as_str() {
+        "fade" => Chrome::Fade,
+        "find" => Chrome::Find,
+        other => panic!("FRAME_SCENE={other:?} is not fade or find"),
+    });
+    let typed: Vec<baud_domain::Codepoint> = std::env::var("FRAME_FIND_TYPE")
+        .unwrap_or_else(|_| "include".into())
+        .chars()
+        .map(baud_domain::Codepoint::from_char)
+        .collect();
+    // One fade's frames at 120 Hz: `FADE`'s 247 ms.
+    const FADE_FRAMES: usize = 30;
+    let chrome_frames = match chrome {
+        Some(Chrome::Fade) => FADE_FRAMES,
+        Some(Chrome::Find) => typed.len(),
+        None => 0,
+    };
     let mut mismatched = false;
     // FNV-1a over a frame's words.
     let fnv = |pixels: &[u32]| {
@@ -607,8 +651,9 @@ fn main() {
         .unwrap_or(0);
     let arms: Vec<Arm> = arms
         .into_iter()
+        // The `built` arm runs only where `FRAME_ARMS` names it.
         .filter(|a| {
-            wanted.as_deref().is_none_or(|w| {
+            wanted.as_deref().map_or(*a != Arm::Built, |w| {
                 let name = match a {
                     Arm::Cpu => "cpu",
                     Arm::Gpu => "gpu",
@@ -619,6 +664,7 @@ fn main() {
                     Arm::Present => "present",
                     Arm::Slide => "slide",
                     Arm::App => "app",
+                    Arm::Built => "built",
                 };
                 w.split(',').any(|n| n.trim() == name)
             })
@@ -686,6 +732,7 @@ fn main() {
         Arm::Present => "present",
         Arm::Slide => "slide",
         Arm::App => "app",
+        Arm::Built => "built",
     };
     // The app arm's presenter and the memory that outlives a round: the
     // glyph map's buffer, an overlay and a window copy a set, all from the
@@ -714,7 +761,7 @@ fn main() {
     let app_mbs: f64 = std::env::var("FRAME_APP_MBS")
         .map_or(198.6, |v| v.parse().expect("FRAME_APP_MBS is a rate"));
     let read_every = Duration::from_secs_f64(4096.0 / (app_mbs * 1e6));
-    let mut app = arms.contains(&Arm::App).then(|| {
+    let mut app = (arms.contains(&Arm::App) || arms.contains(&Arm::Built)).then(|| {
         let presenter = Presenter::with_gpu(w, h, SurfaceSpace::Srgb).expect("a presenter");
         let g = presenter.gpu().expect("the GPU path");
         let (map_buffer, map_mem) = g.map().expect("a shared map");
@@ -745,6 +792,249 @@ fn main() {
         let mut hashes: Vec<(Arm, u64, usize)> = Vec::new();
         for &arm in &arms {
             let mut r = fresh();
+            if let (Arm::Built, Some(m)) = (arm, app.as_mut()) {
+                use baud_render::cell_frame::{CellInputs, CellParts, build_with};
+                let g = m.presenter.gpu().expect("the GPU path");
+                let (_primary, cells) = g.grid(ring, stride).expect("a shared grid");
+                let prows = Rows::of_index(usize::from(prov.ws_row));
+                let (_alternate, alt) = g.grid(prows, stride).expect("a shared alternate");
+                let mut owned = Owned::without_surfaces(&prov, &geom, Depth::DEFAULT);
+                let mut t = Term::new(owned.storage_over(cells, alt), &ws);
+                let (styles, mut styles_mem): (Vec<_>, Vec<_>) = (0..Wheel::SETS)
+                    .map(|_| g.styles(&t).expect("shared styles"))
+                    .unzip();
+                let mut stamps = [StyleStamp::default(); Wheel::SETS];
+                let mut map = GlyphMap::over(m.map.take().expect("the map").into_entries());
+                let mut exceptions = Overlay::new();
+                let mut screens = Screens::new();
+                let mut lents: Vec<Lent> = (0..Wheel::SETS).map(|_| Lent::default()).collect();
+                let (mut grounds, mut lent_used, mut used) = (Vec::new(), Vec::new(), Vec::new());
+                let mut find = baud_render::Find::new();
+                let (mut per, mut chrome_per) = (Vec::<Duration>::new(), Vec::<Duration>::new());
+                let (mut whole, mut rows_drawn, mut changed_whole) = (0usize, 0usize, 0usize);
+                let (mut at, mut step, mut dirty, mut total) = (0usize, 0usize, false, None);
+                let t0 = Instant::now();
+                let mut due = t0;
+                loop {
+                    if at < data.len() {
+                        if Instant::now() >= due {
+                            let n = 4096.min(data.len() - at);
+                            t.write_at(BytePos::ZERO, &data[at..at + n]);
+                            t.feed(BytePos::ZERO, ReadLen::from_index(n));
+                            at += n;
+                            due += read_every;
+                            dirty = true;
+                        }
+                    } else if total.is_none() {
+                        went_idle(m.presenter.idle_within(Deadline::WAIT));
+                        total = Some(t0.elapsed());
+                    }
+                    let fin = total.is_some();
+                    if fin && !dirty && step < chrome_frames {
+                        went_idle(m.presenter.idle_within(Deadline::WAIT));
+                        match chrome {
+                            Some(Chrome::Fade) => {
+                                let left = FADE_FRAMES - 1 - step;
+                                let shown = 255 * left / (FADE_FRAMES - 1);
+                                r.set_scrollbar(Some(baud_render::Scroll {
+                                    window: baud_render::Window {
+                                        retained: t
+                                            .looking_back(Rows::of_count(t.scrollback().len())),
+                                        back: Rows::ZERO,
+                                        rows: t.viewport().rows(),
+                                    },
+                                    look: baud_render::Look {
+                                        shown: Chan::from_u8(
+                                            u8::try_from(shown).unwrap_or(u8::MAX),
+                                        ),
+                                        hover: baud_render::Hover::Rest,
+                                    },
+                                    widths: baud_render::Widths {
+                                        rest: Px::of(6),
+                                        hovered: Px::of(11),
+                                        inset: Px::of(3),
+                                        strip: Px::of(17),
+                                    },
+                                    scroller: baud_render::Scroller::Overlay,
+                                }));
+                                let drawn = !r.scrollbar().is_empty();
+                                if (step == 0 && !drawn) || (left == 0 && drawn) {
+                                    eprintln!(
+                                        "fade frame {step}: thumb drawn {drawn}, wanted {}: a fade needs a recording with history",
+                                        step == 0
+                                    );
+                                    std::process::exit(1);
+                                }
+                            }
+                            Some(Chrome::Find) => {
+                                let q = typed[..=step].to_vec();
+                                find.set_query(&t, q.clone(), Rows::ZERO);
+                                let look = baud_render::FindLook {
+                                    marks: find.marks(&t, Rows::ZERO),
+                                    field: find.field(t.viewport().cols()),
+                                };
+                                if !look.field.text.windows(q.len()).any(|w| w == &q[..]) {
+                                    eprintln!(
+                                        "find frame {step}: the field does not show the query typed"
+                                    );
+                                    std::process::exit(1);
+                                }
+                                r.set_find(&t, Some(look));
+                            }
+                            None => {}
+                        }
+                        step += 1;
+                        dirty = true;
+                    }
+                    if fin && !dirty {
+                        break;
+                    }
+                    if !dirty || m.presenter.in_flight() == InFlight::Busy {
+                        std::hint::spin_loop();
+                        continue;
+                    }
+                    dirty = false;
+                    let tf = Instant::now();
+                    // One write generation closed a frame, before anything
+                    // reads, as the app's frame closes it.
+                    let seal = t.seal_writes();
+                    let live = t.cursor_visible().then(|| {
+                        let (row, col) = t.cursor();
+                        (row, col, t.cursor_style())
+                    });
+                    let composition = None;
+                    let inputs = CellInputs {
+                        back: Rows::ZERO,
+                        live,
+                        composition: &composition,
+                        highlight: None,
+                        leaving: Leaving::None,
+                        pan: Px::of(0),
+                    };
+                    let damage = r.damage(&t, inputs.back);
+                    let presenter = &m.presenter;
+                    let built = build_with(
+                        &mut r,
+                        &t,
+                        seal,
+                        &damage,
+                        &inputs,
+                        &mut CellParts {
+                            map: &mut map,
+                            exceptions: &mut exceptions,
+                            screens: &mut screens,
+                            copies_mem: &mut m.copies_mem[..],
+                            styles_mem: &mut styles_mem[..],
+                            overlay_mem: &mut m.overlay_mem[..],
+                            style_stamps: &mut stamps[..],
+                            lent: &mut lents[..],
+                            candidates: &mut candidates,
+                            records: &mut records,
+                            grounds: &mut grounds,
+                            lent_used: &mut lent_used,
+                        },
+                        &mut used,
+                        || presenter.building(),
+                    );
+                    let Some(frame) = built else {
+                        panic!("one frame in flight and every set held");
+                    };
+                    let si = frame.at.0;
+                    let input = CellInput {
+                        grid: &m.copies[si],
+                        styles: &styles[si],
+                        map: &m.map_buffer,
+                        stride: t.stride(),
+                        rotation: frame.rot,
+                        ring: frame.ring,
+                        cursor: frame.cursor,
+                        cursor_drawn: exceptions.cursor_drawn(),
+                        highlight: None,
+                        overlay: &m.overlays[si],
+                        records: &records,
+                        grounds: &grounds,
+                        under: exceptions.under(),
+                        chrome: frame.chrome,
+                        slide: None,
+                        set: frame.at,
+                        table: stamps[si],
+                        map_gen: map.generation(),
+                        reach: map.reach(),
+                        moving: frame.moving,
+                        screen: screens.now(),
+                    };
+                    let drawn = m.presenter.draw_cells(Quiet, &mut r, &input);
+                    let df = tf.elapsed();
+                    let g = match drawn {
+                        Some(Drawn::Frame(g)) => g,
+                        Some(Drawn::Busy) => panic!("built while idle, and refused as busy"),
+                        Some(Drawn::GaveUp(why)) => panic!("the GPU was given up: {why:?}"),
+                        None => panic!("draw_cells through the presenter"),
+                    };
+                    m.commits.bump();
+                    if step == 0 {
+                        per.push(df);
+                        continue;
+                    }
+                    chrome_per.push(df);
+                    match g.drawn {
+                        Redraw::Whole => whole += 1,
+                        Redraw::Rows(set) => rows_drawn += set.len().index(),
+                    }
+                    changed_whole += usize::from(matches!(g.changed, Redraw::Whole));
+                }
+                went_idle(m.presenter.idle_within(Deadline::WAIT));
+                if let Some(f) = m.presenter.faults() {
+                    assert_eq!(f.frames_failed().value(), 0, "{f}");
+                }
+                m.map = Some(GlyphMap::over(map.into_entries()));
+                let us = |d: Duration| d.as_secs_f64() * 1e6;
+                let median = |v: &[Duration]| {
+                    let mut v = v.to_vec();
+                    v.sort();
+                    v.get(v.len() / 2).copied().map_or(f64::NAN, us)
+                };
+                println!(
+                    "{:<5} {:<6} {:>7} built; median of the rest cpu {:.1} us/frame, build and draw",
+                    round,
+                    label(arm),
+                    per.len(),
+                    median(per.get(1..).unwrap_or(&[])),
+                );
+                // The surface the last frame went to, its rows cut to the
+                // target's width: the presenter's next, one back.
+                let commits = usize::try_from(m.commits.value()).unwrap_or(usize::MAX);
+                let last = (0..(commits + SURFACES - 1) % SURFACES)
+                    .fold(SurfaceIx::FIRST, |ix, _| ix.next());
+                let words = m.presenter.surface_pixels(last).expect("the surface");
+                let (wide, high) = (
+                    usize::try_from(w.value()).unwrap(),
+                    usize::try_from(h.value()).unwrap(),
+                );
+                let pitch = words.len() / high;
+                let hsh = (0..high)
+                    .flat_map(|y| words[y * pitch..y * pitch + wide].iter().copied())
+                    .fold(0xcbf2_9ce4_8422_2325u64, |h, p| {
+                        (h ^ u64::from(p)).wrapping_mul(0x0100_0000_01b3)
+                    });
+                if let Some(k) = chrome {
+                    println!(
+                        "      scene {}: {} frames; median cpu {:.1} us/frame, build and draw; {} drawn whole, {} rows drawn by the rest; {} changed whole; last frame hash {hsh:016x}",
+                        match k {
+                            Chrome::Fade => "fade",
+                            Chrome::Find => "find",
+                        },
+                        chrome_per.len(),
+                        median(&chrome_per),
+                        whole,
+                        rows_drawn,
+                        changed_whole,
+                    );
+                } else {
+                    println!("      last frame hash {hsh:016x}");
+                }
+                continue;
+            }
             if let (Arm::App, Some(m)) = (arm, app.as_mut()) {
                 let g = m.presenter.gpu().expect("the GPU path");
                 // Kept for the round: the core writes into their memory.
@@ -1787,7 +2077,8 @@ the first cpu {:.1}, copy {:.2}",
                     | Arm::Copied
                     | Arm::Present
                     | Arm::Slide
-                    | Arm::App => {
+                    | Arm::App
+                    | Arm::Built => {
                         unreachable!("the cell arms continue above")
                     }
                 }
